@@ -971,7 +971,8 @@ function StudyPage({
   const [setupOpen, setSetupOpen] = useState(false);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [studyInstruction, setStudyInstruction] = useState("");
-  const [aiMode, setAiMode] = useState<AiMode>("instant");
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-2.5-flash"));
+  const aiMode = legacyModeForSelection(aiSelection);
   const [recallAnswers, setRecallAnswers] = useState<Record<string, string>>({});
   const [recallFeedback, setRecallFeedback] = useState<Record<string, "correct" | "wrong">>({});
   const [quickDbOpen, setQuickDbOpen] = useState(false);
@@ -979,7 +980,8 @@ function StudyPage({
   const [quickDbContent, setQuickDbContent] = useState("");
   const [quickDbCreatedId, setQuickDbCreatedId] = useState<string | null>(null);
   const [quickDbFile, setQuickDbFile] = useState<File | null>(null);
-  const [quickDbAiMode, setQuickDbAiMode] = useState<AiMode>("simple");
+  const [quickDbAiSelection, setQuickDbAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const quickDbAiMode = legacyModeForSelection(quickDbAiSelection);
   const [quickDbStatus, setQuickDbStatus] = useState("");
   const [quickBusy, setQuickBusy] = useState(false);
   const [quickFileBusy, setQuickFileBusy] = useState(false);
@@ -1023,7 +1025,17 @@ function StudyPage({
 
     setSelectedSources(nextPath.source_node_ids || []);
     setStudyInstruction(nextPath.focus_instruction || "");
-    setAiMode(nextPath.ai_mode || "instant");
+    const legacySelection = selectionFromLegacyMode(nextPath.ai_mode || "instant");
+    const storedModel = nextPath.ai_model as AiModelId | null | undefined;
+    const storedEffort = nextPath.ai_effort as AiEffort | null | undefined;
+    setAiSelection(
+      storedModel && storedModel !== "local"
+        ? {
+            model: storedModel,
+            effort: storedEffort || modelCapability(storedModel).defaultEffort,
+          }
+        : legacySelection
+    );
 
     const { data: unitData, error: unitError } = await supabase
       .from("study_units")
@@ -1051,17 +1063,19 @@ function StudyPage({
 
   async function buildStudy() {
     if (!selectedSources.length) return alert("Pilih minimal satu Database.");
-    if (aiMode === "simple") return alert("Study terarah membutuhkan mode Gemini. Pilih Instant, Medium, atau High.");
+    if (aiSelection.model === "local") return alert("Study terarah membutuhkan model Gemini.");
 
     setBuilding(true);
     const response = await fetch("/api/build-study", {
       method: "POST",
-      headers: aiRequestHeaders(session),
+      headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
         studyNodeId: node.id,
         sourceNodeIds: selectedSources,
         studyInstruction: studyInstruction.trim(),
         aiMode,
+        aiModel: aiSelection.model,
+        aiEffort: aiSelection.effort,
       }),
     });
 
@@ -1197,7 +1211,7 @@ function StudyPage({
     onChange();
     setQuickDbStatus("Sedang diproses...");
 
-    if (quickDbAiMode === "simple") {
+    if (quickDbAiSelection.model === "local") {
       const localSupported =
         mimeType.startsWith("text/") ||
         mimeType === "application/json" ||
@@ -1210,9 +1224,9 @@ function StudyPage({
         }).eq("id", row.id);
 
         setQuickFileBusy(false);
-        setQuickDbStatus("Simple · Local belum mendukung format ini.");
+        setQuickDbStatus("Local belum mendukung format ini.");
         onChange();
-        return alert("Simple · Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih Instant, Medium, atau High (Gemini).");
+        return alert("Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih model Gemini.");
       }
 
       const rawText = (await quickDbFile.text()).trim();
@@ -1250,14 +1264,14 @@ function StudyPage({
 
       setQuickDbFile(null);
       setQuickFileBusy(false);
-      setQuickDbStatus("Selesai dengan Simple · Local · 0 cr. Database otomatis dipilih sebagai sumber Study.");
+      setQuickDbStatus("Selesai dengan Local · tanpa API. Database otomatis dipilih sebagai sumber Study.");
       onChange();
       return;
     }
 
     const response = await fetch("/api/import-file", {
       method: "POST",
-      headers: aiRequestHeaders(session),
+      headers: aiRequestHeaders(session, quickDbAiSelection),
       body: JSON.stringify({
         sourceFileId: row.id,
         filePath: path,
@@ -1407,7 +1421,7 @@ function StudyPage({
             <button className="ghost" onClick={() => setQuickDbOpen((current) => !current)}>
               + Tambah Database dari sini
             </button>
-            <AiModePicker value={aiMode} onChange={setAiMode} action="study" allowSimple={false} />
+            <AiModePicker value={aiSelection} onChange={setAiSelection} action="study" allowLocal={false} />
             <button className="primary" disabled={building || !selectedSources.length} onClick={buildStudy}>
               {building ? "Sedang menyusun urutan belajar..." : path ? "Susun ulang Study" : "Mulai susun Study"}
             </button>
