@@ -4453,12 +4453,14 @@ function BottomAskBar({
   scopeName,
   entries,
   nodes,
+  onChange,
 }: {
   session: Session;
   scopeNodeId: string | null;
   scopeName: string;
   entries: KnowledgeEntry[];
   nodes: StudyNode[];
+  onChange: () => void;
 }) {
   type SourceKind = "ai" | "database" | "web";
 
@@ -4477,12 +4479,54 @@ function BottomAskBar({
   const [composerHeight, setComposerHeight] = useState(118);
   const dragRef = useRef<{ y: number; bottom: number } | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
+  const askVoiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const askVoiceChunksRef = useRef<Blob[]>([]);
+  const askVoiceStreamRef = useRef<MediaStream | null>(null);
+  const askVoiceSpeechRef = useRef<any>(null);
+  const askVoiceTranscriptRef = useRef("");
+  const askVoiceStartedRef = useRef(0);
+  const [askVoiceRecording, setAskVoiceRecording] = useState(false);
+  const [askVoiceBusy, setAskVoiceBusy] = useState(false);
+  const [askVoiceStatus, setAskVoiceStatus] = useState("");
+  const [askVoiceDbId, setAskVoiceDbId] = useState("");
+  const [pendingVoice, setPendingVoice] = useState<{
+    id: string;
+    path: string;
+    title: string;
+    mimeType: string;
+    duration: number;
+    transcript: string;
+  } | null>(null);
+
+  const askVoiceDatabases = useMemo(() => {
+    const all = nodes.filter((item) => item.node_type === "database");
+    if (!scopeNodeId) return all;
+    const ids = new Set(collectSubtreeIds(nodes, scopeNodeId));
+    const scoped = all.filter((item) => ids.has(item.id));
+    return scoped.length ? scoped : all;
+  }, [nodes, scopeNodeId]);
 
   useEffect(() => {
     if (aiSelection.model === "local") {
       setSelectedSources(["database"]);
     }
   }, [aiSelection.model]);
+
+  useEffect(() => {
+    if (!askVoiceDbId && askVoiceDatabases[0]) setAskVoiceDbId(askVoiceDatabases[0].id);
+  }, [askVoiceDatabases, askVoiceDbId]);
+
+  useEffect(() => {
+    return () => {
+      try { askVoiceSpeechRef.current?.stop(); } catch {}
+      try {
+        if (askVoiceRecorderRef.current?.state && askVoiceRecorderRef.current.state !== "inactive") {
+          askVoiceRecorderRef.current.stop();
+        }
+      } catch {}
+      askVoiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem("rb-composer-bottom") || "16");
@@ -4796,6 +4840,256 @@ function BottomAskBar({
     };
   }
 
+  function startAskSpeechRecognition() {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return false;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "id-ID";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    askVoiceTranscriptRef.current = "";
+
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      for (let index = event.resultIndex; index < event.results.length; index++) {
+        const text = String(event.results[index][0]?.transcript || "").trim();
+        if (!text) continue;
+        if (event.results[index].isFinal) {
+          askVoiceTranscriptRef.current = (askVoiceTranscriptRef.current + " " + text).trim();
+        } else {
+          interim = (interim + " " + text).trim();
+        }
+      }
+      const live = (askVoiceTranscriptRef.current + " " + interim).trim();
+      if (live) setQuestion(live);
+    };
+
+    recognition.onerror = () => {};
+    askVoiceSpeechRef.current = recognition;
+    try {
+      recognition.start();
+      return true;
+    } catch {
+      askVoiceSpeechRef.current = null;
+      return false;
+    }
+  }
+
+  async function discardPendingVoice(silent = false) {
+    const current = pendingVoice;
+    if (!current) return;
+    await supabase.storage.from("recordings").remove([current.path]);
+    await supabase.from("recordings").delete().eq("id", current.id);
+    setPendingVoice(null);
+    if (!silent) setAskVoiceStatus("Rekaman diabaikan. Teks pertanyaan tetap ada.");
+    onChange();
+  }
+
+  async function startAskVoice() {
+    try {
+      if (pendingVoice) await discardPendingVoice(true);
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        throw new Error("Browser ini belum mendukung perekaman audio.");
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      askVoiceStreamRef.current = stream;
+
+      const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+      const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      askVoiceChunksRef.current = [];
+      askVoiceTranscriptRef.current = "";
+      askVoiceRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) askVoiceChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        askVoiceStreamRef.current = null;
+        const blob = new Blob(askVoiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        await processAskVoice(blob);
+      };
+
+      askVoiceStartedRef.current = Date.now();
+      recorder.start(650);
+      const live = startAskSpeechRecognition();
+      setAskVoiceRecording(true);
+      setAskVoiceStatus(live ? "Merekam · transkrip langsung aktif." : "Merekam audio...");
+    } catch (error: any) {
+      setAskVoiceStatus(
+        error?.name === "NotAllowedError"
+          ? "Izin mikrofon ditolak. Izinkan mikrofon untuk situs ini."
+          : error?.message || "Gagal memulai rekaman."
+      );
+    }
+  }
+
+  function stopAskVoice() {
+    if (!askVoiceRecording) return;
+    setAskVoiceRecording(false);
+    setAskVoiceBusy(true);
+    setAskVoiceStatus("Menyiapkan teks pertanyaan...");
+    try { askVoiceSpeechRef.current?.stop(); } catch {}
+    askVoiceSpeechRef.current = null;
+    try {
+      if (askVoiceRecorderRef.current?.state && askVoiceRecorderRef.current.state !== "inactive") {
+        askVoiceRecorderRef.current.stop();
+      }
+    } catch {
+      setAskVoiceBusy(false);
+      setAskVoiceStatus("Gagal menghentikan rekaman.");
+    }
+  }
+
+  async function processAskVoice(blob: Blob) {
+    if (!blob.size) {
+      setAskVoiceBusy(false);
+      setAskVoiceStatus("Rekaman kosong.");
+      return;
+    }
+
+    const mimeType = normalizeAudioMime(blob.type || "audio/webm");
+    const subtype = mimeType.split("/")[1]?.split(";")[0] || "webm";
+    const ext = subtype === "mp4" || subtype === "m4a" ? "m4a" : subtype;
+    const path = session.user.id + "/questions/" + crypto.randomUUID() + "." + ext;
+    const title = "Pertanyaan AI - " + new Date().toLocaleString("id-ID");
+    const duration = Math.max(1, Math.round((Date.now() - askVoiceStartedRef.current) / 1000));
+
+    const upload = await supabase.storage.from("recordings").upload(path, blob, { contentType: mimeType });
+    if (upload.error) {
+      setAskVoiceBusy(false);
+      setAskVoiceStatus("Audio gagal disiapkan.");
+      return alert(upload.error.message);
+    }
+
+    const { data: row, error: rowError } = await supabase
+      .from("recordings")
+      .insert({
+        user_id: session.user.id,
+        node_id: null,
+        title,
+        file_path: path,
+        mime_type: mimeType,
+        duration_seconds: duration,
+      })
+      .select("*")
+      .single();
+
+    if (rowError) {
+      await supabase.storage.from("recordings").remove([path]);
+      setAskVoiceBusy(false);
+      return alert(rowError.message);
+    }
+
+    let transcript = askVoiceTranscriptRef.current.trim() || question.trim();
+
+    if (!transcript) {
+      const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: aiRequestHeaders(session, transcriptionSelection),
+        body: JSON.stringify({
+          recordingId: row.id,
+          filePath: path,
+          mimeType,
+          contextNodeId: scopeNodeId,
+          browserTranscript: "",
+          aiMode: legacyModeForSelection(transcriptionSelection),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        transcript = String(data.rawTranscript || data.structuredTranscript || "").trim();
+      }
+    }
+
+    if (transcript) {
+      setQuestion(transcript);
+      await supabase
+        .from("recordings")
+        .update({
+          transcript,
+          raw_transcript: transcript,
+          structured_transcript: transcript,
+          corrections: [],
+        })
+        .eq("id", row.id);
+    }
+
+    setPendingVoice({
+      id: row.id,
+      path,
+      title,
+      mimeType,
+      duration,
+      transcript,
+    });
+    setAskVoiceBusy(false);
+    setAskVoiceStatus(
+      transcript
+        ? "Transkrip sudah masuk ke teks pertanyaan. Pilih Abaikan atau Simpan ke Database."
+        : "Audio siap. Transkrip otomatis belum tersedia; ketik/koreksi pertanyaan lalu simpan atau abaikan."
+    );
+  }
+
+  async function savePendingVoiceToDatabase() {
+    if (!pendingVoice || !askVoiceDbId) return;
+    const target = askVoiceDatabases.find((item) => item.id === askVoiceDbId);
+    if (!target) return;
+
+    setAskVoiceBusy(true);
+    const editedText = question.trim() || pendingVoice.transcript.trim();
+    let entryId: string | null = null;
+
+    if (editedText) {
+      const { data: entry, error } = await supabase
+        .from("knowledge_entries")
+        .insert({
+          user_id: session.user.id,
+          node_id: target.id,
+          title: pendingVoice.title,
+          category: "Pertanyaan suara",
+          content: editedText,
+          raw_content: pendingVoice.transcript || editedText,
+          source_type: "transcript",
+        })
+        .select("id")
+        .single();
+
+      if (error) {
+        setAskVoiceBusy(false);
+        return alert(error.message);
+      }
+      entryId = entry.id;
+    }
+
+    const { error } = await supabase
+      .from("recordings")
+      .update({
+        node_id: target.id,
+        knowledge_entry_id: entryId,
+        transcript: editedText || pendingVoice.transcript || null,
+        raw_transcript: pendingVoice.transcript || editedText || null,
+        structured_transcript: editedText || pendingVoice.transcript || null,
+      })
+      .eq("id", pendingVoice.id);
+
+    setAskVoiceBusy(false);
+    if (error) return alert(error.message);
+
+    setPendingVoice(null);
+    setAskVoiceStatus("Audio dan transkrip sudah masuk Database: " + target.title + ".");
+    onChange();
+  }
+
   function toggleSource(source: SourceKind) {
     const provider = modelProvider(aiSelection.model);
     if (source !== "database" && aiSelection.model === "local") {
@@ -4959,20 +5253,64 @@ function BottomAskBar({
             />
           </div>
         </div>
-        <textarea
-          rows={1}
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onInput={(e) => {
-            const el = e.currentTarget;
-            el.style.height = "auto";
-            el.style.height = Math.min(el.scrollHeight, 140) + "px";
-          }}
-          placeholder={"Tanya dari " + activeSourcesLabel + "..."}
-        />
-        <button className="sendAsk" disabled={busy || !question.trim() || !selectedSources.length}>
-          {busy ? "..." : "↑"}
-        </button>
+        <div className="askInputRow">
+          <button
+            type="button"
+            className={askVoiceRecording ? "askMic recording" : "askMic"}
+            disabled={askVoiceBusy}
+            onClick={askVoiceRecording ? stopAskVoice : startAskVoice}
+            aria-label={askVoiceRecording ? "Stop rekam pertanyaan" : "Rekam pertanyaan"}
+            title={askVoiceRecording ? "Stop rekam" : "Rekam pertanyaan"}
+          >
+            {askVoiceRecording ? "■" : "●"}
+          </button>
+          <textarea
+            rows={1}
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onInput={(e) => {
+              const el = e.currentTarget;
+              el.style.height = "auto";
+              el.style.height = Math.min(el.scrollHeight, 140) + "px";
+            }}
+            placeholder={askVoiceRecording ? "Sedang mendengarkan..." : "Tanya dari " + activeSourcesLabel + "..."}
+          />
+          <button className="sendAsk" disabled={busy || !question.trim() || !selectedSources.length}>
+            {busy ? "..." : "↑"}
+          </button>
+        </div>
+
+        {(askVoiceStatus || pendingVoice) && (
+          <div className="askVoicePanel">
+            {askVoiceStatus && <small>{askVoiceStatus}</small>}
+            {pendingVoice && (
+              <div className="askVoiceSaveRow">
+                <select value={askVoiceDbId} onChange={(e) => setAskVoiceDbId(e.target.value)}>
+                  <option value="">Pilih Database</option>
+                  {askVoiceDatabases.map((database) => (
+                    <option key={database.id} value={database.id}>{database.title}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={askVoiceBusy}
+                  onClick={() => discardPendingVoice(false)}
+                >
+                  Abaikan
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={askVoiceBusy || !askVoiceDbId}
+                  onClick={savePendingVoiceToDatabase}
+                >
+                  Simpan ke Database
+                </button>
+              </div>
+            )}
+          </div>
+        )
       </form>
     </>
   );
