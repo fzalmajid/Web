@@ -1741,6 +1741,9 @@ function RecordingPage({
     }
 
     browserFallbackStartedRef.current = true;
+    if (asFallback && liveTextRef.current && !speechFinalRef.current) {
+      speechFinalRef.current = liveTextRef.current;
+    }
     setLiveSupported(true);
     setLiveEngine(asFallback ? "Browser fallback · tanpa Gemini" : "Browser · tanpa Gemini");
 
@@ -1836,6 +1839,9 @@ function RecordingPage({
     if (!AudioContextCtor) throw new Error("Web Audio tidak tersedia.");
 
     const context: AudioContext = new AudioContextCtor();
+    if (context.state === "suspended") {
+      void context.resume().catch(() => {});
+    }
     const source = context.createMediaStreamSource(stream);
     const processor = context.createScriptProcessor(4096, 1, 1);
     const gain = context.createGain();
@@ -2046,6 +2052,7 @@ function RecordingPage({
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
+        await new Promise((resolve) => window.setTimeout(resolve, aiMode === "simple" ? 250 : 1100));
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
         if (!blob.size) {
           setBusy(false);
@@ -2376,7 +2383,9 @@ function RecordingPage({
             <small>MODE TRANSKRIP</small>
             <strong>{aiMode === "simple" ? "Simple · Browser · tanpa API" : liveEngine}</strong>
           </div>
-          <AiModePicker value={aiMode} onChange={setAiMode} action="transcription" />
+          <div className={recording ? "recordModeLocked" : ""}>
+            <AiModePicker value={aiMode} onChange={setAiMode} action="transcription" />
+          </div>
         </div>
 
         <div className="recordActions">
