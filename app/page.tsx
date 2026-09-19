@@ -1664,6 +1664,7 @@ function RecordingPage({
 
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [retryingId, setRetryingId] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [liveText, setLiveText] = useState("");
   const [liveSupported, setLiveSupported] = useState(true);
@@ -2238,6 +2239,49 @@ function RecordingPage({
     onChange();
   }
 
+  async function retryTranscription(item: Recording) {
+    if (aiMode === "simple") {
+      return alert("Transkrip ulang audio tersimpan membutuhkan mode Gemini. Pilih Instant, Medium, atau High.");
+    }
+
+    setRetryingId(item.id);
+    setStatus("Mencoba transkrip ulang " + item.title + "...");
+
+    const response = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: aiRequestHeaders(session),
+      body: JSON.stringify({
+        recordingId: item.id,
+        filePath: item.file_path,
+        mimeType: item.mime_type || "audio/webm",
+        contextNodeId: node.parent_id,
+        aiMode,
+      }),
+    });
+    const data = await response.json();
+    setRetryingId("");
+
+    if (!response.ok) {
+      setStatus("Transkrip ulang belum berhasil. Audio tetap tersimpan.");
+      return alert(data.error || "Transkripsi ulang gagal.");
+    }
+
+    setResult({
+      recordingId: item.id,
+      raw: data.rawTranscript || "",
+      structured: data.structuredTranscript || data.rawTranscript || "",
+      summary: data.summary || "",
+      corrections: data.corrections || [],
+      added: Boolean(item.knowledge_entry_id),
+    });
+    setStatus(
+      "Transkrip ulang selesai · " +
+        String(data.transcriptionModel || "Gemini") +
+        (data.structuringModel ? " · dirapikan " + data.structuringModel : "")
+    );
+    onChange();
+  }
+
   async function addToDatabase() {
     if (!result || !targetDbId) return;
 
@@ -2408,6 +2452,8 @@ function RecordingPage({
               item={item}
               databases={siblingDatabases}
               onAdd={addExistingToDatabase}
+              onRetry={retryTranscription}
+              retrying={retryingId === item.id}
               onDelete={removeRecording}
             />
           ))}
@@ -2421,11 +2467,15 @@ function StoredRecording({
   item,
   databases,
   onAdd,
+  onRetry,
+  retrying,
   onDelete,
 }: {
   item: Recording;
   databases: StudyNode[];
   onAdd: (item: Recording, databaseId: string) => void;
+  onRetry: (item: Recording) => void;
+  retrying: boolean;
   onDelete: (item: Recording) => void;
 }) {
   const [databaseId, setDatabaseId] = useState(databases[0]?.id || "");
@@ -2437,7 +2487,14 @@ function StoredRecording({
           <small>{formatTime(item.duration_seconds)}</small>
           <h3>{item.title}</h3>
         </div>
-        <button className="dangerSmall" onClick={() => onDelete(item)}>Hapus</button>
+        <div className="recordHistoryActions">
+          {!item.structured_transcript && (
+            <button className="ghost" disabled={retrying} onClick={() => onRetry(item)}>
+              {retrying ? "Mencoba..." : "Transkrip ulang"}
+            </button>
+          )}
+          <button className="dangerSmall" onClick={() => onDelete(item)}>Hapus</button>
+        </div>
       </div>
 
       {item.structured_transcript && <div className="dataText">{item.structured_transcript}</div>}
