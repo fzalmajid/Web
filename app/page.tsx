@@ -1,5 +1,7 @@
 "use client";
 
+// Production UI baseline: Choose Model + AI / Database / Web + Plugin center.
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
