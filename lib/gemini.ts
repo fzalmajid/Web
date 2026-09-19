@@ -4,7 +4,15 @@ type GeminiPart = { text?: string; inlineData?: { mimeType: string; data: string
 export type GeminiWebSource = { title: string; uri: string };
 
 export const WHATSAPP_FORMAT_INSTRUCTION =
-  "Untuk teks yang akan dibaca user: bold WAJIB memakai *teks*, italic WAJIB memakai _teks_. Jangan memakai **teks** atau __teks__. Jangan gunakan markdown heading dengan #.";
+  "Untuk teks yang akan dibaca user: bold WAJIB memakai *teks*, italic WAJIB memakai _teks_. Setiap penanda * untuk bold harus punya pasangan penutup pada baris yang sama. Untuk daftar/poin WAJIB gunakan '- ' di awal baris, JANGAN gunakan '* ' sebagai bullet. Jangan memakai **teks** atau __teks__. Jangan gunakan markdown heading dengan #.";
+
+export class GeminiWebSearchQuotaError extends Error {
+  code = "WEB_SEARCH_QUOTA";
+  constructor(message = "Quota Google Search Grounding tidak tersedia atau sedang habis.") {
+    super(message);
+    this.name = "GeminiWebSearchQuotaError";
+  }
+}
 
 export async function geminiGenerateDetailed(
   parts: GeminiPart[],
@@ -38,7 +46,15 @@ export async function geminiGenerateDetailed(
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data?.error?.message || "Gemini API gagal merespons.");
+    const message = data?.error?.message || "Gemini API gagal merespons.";
+    if (
+      options?.googleSearch &&
+      response.status === 429 &&
+      /quota|rate.?limit|billing|resource.?exhausted/i.test(message)
+    ) {
+      throw new GeminiWebSearchQuotaError();
+    }
+    throw new Error(message);
   }
 
   const candidate = data?.candidates?.[0];
