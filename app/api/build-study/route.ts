@@ -284,20 +284,23 @@ Aturan wajib:
       aiUsage,
     });
   } catch (error: any) {
+    const status = Number(error?.statusCode || 500);
+    console.error("[API_BUILD_STUDY_ERROR]", { name: error?.name, code: error?.code, status });
+
     if (studyNodeId) {
       await supabase
         .from("study_paths")
         .update({
           status: "error",
-          error_message: error.message || "Gagal menyusun Study.",
+          error_message: error?.message || "Gagal menyusun Study.",
           updated_at: new Date().toISOString(),
         })
         .eq("node_id", studyNodeId);
     }
 
     return NextResponse.json(
-      { error: error.message || "Gagal menyusun Study." },
-      { status: 500 }
+      { error: error?.message || "Gagal menyusun Study." },
+      { status: status >= 400 && status < 600 ? status : 500 }
     );
   }
 }
