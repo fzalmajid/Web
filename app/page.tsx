@@ -3331,18 +3331,15 @@ function AiModePicker({
     <div ref={wrapRef} className={compact ? "aiModeSelect compact" : "aiModeSelect"}>
       <button
         type="button"
-        className="aiModeTrigger"
+        className="aiModeTrigger chooseModelTrigger"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
       >
         <span>
-          <strong>{selected?.label || "Local"}</strong>
+          <strong>Choose Model</strong>
           <small>
-            {selected?.id === "local"
-              ? "Tanpa API"
-              : selectedEffort
-                ? selectedEffort.label + " · usage token aktual"
-                : selected?.subtitle}
+            {selected?.label || "Local"}
+            {selected?.id !== "local" && selectedEffort ? " · " + selectedEffort.label : ""}
           </small>
         </span>
         <b>⌄</b>
@@ -3350,29 +3347,37 @@ function AiModePicker({
 
       {open && (
         <div className="aiModePopover aiModelPopover">
-          <div className="aiModeSectionLabel">PILIH MODEL</div>
-          {visibleModels.map((item) => (
-            <button
-              type="button"
-              key={item.id}
-              className={value.model === item.id ? "aiModeOption active" : "aiModeOption"}
-              onClick={() => chooseModel(item.id)}
-            >
-              <span className="modeCheck">{value.model === item.id ? "✓" : ""}</span>
-              <span className="modeCopy">
-                <strong>{item.label}</strong>
+          <div className="modelPickerHead">
+            <div>
+              <span className="aiModeSectionLabel">CHOOSE MODEL</span>
+              <strong>{selected?.label || "Local"}</strong>
+            </div>
+            <button type="button" className="modelPickerClose" onClick={() => setOpen(false)}>×</button>
+          </div>
+
+          <div className="modelCardGrid">
+            {visibleModels.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={value.model === item.id ? "modelCard active" : "modelCard"}
+                onClick={() => chooseModel(item.id)}
+              >
+                <span className="modelCardTop">
+                  <strong>{item.label}</strong>
+                  {value.model === item.id && <b>✓</b>}
+                </span>
                 <small>{item.subtitle}</small>
-              </span>
-              <span className="modeMeta">
-                {item.efforts.length ? item.efforts.map((effort) => effort.label).join(" · ") : "langsung"}
-              </span>
-            </button>
-          ))}
+              </button>
+            ))}
+          </div>
 
           {!!selected?.efforts.length && (
-            <>
-              <div className="aiModeDivider" />
-              <div className="aiModeSectionLabel">TINGKAT PENALARAN · {selected.label}</div>
+            <div className="modelEffortPanel">
+              <div>
+                <span className="aiModeSectionLabel">REASONING · {selected.label}</span>
+                <small>Pilih tingkat penalaran untuk model ini.</small>
+              </div>
               <div className="aiEffortGrid">
                 {selected.efforts.map((effort) => (
                   <button
@@ -3386,7 +3391,7 @@ function AiModePicker({
                   </button>
                 ))}
               </div>
-            </>
+            </div>
           )}
         </div>
       )}
