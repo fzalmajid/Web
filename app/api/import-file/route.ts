@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
 import JSZip from "jszip";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerate, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -149,10 +149,12 @@ export async function POST(req: NextRequest) {
         : mimeType === "application/pdf"
           ? "Ekstrak isi dokumen PDF ini selengkap mungkin. Pertahankan judul, subjudul, daftar, angka, istilah, dan isi penting. Jangan meringkas dan jangan menambahkan pengetahuan luar."
           : "Ekstrak semua informasi tekstual yang dapat dibaca dari file/gambar ini. Jangan menambahkan informasi yang tidak ada pada sumber.";
-      rawText = await geminiGenerate([
+      const extractionResult = await geminiGenerateDetailed([
         { text: prompt },
         { inlineData: { mimeType, data: base64 } },
       ]);
+      await recordAiTokenUsage(supabase, extractionResult.usage);
+      rawText = extractionResult.text;
     }
 
     if (!rawText.trim()) throw new Error("Tidak ada teks yang berhasil diekstrak.");
@@ -161,7 +163,7 @@ export async function POST(req: NextRequest) {
     const context = buildKnowledgeContext(knowledge.filter(k => k.title !== fileName), 26000);
     const media = isMediaMime(mimeType);
 
-    const structuredRaw = await geminiGenerate(
+    const structuredResult = await geminiGenerateDetailed(
       [{
         text: `SUMBER MENTAH:
 ${rawText}
@@ -185,6 +187,8 @@ Aturan:
       }],
       "Anda mengolah sumber belajar secara konservatif. Jangan mengarang fakta."
     );
+    await recordAiTokenUsage(supabase, structuredResult.usage);
+    const structuredRaw = structuredResult.text;
 
     let structuredText = rawText;
     let summary = "";
