@@ -6,7 +6,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz";
-type AiMode = "instant" | "medium" | "high";
+type AiMode = "simple" | "instant" | "medium" | "high";
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
   id: string;
@@ -79,10 +79,11 @@ type Quiz = {
   scope_node_id: string | null;
 };
 
-const aiModes: Array<{ value: AiMode; label: string; hint: string }> = [
-  { value: "instant", label: "Instant", hint: "Cepat & hemat" },
-  { value: "medium", label: "Medium", hint: "Lebih teliti" },
-  { value: "high", label: "High", hint: "Paling mendalam" },
+const aiModes: Array<{ value: AiMode; label: string; provider: "Local" | "Gemini"; hint: string }> = [
+  { value: "simple", label: "Simple", provider: "Local", hint: "Diproses di perangkat, tanpa Gemini" },
+  { value: "instant", label: "Instant", provider: "Gemini", hint: "Cepat & hemat" },
+  { value: "medium", label: "Medium", provider: "Gemini", hint: "Lebih teliti" },
+  { value: "high", label: "High", provider: "Gemini", hint: "Paling mendalam" },
 ];
 
 const nodeEmojis = ["📚","🧠","📝","🎓","💊","🧪","🔬","📖","🎙️","🗂️","✨","🌱","💡","📌","✅","⭐"];
@@ -98,11 +99,11 @@ const nodeColors = [
 
 function aiCost(action: "ask" | "study" | "transcription" | "file_light" | "file_heavy", mode: AiMode) {
   const table = {
-    ask: { instant: 1, medium: 2, high: 4 },
-    study: { instant: 2, medium: 4, high: 6 },
-    transcription: { instant: 5, medium: 7, high: 10 },
-    file_light: { instant: 2, medium: 3, high: 5 },
-    file_heavy: { instant: 5, medium: 7, high: 10 },
+    ask: { simple: 0, instant: 1, medium: 2, high: 4 },
+    study: { simple: 0, instant: 2, medium: 4, high: 6 },
+    transcription: { simple: 0, instant: 5, medium: 7, high: 10 },
+    file_light: { simple: 0, instant: 2, medium: 3, high: 5 },
+    file_heavy: { simple: 0, instant: 5, medium: 7, high: 10 },
   } as const;
   return table[action][mode];
 }
@@ -373,6 +374,8 @@ function Workspace({ session, user }: { session: Session; user: User }) {
         session={session}
         scopeNodeId={aiScopeId}
         scopeName={current ? current.title : "Seluruh Database"}
+        entries={entries}
+        nodes={nodes}
       />
 
       {customizeNode && (
@@ -592,7 +595,7 @@ function DatabasePage({
   const [busy, setBusy] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileStatus, setFileStatus] = useState("");
-  const [aiMode, setAiMode] = useState<AiMode>("instant");
+  const [aiMode, setAiMode] = useState<AiMode>("simple");
 
   const localEntries = entries.filter((item) => item.node_id === node.id);
   const localFiles = files.filter((item) => item.node_id === node.id);
@@ -841,7 +844,7 @@ function RecordingPage({
     added: boolean;
   } | null>(null);
   const [targetDbId, setTargetDbId] = useState("");
-  const [aiMode, setAiMode] = useState<AiMode>("instant");
+  const [aiMode, setAiMode] = useState<AiMode>("simple");
 
   const localRecordings = recordings.filter((item) => item.node_id === node.id);
   const siblingDatabases = nodes.filter(
@@ -986,6 +989,39 @@ function RecordingPage({
       await supabase.storage.from("recordings").remove([path]);
       setBusy(false);
       return alert(error.message);
+    }
+
+    if (aiMode === "simple") {
+      const localTranscript = (liveText || speechFinalRef.current).trim();
+      if (!localTranscript) {
+        setBusy(false);
+        setStatus("Audio tersimpan. Transkrip Local tidak tersedia di browser ini.");
+        onChange();
+        return alert("Mode Simple memakai transkrip Local. Browser ini belum menghasilkan transkrip live; pilih Instant, Medium, atau High untuk transkripsi Gemini.");
+      }
+
+      await supabase
+        .from("recordings")
+        .update({
+          raw_transcript: localTranscript,
+          structured_transcript: localTranscript,
+          transcript: localTranscript,
+          corrections: [],
+        })
+        .eq("id", row.id);
+
+      setBusy(false);
+      setResult({
+        recordingId: row.id,
+        raw: localTranscript,
+        structured: localTranscript,
+        summary: "",
+        corrections: [],
+        added: false,
+      });
+      setStatus("Selesai dengan Simple · Local · 0 cr.");
+      onChange();
+      return;
     }
 
     const response = await fetch("/api/transcribe", {
@@ -1256,7 +1292,7 @@ function PracticePage({
   const [busy, setBusy] = useState(false);
   const [flipped, setFlipped] = useState<Record<string, boolean>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [aiMode, setAiMode] = useState<AiMode>("instant");
+  const [aiMode, setAiMode] = useState<AiMode>("simple");
 
   async function generate() {
     if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada database sumber.");
@@ -1353,20 +1389,73 @@ function AiModePicker({
   action: "ask" | "study" | "transcription" | "file_light" | "file_heavy";
   compact?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const selected = aiModes.find((item) => item.value === value) || aiModes[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (target && wrapRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("touchstart", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("touchstart", close);
+    };
+  }, [open]);
+
+  const choose = (mode: AiMode) => {
+    onChange(mode);
+    setOpen(false);
+  };
+
   return (
-    <div className={compact ? "aiModePicker compact" : "aiModePicker"}>
-      {aiModes.map((item) => (
-        <button
-          type="button"
-          key={item.value}
-          className={value === item.value ? "aiMode active" : "aiMode"}
-          onClick={() => onChange(item.value)}
-          title={item.hint}
-        >
-          <strong>{item.label}</strong>
-          <small>{aiCost(action, item.value)} cr</small>
-        </button>
-      ))}
+    <div ref={wrapRef} className={compact ? "aiModeSelect compact" : "aiModeSelect"}>
+      <button
+        type="button"
+        className="aiModeTrigger"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+      >
+        <span>
+          <strong>{selected.label}</strong>
+          <small>{selected.provider} · {aiCost(action, selected.value)} cr</small>
+        </span>
+        <b>⌄</b>
+      </button>
+
+      {open && (
+        <div className="aiModePopover">
+          <div className="aiModeSectionLabel">LOCAL</div>
+          {aiModes.filter((item) => item.provider === "Local").map((item) => (
+            <button type="button" key={item.value} className={value === item.value ? "aiModeOption active" : "aiModeOption"} onClick={() => choose(item.value)}>
+              <span className="modeCheck">{value === item.value ? "✓" : ""}</span>
+              <span className="modeCopy">
+                <strong>{item.label}</strong>
+                <small>{item.hint}</small>
+              </span>
+              <span className="modeMeta">Local · 0 cr</span>
+            </button>
+          ))}
+
+          <div className="aiModeDivider" />
+          <div className="aiModeSectionLabel">GEMINI</div>
+          {aiModes.filter((item) => item.provider === "Gemini").map((item) => (
+            <button type="button" key={item.value} className={value === item.value ? "aiModeOption active" : "aiModeOption"} onClick={() => choose(item.value)}>
+              <span className="modeCheck">{value === item.value ? "✓" : ""}</span>
+              <span className="modeCopy">
+                <strong>{item.label}</strong>
+                <small>{item.hint}</small>
+              </span>
+              <span className="modeMeta">Gemini · {aiCost(action, item.value)} cr</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1465,17 +1554,100 @@ function BottomAskBar({
   session,
   scopeNodeId,
   scopeName,
+  entries,
+  nodes,
 }: {
   session: Session;
   scopeNodeId: string | null;
   scopeName: string;
+  entries: KnowledgeEntry[];
+  nodes: StudyNode[];
 }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const [aiMode, setAiMode] = useState<AiMode>("instant");
+  const [aiMode, setAiMode] = useState<AiMode>("simple");
+  const [composerBottom, setComposerBottom] = useState(16);
+  const dragRef = useRef<{ y: number; bottom: number } | null>(null);
+
+  useEffect(() => {
+    const saved = Number(window.localStorage.getItem("rb-composer-bottom") || "16");
+    if (Number.isFinite(saved)) setComposerBottom(Math.max(12, Math.min(saved, 320)));
+  }, []);
+
+  function startDrag(event: React.PointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    dragRef.current = { y: event.clientY, bottom: composerBottom };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    const move = (e: PointerEvent) => {
+      if (!dragRef.current) return;
+      const max = Math.min(320, Math.max(80, window.innerHeight * 0.42));
+      const next = Math.max(12, Math.min(max, dragRef.current.bottom + dragRef.current.y - e.clientY));
+      setComposerBottom(next);
+    };
+    const end = () => {
+      dragRef.current = null;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.localStorage.setItem("rb-composer-bottom", String(Math.round(composerBottom)));
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end, { once: true });
+  }
+
+  function scopedLocalEntries() {
+    if (!scopeNodeId) return entries;
+    const ids = collectSubtreeIds(nodes, scopeNodeId);
+    return entries.filter((item) => ids.includes(item.node_id));
+  }
+
+  function answerLocally(query: string) {
+    const words = Array.from(new Set(
+      query.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi)?.map((word) => word.toLowerCase()) || []
+    ));
+    const ranked = scopedLocalEntries()
+      .map((entry) => {
+        const haystack = (entry.title + " " + entry.category + " " + entry.content).toLowerCase();
+        const score = words.reduce((total, word) => total + (haystack.includes(word) ? 1 : 0), 0);
+        return { entry, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+
+    if (!ranked.length) {
+      return {
+        text: "Materi ini belum tersedia di database.",
+        refs: [] as Array<{ id: string; title: string; category: string }>,
+      };
+    }
+
+    const snippets = ranked.map(({ entry }) => {
+      const sentences = entry.content
+        .replace(/\s+/g, " ")
+        .split(/(?<=[.!?])\s+/)
+        .filter(Boolean);
+      const matching = sentences
+        .map((sentence) => ({
+          sentence,
+          score: words.reduce((total, word) => total + (sentence.toLowerCase().includes(word) ? 1 : 0), 0),
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 2)
+        .map((item) => item.sentence)
+        .join(" ");
+      return matching || entry.content.slice(0, 420);
+    });
+
+    return {
+      text: snippets.join("\n\n"),
+      refs: ranked.map(({ entry }) => ({ id: entry.id, title: entry.title, category: entry.category })),
+    };
+  }
 
   async function ask(e: FormEvent) {
     e.preventDefault();
@@ -1485,6 +1657,14 @@ function BottomAskBar({
     setOpen(true);
     setAnswer("");
     setSources([]);
+
+    if (aiMode === "simple") {
+      const local = answerLocally(question.trim());
+      setAnswer(local.text);
+      setSources(local.refs);
+      setBusy(false);
+      return;
+    }
 
     const response = await fetch("/api/ask", {
       method: "POST",
@@ -1510,15 +1690,15 @@ function BottomAskBar({
   return (
     <>
       {open && (
-        <div className="aiAnswer">
+        <div className="aiAnswer" style={{ bottom: composerBottom + 92 }}>
           <div className="aiAnswerHead">
             <div>
-              <small>Tanya AI · {scopeName}</small>
+              <small>{aiMode === "simple" ? "Simple · Local" : aiMode[0].toUpperCase() + aiMode.slice(1) + " · Gemini"} · {scopeName}</small>
               <strong>{question}</strong>
             </div>
             <button onClick={() => setOpen(false)}>×</button>
           </div>
-          <div className="aiAnswerBody">{busy ? "Mencari di Database..." : answer || "..."}</div>
+          <div className="aiAnswerBody">{busy ? (aiMode === "simple" ? "Mencari secara Local..." : "Mencari di Database...") : answer || "..."}</div>
           {!!sources.length && (
             <div className="aiSources">
               {sources.map((source) => (
@@ -1529,17 +1709,26 @@ function BottomAskBar({
         </div>
       )}
 
-      <form className="bottomAsk" onSubmit={ask}>
-        <div className="askScope">AI · {scopeName}</div>
-        <div className="askModeWrap">
+      <form className="bottomAsk gptComposer" style={{ bottom: composerBottom }} onSubmit={ask}>
+        <button type="button" className="composerDragHandle" onPointerDown={startDrag} aria-label="Geser bar">
+          <span />
+        </button>
+        <div className="askTopRow">
+          <div className="askScope">AI · {scopeName}</div>
           <AiModePicker value={aiMode} onChange={setAiMode} action="ask" compact />
         </div>
-        <input
+        <textarea
+          rows={1}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
+          onInput={(e) => {
+            const el = e.currentTarget;
+            el.style.height = "auto";
+            el.style.height = Math.min(el.scrollHeight, 140) + "px";
+          }}
           placeholder="Tanya sesuatu dari Database..."
         />
-        <button disabled={busy || !question.trim()}>{busy ? "..." : "↑"}</button>
+        <button className="sendAsk" disabled={busy || !question.trim()}>{busy ? "..." : "↑"}</button>
       </form>
     </>
   );
