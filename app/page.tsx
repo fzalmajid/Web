@@ -1667,13 +1667,21 @@ function DatabaseAudioRecorder({
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000,
+        },
       });
       streamRef.current = stream;
 
       const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128000 })
+        : new MediaRecorder(stream, { audioBitsPerSecond: 128000 });
 
       chunksRef.current = [];
       transcriptRef.current = "";
@@ -1759,30 +1767,31 @@ function DatabaseAudioRecorder({
       return alert(rowError.message);
     }
 
-    let raw = transcriptRef.current.trim() || liveText.trim();
-    let structured = raw;
+    const browserDraft = transcriptRef.current.trim() || liveText.trim();
+    let raw = browserDraft;
+    let structured = browserDraft;
     let corrections: Correction[] = [];
 
-    if (!raw) {
-      const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
-      const response = await fetch("/api/transcribe", {
-        method: "POST",
-        headers: aiRequestHeaders(session, transcriptionSelection),
-        body: JSON.stringify({
-          recordingId: row.id,
-          filePath: path,
-          mimeType,
-          contextNodeId: node.id,
-          browserTranscript: "",
-          aiMode: legacyModeForSelection(transcriptionSelection),
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (response.ok) {
-        raw = String(data.rawTranscript || "").trim();
-        structured = String(data.structuredTranscript || raw).trim();
-        corrections = Array.isArray(data.corrections) ? data.corrections : [];
-      }
+    setStatus("Mendengarkan ulang audio asli untuk transkrip final...");
+    const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
+    const response = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: aiRequestHeaders(session, transcriptionSelection),
+      body: JSON.stringify({
+        recordingId: row.id,
+        filePath: path,
+        mimeType,
+        purpose: "recording",
+        contextNodeId: node.id,
+        browserTranscript: browserDraft,
+        aiMode: legacyModeForSelection(transcriptionSelection),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      raw = String(data.rawTranscript || browserDraft).trim();
+      structured = String(data.structuredTranscript || raw).trim();
+      corrections = Array.isArray(data.corrections) ? data.corrections : [];
     }
 
     let knowledgeEntryId: string | null = null;
@@ -4895,13 +4904,21 @@ function BottomAskBar({
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000,
+        },
       });
       askVoiceStreamRef.current = stream;
 
       const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128000 })
+        : new MediaRecorder(stream, { audioBitsPerSecond: 128000 });
 
       askVoiceChunksRef.current = [];
       askVoiceTranscriptRef.current = "";
@@ -4922,7 +4939,7 @@ function BottomAskBar({
       recorder.start(650);
       const live = startAskSpeechRecognition();
       setAskVoiceRecording(true);
-      setAskVoiceStatus(live ? "Merekam · transkrip langsung aktif." : "Merekam audio...");
+      setAskVoiceStatus(live ? "Merekam · teks live hanya draft, audio akan dicek ulang setelah Stop." : "Merekam audio...");
     } catch (error: any) {
       setAskVoiceStatus(
         error?.name === "NotAllowedError"
@@ -4989,26 +5006,27 @@ function BottomAskBar({
       return alert(rowError.message);
     }
 
-    let transcript = askVoiceTranscriptRef.current.trim() || question.trim();
+    const browserDraft = askVoiceTranscriptRef.current.trim() || question.trim();
+    let transcript = browserDraft;
 
-    if (!transcript) {
-      const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
-      const response = await fetch("/api/transcribe", {
-        method: "POST",
-        headers: aiRequestHeaders(session, transcriptionSelection),
-        body: JSON.stringify({
-          recordingId: row.id,
-          filePath: path,
-          mimeType,
-          contextNodeId: scopeNodeId,
-          browserTranscript: "",
-          aiMode: legacyModeForSelection(transcriptionSelection),
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (response.ok) {
-        transcript = String(data.rawTranscript || data.structuredTranscript || "").trim();
-      }
+    setAskVoiceStatus("Mendengarkan ulang audio asli · fokus bunyi dan vokal...");
+    const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
+    const response = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: aiRequestHeaders(session, transcriptionSelection),
+      body: JSON.stringify({
+        recordingId: row.id,
+        filePath: path,
+        mimeType,
+        purpose: "question",
+        contextNodeId: null,
+        browserTranscript: browserDraft,
+        aiMode: legacyModeForSelection(transcriptionSelection),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      transcript = String(data.rawTranscript || "").trim() || browserDraft;
     }
 
     if (transcript) {
