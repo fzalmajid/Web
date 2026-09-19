@@ -132,6 +132,11 @@ Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, ja
     const aiUsage = await finalizeAiCredits(supabase, "study", aiMode);
     return NextResponse.json({ flashcards: flashcards.length, quizzes: quizzes.length, aiUsage });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Gagal membuat latihan." }, { status: 500 });
+    const status = Number(error?.statusCode || 500);
+    console.error("[API_GENERATE_STUDY_ERROR]", { name: error?.name, code: error?.code, status });
+    return NextResponse.json(
+      { error: error?.message || "Gagal membuat latihan." },
+      { status: status >= 400 && status < 600 ? status : 500 }
+    );
   }
 }
