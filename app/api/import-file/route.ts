@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
+import JSZip from "jszip";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
@@ -22,6 +23,43 @@ function isTextMime(mime: string) {
 
 function isMediaMime(mime: string) {
   return mime.startsWith("audio/") || mime.startsWith("video/");
+}
+
+function decodeXml(value: string) {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+async function extractPptxText(buffer: Buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const slideFiles = Object.keys(zip.files)
+    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
+    .sort((a, b) => {
+      const an = Number(a.match(/slide(\d+)\.xml/i)?.[1] || 0);
+      const bn = Number(b.match(/slide(\d+)\.xml/i)?.[1] || 0);
+      return an - bn;
+    });
+
+  const slides: string[] = [];
+  for (const name of slideFiles) {
+    const xml = await zip.file(name)?.async("string");
+    if (!xml) continue;
+    const pieces = Array.from(xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/gi))
+      .map((match) => decodeXml(match[1]).trim())
+      .filter(Boolean);
+    if (pieces.length) {
+      const number = Number(name.match(/slide(\d+)\.xml/i)?.[1] || slides.length + 1);
+      slides.push("Slide " + number + ":\n" + pieces.join("\n"));
+    }
+  }
+
+  return slides.join("\n\n");
 }
 
 export const runtime = "nodejs";
@@ -100,6 +138,8 @@ export async function POST(req: NextRequest) {
     if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.toLowerCase().endsWith(".docx")) {
       const extracted = await mammoth.extractRawText({ buffer });
       rawText = extracted.value.trim();
+    } else if (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || fileName.toLowerCase().endsWith(".pptx")) {
+      rawText = (await extractPptxText(buffer)).trim();
     } else if (isTextMime(mimeType)) {
       rawText = buffer.toString("utf8").trim();
     } else {
