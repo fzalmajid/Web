@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     }
     if (aiMode === "simple") {
       return NextResponse.json(
-        { error: "Penyusunan Study terarah membutuhkan Gemini 3.6. Pilih Instant, Medium, atau High." },
+        { error: "Penyusunan Study terarah membutuhkan mode Gemini. Pilih Instant, Medium, atau High." },
         { status: 400 }
       );
     }
