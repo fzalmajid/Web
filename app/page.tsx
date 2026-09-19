@@ -6,6 +6,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz";
+type AiMode = "instant" | "medium" | "high";
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
   id: string;
@@ -14,6 +15,8 @@ type StudyNode = {
   title: string;
   node_type: NodeType;
   description: string;
+  emoji: string;
+  card_color: string;
   position: number;
   created_at: string;
 };
@@ -75,6 +78,34 @@ type Quiz = {
   material_id: string | null;
   scope_node_id: string | null;
 };
+
+const aiModes: Array<{ value: AiMode; label: string; hint: string }> = [
+  { value: "instant", label: "Instant", hint: "Cepat & hemat" },
+  { value: "medium", label: "Medium", hint: "Lebih teliti" },
+  { value: "high", label: "High", hint: "Paling mendalam" },
+];
+
+const nodeEmojis = ["📚","🧠","📝","🎓","💊","🧪","🔬","📖","🎙️","🗂️","✨","🌱","💡","📌","✅","⭐"];
+const nodeColors = [
+  { value: "default", label: "Default" },
+  { value: "rose", label: "Rose" },
+  { value: "sage", label: "Sage" },
+  { value: "sky", label: "Sky" },
+  { value: "amber", label: "Amber" },
+  { value: "violet", label: "Violet" },
+  { value: "slate", label: "Slate" },
+];
+
+function aiCost(action: "ask" | "study" | "transcription" | "file_light" | "file_heavy", mode: AiMode) {
+  const table = {
+    ask: { instant: 1, medium: 2, high: 4 },
+    study: { instant: 2, medium: 4, high: 6 },
+    transcription: { instant: 5, medium: 7, high: 10 },
+    file_light: { instant: 2, medium: 3, high: 5 },
+    file_heavy: { instant: 5, medium: 7, high: 10 },
+  } as const;
+  return table[action][mode];
+}
 
 const labels: Record<NodeType, string> = {
   material: "Materi",
@@ -185,6 +216,7 @@ function Workspace({ session, user }: { session: Session; user: User }) {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [customizeNode, setCustomizeNode] = useState<StudyNode | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -299,6 +331,7 @@ function Workspace({ session, user }: { session: Session; user: User }) {
             children={children}
             onOpen={setCurrentId}
             onAdd={() => setAddOpen(true)}
+            onCustomize={setCustomizeNode}
             onDelete={removeNode}
           />
         ) : null}
@@ -342,6 +375,17 @@ function Workspace({ session, user }: { session: Session; user: User }) {
         scopeName={current ? current.title : "Seluruh Database"}
       />
 
+      {customizeNode && (
+        <CustomizeSheet
+          node={customizeNode}
+          onClose={() => setCustomizeNode(null)}
+          onSaved={() => {
+            setCustomizeNode(null);
+            refresh();
+          }}
+        />
+      )}
+
       {addOpen && (
         <AddSheet
           user={user}
@@ -363,33 +407,41 @@ function FolderPage({
   children,
   onOpen,
   onAdd,
+  onCustomize,
   onDelete,
 }: {
   current: StudyNode | null;
   children: StudyNode[];
   onOpen: (id: string) => void;
   onAdd: () => void;
+  onCustomize: (node: StudyNode) => void;
   onDelete: (node: StudyNode) => void;
 }) {
   return (
     <section className="folderPage">
-      <div className="folderTitle">
-        <p className="eyebrow">{current ? "RUANG MATERI" : "RUANG BELAJAR"}</p>
-        <h1>{current ? current.title : "Materi saya"}</h1>
+      <div className="folderTitle folderTitleRow">
+        <div>
+          <p className="eyebrow">{current ? "RUANG MATERI" : "RUANG BELAJAR"}</p>
+          <h1>{current ? (current.emoji ? current.emoji + " " : "") + current.title : "Materi saya"}</h1>
+        </div>
+        {current && <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>}
       </div>
 
       {!!children.length && (
         <div className="nodeGrid">
           {children.map((node) => (
-            <article className="nodeCard" key={node.id}>
+            <article className="nodeCard" data-color={node.card_color || "default"} key={node.id}>
               <button className="nodeOpen" onClick={() => onOpen(node.id)}>
-                <span className="nodeIcon">{iconFor(node.node_type)}</span>
+                <span className="nodeIcon">{node.emoji || iconFor(node.node_type)}</span>
                 <div>
                   <small>{labels[node.node_type]}</small>
                   <h3>{node.title}</h3>
                 </div>
               </button>
-              <button className="nodeDelete" onClick={() => onDelete(node)}>Hapus</button>
+              <div className="nodeTools">
+                <button onClick={() => onCustomize(node)}>Ubah</button>
+                <button className="nodeDelete" onClick={() => onDelete(node)}>Hapus</button>
+              </div>
             </article>
           ))}
         </div>
@@ -419,6 +471,8 @@ function AddSheet({
 }) {
   const [kind, setKind] = useState<"folder" | "database" | "recording" | "flashcards" | "quiz">("folder");
   const [title, setTitle] = useState("");
+  const [emoji, setEmoji] = useState("");
+  const [cardColor, setCardColor] = useState("default");
   const [busy, setBusy] = useState(false);
 
   const options = [
@@ -446,6 +500,8 @@ function AddSheet({
         parent_id: parent?.id || null,
         title: title.trim(),
         node_type: nodeType,
+        emoji: emoji.trim(),
+        card_color: cardColor,
       })
       .select("id")
       .single();
@@ -489,6 +545,24 @@ function AddSheet({
               placeholder={kind === "folder" ? "Contoh: Pertemuan 1" : "Contoh: " + options.find((item) => item.value === kind)?.label}
             />
           </label>
+          <div className="customizeMini">
+            <div>
+              <span className="fieldLabel">Emoji (opsional)</span>
+              <div className="emojiRow compact">
+                {nodeEmojis.slice(0, 8).map((item) => (
+                  <button type="button" key={item} className={emoji === item ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji(item)}>{item}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="fieldLabel">Warna</span>
+              <div className="colorRow compact">
+                {nodeColors.map((item) => (
+                  <button type="button" key={item.value} title={item.label} className={cardColor === item.value ? "colorChoice active" : "colorChoice"} data-color={item.value} onClick={() => setCardColor(item.value)} />
+                ))}
+              </div>
+            </div>
+          </div>
           <button className="primary" disabled={busy || !title.trim()}>
             {busy ? "Membuat..." : "Buat & buka"}
           </button>
@@ -518,6 +592,7 @@ function DatabasePage({
   const [busy, setBusy] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileStatus, setFileStatus] = useState("");
+  const [aiMode, setAiMode] = useState<AiMode>("instant");
 
   const localEntries = entries.filter((item) => item.node_id === node.id);
   const localFiles = files.filter((item) => item.node_id === node.id);
@@ -599,6 +674,7 @@ function DatabasePage({
         fileName: selectedFile.name,
         mimeType,
         nodeId: node.id,
+        aiMode,
       }),
     });
 
@@ -666,6 +742,11 @@ function DatabasePage({
               type="file"
               accept=".pdf,.docx,.txt,.md,.csv,.json,.xml,.mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.webm,.mp4,.mov,.png,.jpg,.jpeg,.webp"
               onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+            />
+            <AiModePicker
+              value={aiMode}
+              onChange={setAiMode}
+              action={selectedFile && isHeavyFile(selectedFile) ? "file_heavy" : "file_light"}
             />
             <button className="primary" disabled={!selectedFile || fileBusy}>
               {fileBusy ? "Memproses..." : "Upload & olah"}
@@ -760,6 +841,7 @@ function RecordingPage({
     added: boolean;
   } | null>(null);
   const [targetDbId, setTargetDbId] = useState("");
+  const [aiMode, setAiMode] = useState<AiMode>("instant");
 
   const localRecordings = recordings.filter((item) => item.node_id === node.id);
   const siblingDatabases = nodes.filter(
@@ -917,6 +999,7 @@ function RecordingPage({
         filePath: path,
         mimeType,
         contextNodeId: node.parent_id,
+        aiMode,
       }),
     });
 
@@ -1027,7 +1110,8 @@ function RecordingPage({
           </div>
         </div>
 
-        <div className="recordActions">
+        <AiModePicker value={aiMode} onChange={setAiMode} action="transcription" />
+      <div className="recordActions">
           <button className="primary" disabled={recording || busy} onClick={start}>Mulai Rekam</button>
           <button className="stopBtn" disabled={!recording} onClick={stop}>Stop</button>
         </div>
@@ -1172,6 +1256,7 @@ function PracticePage({
   const [busy, setBusy] = useState(false);
   const [flipped, setFlipped] = useState<Record<string, boolean>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [aiMode, setAiMode] = useState<AiMode>("instant");
 
   async function generate() {
     if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada database sumber.");
@@ -1187,6 +1272,7 @@ function PracticePage({
         sourceNodeId: node.parent_id,
         targetNodeId: node.id,
         mode,
+        aiMode,
       }),
     });
 
@@ -1203,6 +1289,7 @@ function PracticePage({
         <p className="eyebrow">{mode === "flashcards" ? "FLASHCARD" : "KUIS"}</p>
         <h1>{node.title}</h1>
         <p className="muted">Dibuat hanya dari Database pada halaman induknya.</p>
+        <AiModePicker value={aiMode} onChange={setAiMode} action="study" />
         <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
           {busy ? "Membuat..." : mode === "flashcards" ? "Buat Flashcard" : "Buat Kuis"}
         </button>
@@ -1255,6 +1342,125 @@ function PracticePage({
   );
 }
 
+function AiModePicker({
+  value,
+  onChange,
+  action,
+  compact = false,
+}: {
+  value: AiMode;
+  onChange: (mode: AiMode) => void;
+  action: "ask" | "study" | "transcription" | "file_light" | "file_heavy";
+  compact?: boolean;
+}) {
+  return (
+    <div className={compact ? "aiModePicker compact" : "aiModePicker"}>
+      {aiModes.map((item) => (
+        <button
+          type="button"
+          key={item.value}
+          className={value === item.value ? "aiMode active" : "aiMode"}
+          onClick={() => onChange(item.value)}
+          title={item.hint}
+        >
+          <strong>{item.label}</strong>
+          <small>{aiCost(action, item.value)} cr</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CustomizeSheet({
+  node,
+  onClose,
+  onSaved,
+}: {
+  node: StudyNode;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(node.title);
+  const [emoji, setEmoji] = useState(node.emoji || "");
+  const [cardColor, setCardColor] = useState(node.card_color || "default");
+  const [busy, setBusy] = useState(false);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setBusy(true);
+    const { error } = await supabase
+      .from("study_nodes")
+      .update({
+        title: title.trim(),
+        emoji: emoji.trim(),
+        card_color: cardColor,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", node.id);
+    setBusy(false);
+    if (error) return alert(error.message);
+    onSaved();
+  }
+
+  return (
+    <div className="sheetBackdrop" onMouseDown={onClose}>
+      <section className="addSheet customizeSheet" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="sheetHead">
+          <div>
+            <p className="eyebrow">CUSTOMIZE</p>
+            <h2>Sesuaikan tampilan</h2>
+          </div>
+          <button className="closeBtn" onClick={onClose}>×</button>
+        </div>
+
+        <form className="stack" onSubmit={save}>
+          <label>
+            Nama
+            <input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </label>
+
+          <div>
+            <span className="fieldLabel">Emoji</span>
+            <div className="emojiRow">
+              <button type="button" className={!emoji ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji("")}>—</button>
+              {nodeEmojis.map((item) => (
+                <button type="button" key={item} className={emoji === item ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji(item)}>{item}</button>
+              ))}
+            </div>
+            <input className="emojiInput" value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="Atau ketik emoji sendiri…" />
+          </div>
+
+          <div>
+            <span className="fieldLabel">Warna kartu</span>
+            <div className="colorRow">
+              {nodeColors.map((item) => (
+                <button
+                  type="button"
+                  key={item.value}
+                  className={cardColor === item.value ? "colorOption active" : "colorOption"}
+                  data-color={item.value}
+                  onClick={() => setCardColor(item.value)}
+                >
+                  <span />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="customPreview" data-color={cardColor}>
+            <span>{emoji || iconFor(node.node_type)}</span>
+            <div><small>{labels[node.node_type]}</small><strong>{title || node.title}</strong></div>
+          </div>
+
+          <button className="primary" disabled={busy || !title.trim()}>{busy ? "Menyimpan..." : "Simpan perubahan"}</button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function BottomAskBar({
   session,
   scopeNodeId,
@@ -1269,6 +1475,7 @@ function BottomAskBar({
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const [aiMode, setAiMode] = useState<AiMode>("instant");
 
   async function ask(e: FormEvent) {
     e.preventDefault();
@@ -1285,7 +1492,7 @@ function BottomAskBar({
         "Content-Type": "application/json",
         Authorization: "Bearer " + session.access_token,
       },
-      body: JSON.stringify({ question, scopeNodeId }),
+      body: JSON.stringify({ question, scopeNodeId, aiMode }),
     });
 
     const data = await response.json();
@@ -1324,6 +1531,9 @@ function BottomAskBar({
 
       <form className="bottomAsk" onSubmit={ask}>
         <div className="askScope">AI · {scopeName}</div>
+        <div className="askModeWrap">
+          <AiModePicker value={aiMode} onChange={setAiMode} action="ask" compact />
+        </div>
         <input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
@@ -1400,6 +1610,11 @@ function iconFor(type: NodeType) {
   if (type === "flashcards") return "FC";
   if (type === "quiz") return "Q";
   return "M";
+}
+
+function isHeavyFile(file: File) {
+  const mime = inferMime(file);
+  return mime.startsWith("audio/") || mime.startsWith("video/") || mime.startsWith("image/") || mime === "application/pdf";
 }
 
 function inferMime(file: File) {
