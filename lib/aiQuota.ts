@@ -34,7 +34,8 @@ export type ActualGeminiUsage = {
 
 export async function recordAiTokenUsage(
   supabase: SupabaseClient,
-  usage?: ActualGeminiUsage | null
+  usage?: ActualGeminiUsage | null,
+  model = "unknown"
 ) {
   if (!usage) return null;
   const total = Math.max(0, Math.round(Number(usage.totalTokens || 0)));
@@ -43,7 +44,8 @@ export async function recordAiTokenUsage(
   const thoughts = Math.max(0, Math.round(Number(usage.thoughtsTokens || 0)));
   if (!total && !input && !output && !thoughts) return null;
 
-  const { data, error } = await supabase.rpc("record_ai_token_usage", {
+  const { data, error } = await supabase.rpc("record_ai_model_usage", {
+    model_name: model,
     input_tokens: input,
     output_tokens: output,
     thoughts_tokens: thoughts,
