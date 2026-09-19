@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type AiAction =
   | "ask"
+  | "ask_web"
   | "study"
   | "transcription"
   | "file_light"
