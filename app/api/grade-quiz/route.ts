@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     }
     if (aiMode === "simple") {
       return NextResponse.json({
-        error: "Penilaian AI membutuhkan mode Gemini. Pilih Instant, Medium, atau High."
+        error: "Penilaian AI membutuhkan model Gemini. Pilih salah satu model Gemini."
       }, { status: 400 });
     }
 
