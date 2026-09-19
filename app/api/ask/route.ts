@@ -12,6 +12,7 @@ import {
   checkAiCredits,
   consumeAiCredits,
   normalizeAiMode,
+  recordAiTokenUsage,
 } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -128,6 +129,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
           { googleSearch: true }
         );
 
+        await recordAiTokenUsage(supabase, result.usage);
         const aiUsage = await consumeAiCredits(supabase, "ask_web", aiMode);
         if (!aiUsage.allowed) {
           return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
@@ -170,6 +172,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
           "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal."
         );
 
+        await recordAiTokenUsage(supabase, fallbackResult.usage);
         const aiUsage = await consumeAiCredits(supabase, "ask", aiMode);
         if (!aiUsage.allowed) {
           return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
@@ -203,6 +206,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       [{ text: databasePrompt }],
       "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal."
     );
+    await recordAiTokenUsage(supabase, result.usage);
 
     return NextResponse.json({
       answer: result.text,
