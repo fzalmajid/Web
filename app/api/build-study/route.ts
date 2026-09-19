@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { geminiGenerateDetailed, parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
@@ -220,6 +220,8 @@ Aturan wajib:
       {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
+      responseMimeType: "application/json",
+      maxOutputTokens: aiMode === "high" ? 24576 : aiMode === "medium" ? 18432 : 14336,
       apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
@@ -228,7 +230,40 @@ Aturan wajib:
     await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, geminiAuth.provider);
     const raw = geminiResult.text;
 
-    const parsed = JSON.parse(cleanJsonText(raw));
+    let parsed: any;
+    try {
+      parsed = parseJsonSafely(raw);
+    } catch {
+      const repair = await geminiGenerateDetailed(
+        [{
+          text: `Perbaiki output JSON berikut menjadi JSON valid.
+Pertahankan semua unit yang lengkap.
+Jika unit terakhir terpotong/tidak lengkap, buang hanya unit terakhir itu.
+Jangan menambahkan fakta atau unit baru.
+Keluarkan JSON valid saja, tanpa markdown.
+
+OUTPUT RUSAK:
+${raw.slice(0, 50000)}`,
+        }],
+        "Anda hanya memperbaiki sintaks JSON tanpa menambah isi baru.",
+        {
+          models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
+          effort: "low",
+          responseMimeType: "application/json",
+          maxOutputTokens: 16384,
+          apiKey: geminiAuth.apiKey,
+          accessToken: geminiAuth.accessToken,
+          projectId: geminiAuth.projectId,
+        }
+      );
+      await recordAiTokenUsage(supabase, repair.usage, repair.model, geminiAuth.provider);
+      try {
+        parsed = parseJsonSafely(repair.text);
+      } catch {
+        throw new Error("AI belum berhasil menghasilkan struktur Study yang lengkap. Coba lagi; Database dan pilihan Study tetap tersimpan.");
+      }
+    }
+
     const rawUnits = Array.isArray(parsed.units) ? parsed.units : [];
 
     const units = rawUnits
