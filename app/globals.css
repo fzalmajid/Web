@@ -1678,3 +1678,71 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   border-color:#5a4d29;
   color:#ead8a5;
 }
+
+
+/* Recording engine + AI knowledge source selector */
+.recordEngineInfo{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:15px;
+  background:var(--soft);
+}
+.recordEngineInfo>div:first-child{
+  display:grid;
+  gap:3px;
+}
+.recordEngineInfo small{
+  color:var(--muted);
+  font-size:.68rem;
+  font-weight:800;
+  letter-spacing:.06em;
+}
+.recordEngineInfo strong{
+  font-size:.82rem;
+}
+.knowledgeModePicker{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:3px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--soft);
+}
+.knowledgeModePicker button{
+  min-height:31px;
+  padding:0 9px;
+  border:0;
+  border-radius:9px;
+  background:transparent;
+  color:var(--muted);
+  font-size:.7rem;
+  font-weight:800;
+  white-space:nowrap;
+}
+.knowledgeModePicker button.active{
+  background:var(--card);
+  color:var(--text);
+  box-shadow:0 1px 4px rgba(0,0,0,.08);
+}
+.knowledgeModePicker button:disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+@media(max-width:700px){
+  .recordEngineInfo{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .askControls{
+    flex-wrap:wrap;
+  }
+  .knowledgeModePicker{
+    max-width:100%;
+    overflow-x:auto;
+  }
+}
