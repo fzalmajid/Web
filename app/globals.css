@@ -473,7 +473,7 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   padding-left:8px;
 }
 .bottomAsk input{border:0;background:#f6f9f8;box-shadow:none}
-.bottomAsk button{
+.bottomAsk > button{
   width:44px;
   height:44px;
   border:0;
@@ -527,7 +527,7 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   .bottomAsk{grid-template-columns:1fr 46px}
   .askScope{grid-column:1/-1;max-width:none;padding:2px 8px 0}
   .bottomAsk input{grid-column:1}
-  .bottomAsk button{grid-column:2}
+  .bottomAsk > button{grid-column:2}
   .addDbBox{grid-template-columns:1fr}
   .inlineAdd{flex-direction:column}
   .recordActions{flex-direction:column}
@@ -883,4 +883,103 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     width:min(320px,calc(100vw - 26px));
   }
   .modeCopy small{font-size:.65rem}
+}
+
+
+/* Definitive fix: nested AI mode menu must not inherit composer send-button styles */
+.gptComposer .aiModePopover{
+  width:360px;
+  max-width:calc(100vw - 28px);
+  padding:10px;
+  border-radius:20px;
+  overflow:visible;
+}
+.gptComposer .aiModePopover button.aiModeOption{
+  width:100% !important;
+  height:auto !important;
+  min-height:58px;
+  padding:10px 11px !important;
+  margin:0;
+  border:0 !important;
+  border-radius:14px !important;
+  background:transparent !important;
+  color:var(--ink) !important;
+  box-shadow:none !important;
+  display:grid !important;
+  grid-template-columns:20px minmax(0,1fr) auto !important;
+  gap:10px !important;
+  align-items:start !important;
+  text-align:left !important;
+  font-size:inherit !important;
+  line-height:normal !important;
+}
+.gptComposer .aiModePopover button.aiModeOption:hover{
+  background:#f5f7f6 !important;
+}
+.gptComposer .aiModePopover button.aiModeOption.active{
+  background:#eef5f2 !important;
+}
+.gptComposer .aiModePopover .modeCheck{
+  width:20px;
+  height:22px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:1px 0 0;
+  font-size:14px;
+  line-height:1;
+}
+.gptComposer .aiModePopover .modeCopy{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.gptComposer .aiModePopover .modeCopy strong{
+  display:block;
+  margin:0;
+  font-size:14px;
+  line-height:1.2;
+}
+.gptComposer .aiModePopover .modeCopy small{
+  display:block;
+  margin:0;
+  font-size:12px;
+  line-height:1.35;
+  color:var(--muted);
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.gptComposer .aiModePopover .modeMeta{
+  display:block;
+  padding-top:1px;
+  font-size:11px;
+  line-height:1.25;
+  color:var(--muted);
+  white-space:nowrap;
+  text-align:right;
+}
+.gptComposer .aiModePopover .aiModeSectionLabel{
+  padding:8px 10px 6px;
+  font-size:10px;
+  line-height:1;
+}
+.gptComposer .aiModePopover .aiModeDivider{
+  margin:7px 4px;
+}
+@media(max-width:520px){
+  .gptComposer .aiModePopover{
+    width:min(340px,calc(100vw - 20px));
+    right:0;
+    left:auto;
+  }
+  .gptComposer .aiModePopover button.aiModeOption{
+    grid-template-columns:20px minmax(0,1fr) !important;
+  }
+  .gptComposer .aiModePopover .modeMeta{
+    grid-column:2;
+    text-align:left;
+    padding-top:2px;
+    white-space:normal;
+  }
 }
