@@ -10,6 +10,7 @@ import {
   legacyModeForSelection,
   modelCapability,
   modelProvider,
+  providerModelId,
   selectionFromLegacyMode,
   type AiEffort,
   type AiModelId,
@@ -152,6 +153,26 @@ function getSessionAnthropicKey() {
 
 function emitPluginChange() {
   if (typeof window !== "undefined") window.dispatchEvent(new Event("rb-plugin-change"));
+}
+
+function getStoredModelIds(key: string) {
+  if (typeof window === "undefined") return [] as string[];
+  try {
+    const value = JSON.parse(String(window.sessionStorage.getItem(key) || "[]"));
+    return Array.isArray(value) ? value.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function setStoredModelIds(key: string, ids: unknown[]) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(key, JSON.stringify(ids.map(String).filter(Boolean)));
+}
+
+function activeGeminiModelIds() {
+  const own = getSessionGoogleGeminiAuth().accessToken || getSessionGeminiKey();
+  return own ? getStoredModelIds("rb-gemini-models") : getStoredModelIds("rb-shared-gemini-models");
 }
 
 function getSessionGoogleGeminiAuth() {
@@ -844,7 +865,7 @@ function DatabasePage({
   const [busy, setBusy] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileStatus, setFileStatus] = useState("");
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
   const aiMode = legacyModeForSelection(aiSelection);
 
   const localEntries = entries.filter((item) => item.node_id === node.id && !item.source_file_id);
@@ -1148,7 +1169,7 @@ function StudyPage({
   const [quickDbContent, setQuickDbContent] = useState("");
   const [quickDbCreatedId, setQuickDbCreatedId] = useState<string | null>(null);
   const [quickDbFile, setQuickDbFile] = useState<File | null>(null);
-  const [quickDbAiSelection, setQuickDbAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
+  const [quickDbAiSelection, setQuickDbAiSelection] = useState<AiSelection>(defaultSelection("local"));
   const quickDbAiMode = legacyModeForSelection(quickDbAiSelection);
   const [quickDbStatus, setQuickDbStatus] = useState("");
   const [quickBusy, setQuickBusy] = useState(false);
@@ -1470,7 +1491,7 @@ function StudyPage({
     setQuickDbContent("");
     setQuickDbCreatedId(null);
     setQuickDbFile(null);
-    setQuickDbAiSelection(defaultSelection("local", "chat"));
+    setQuickDbAiSelection(defaultSelection("local"));
     setQuickDbStatus("");
   }
 
@@ -2825,7 +2846,7 @@ function PracticePage({
   const [essayAnswers, setEssayAnswers] = useState<Record<string, string>>({});
   const [aiResults, setAiResults] = useState<Record<string, AiGradeResult>>({});
   const [submitted, setSubmitted] = useState(false);
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
   const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
@@ -3343,14 +3364,48 @@ function AiModePicker({
     return () => window.removeEventListener("rb-plugin-change", refresh);
   }, []);
 
+  useEffect(() => {
+    if (getSessionGoogleGeminiAuth().accessToken || getSessionGeminiKey()) return;
+    if (getStoredModelIds("rb-shared-gemini-models").length) return;
+
+    let active = true;
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) return;
+      const response = await fetch("/api/gemini-models", {
+        headers: { Authorization: "Bearer " + accessToken },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!active || !response.ok) return;
+      const ids = Array.isArray(payload.models) ? payload.models.map((item: any) => String(item?.id || "")) : [];
+      setStoredModelIds("rb-shared-gemini-models", ids);
+      setPluginRevision((value) => value + 1);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const chatAction = action === "ask" || action === "ask_web";
   const openAIConnected = pluginRevision >= 0 && Boolean(getSessionOpenAIKey());
   const anthropicConnected = pluginRevision >= 0 && Boolean(getSessionAnthropicKey());
+  const geminiIds = activeGeminiModelIds();
+  const openAIIds = getStoredModelIds("rb-openai-models");
+  const anthropicIds = getStoredModelIds("rb-anthropic-models");
 
   const visibleModels = AI_MODEL_CATALOG.filter((item) => {
     if (!item.contexts.includes(context) || (!allowLocal && item.id === "local")) return false;
-    if (item.provider === "openai") return chatAction && openAIConnected;
-    if (item.provider === "anthropic") return chatAction && anthropicConnected;
+    if (item.provider === "gemini") {
+      return !geminiIds.length || geminiIds.includes(providerModelId(item.id));
+    }
+    if (item.provider === "openai") {
+      return chatAction && openAIConnected && (!openAIIds.length || openAIIds.includes(providerModelId(item.id)));
+    }
+    if (item.provider === "anthropic") {
+      return chatAction && anthropicConnected && (!anthropicIds.length || anthropicIds.includes(providerModelId(item.id)));
+    }
     return true;
   });
   const selected =
