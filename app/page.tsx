@@ -155,6 +155,163 @@ function getSessionAnthropicKey() {
   return String(window.sessionStorage.getItem("rb-user-anthropic-key") || "").trim();
 }
 
+
+type LocalAiKind = "lmstudio" | "ollama" | "custom";
+type LocalAiConfig = {
+  kind: LocalAiKind;
+  endpoint: string;
+  apiKey: string;
+  models: string[];
+};
+
+function getSessionLocalAiConfig(): LocalAiConfig {
+  if (typeof window === "undefined") {
+    return { kind: "lmstudio", endpoint: "", apiKey: "", models: [] };
+  }
+  const kind = String(window.sessionStorage.getItem("rb-local-ai-kind") || "lmstudio") as LocalAiKind;
+  const endpoint = String(window.sessionStorage.getItem("rb-local-ai-endpoint") || "").trim();
+  const apiKey = String(window.sessionStorage.getItem("rb-local-ai-key") || "").trim();
+  return {
+    kind,
+    endpoint,
+    apiKey,
+    models: getStoredModelIds("rb-local-ai-models"),
+  };
+}
+
+function localAiPresetEndpoint(kind: LocalAiKind) {
+  if (kind === "ollama") return "http://localhost:11434/v1";
+  if (kind === "lmstudio") return "http://localhost:1234/v1";
+  return "";
+}
+
+function localAiModelId(model: string): AiModelId {
+  return ("local-openai:" + model) as AiModelId;
+}
+
+
+type McpTool = {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, any>;
+};
+
+type McpConfig = {
+  url: string;
+  token: string;
+  sessionId: string;
+  tools: McpTool[];
+};
+
+function getSessionMcpConfig(): McpConfig {
+  if (typeof window === "undefined") return { url: "", token: "", sessionId: "", tools: [] };
+  let tools: McpTool[] = [];
+  try {
+    const parsed = JSON.parse(String(window.sessionStorage.getItem("rb-mcp-tools") || "[]"));
+    if (Array.isArray(parsed)) tools = parsed;
+  } catch {}
+  return {
+    url: String(window.sessionStorage.getItem("rb-mcp-url") || "").trim(),
+    token: String(window.sessionStorage.getItem("rb-mcp-token") || "").trim(),
+    sessionId: String(window.sessionStorage.getItem("rb-mcp-session") || "").trim(),
+    tools,
+  };
+}
+
+function parseMcpResponseText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return {};
+  try {
+    return JSON.parse(trimmed);
+  } catch {}
+
+  const events = trimmed
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .filter((line) => line && line !== "[DONE]");
+
+  for (let index = events.length - 1; index >= 0; index--) {
+    try {
+      return JSON.parse(events[index]);
+    } catch {}
+  }
+  return {};
+}
+
+async function mcpRpc(
+  url: string,
+  token: string,
+  method: string,
+  params: Record<string, any> | undefined,
+  sessionId = "",
+  notification = false
+) {
+  const id = notification ? undefined : Date.now();
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...(token ? { Authorization: "Bearer " + token } : {}),
+      ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      ...(id === undefined ? {} : { id }),
+      method,
+      ...(params === undefined ? {} : { params }),
+    }),
+  });
+
+  const nextSessionId = response.headers.get("Mcp-Session-Id") || sessionId;
+  const text = await response.text();
+  const payload = parseMcpResponseText(text);
+
+  if (!response.ok || payload?.error) {
+    throw new Error(
+      String(payload?.error?.message || "MCP request gagal (" + response.status + ").")
+    );
+  }
+
+  return {
+    result: payload?.result,
+    sessionId: nextSessionId,
+  };
+}
+
+async function ensureMcpSession(config: McpConfig) {
+  if (!config.url) return config;
+  if (config.sessionId && config.tools.length) return config;
+
+  const initialized = await mcpRpc(
+    config.url,
+    config.token,
+    "initialize",
+    {
+      protocolVersion: "2025-03-26",
+      capabilities: {},
+      clientInfo: { name: "Ruang Belajar", version: "1.0" },
+    },
+    ""
+  );
+  const sessionId = initialized.sessionId;
+  await mcpRpc(
+    config.url,
+    config.token,
+    "notifications/initialized",
+    {},
+    sessionId,
+    true
+  );
+  const listed = await mcpRpc(config.url, config.token, "tools/list", {}, sessionId);
+  const tools = Array.isArray(listed.result?.tools) ? listed.result.tools : [];
+
+  window.sessionStorage.setItem("rb-mcp-session", listed.sessionId || sessionId);
+  window.sessionStorage.setItem("rb-mcp-tools", JSON.stringify(tools));
+  return { ...config, sessionId: listed.sessionId || sessionId, tools };
+}
+
 function emitPluginChange() {
   if (typeof window !== "undefined") window.dispatchEvent(new Event("rb-plugin-change"));
 }
@@ -649,33 +806,59 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
               Hubungkan provider milik user. Model dari provider yang belum terhubung tidak akan muncul di Choose Model.
             </p>
 
-            <div className="pluginGrid">
-              <article className="pluginCard">
-                <div className="pluginLogo">G</div>
-                <div className="pluginCopy">
-                  <strong>Gemini</strong>
-                  <small>OAuth Google + project Cloud user. API key manual hanya fallback.</small>
-                </div>
-                <GeminiAccountConnection session={session} />
-              </article>
+            <div className="pluginSection">
+              <small className="pluginSectionTitle">CLOUD AI</small>
+              <div className="pluginGrid">
+                <article className="pluginCard">
+                  <div className="pluginLogo">G</div>
+                  <div className="pluginCopy">
+                    <strong>Gemini</strong>
+                    <small>Google Cloud/Gemini API milik user. OAuth Google + project sendiri.</small>
+                  </div>
+                  <GeminiAccountConnection session={session} />
+                </article>
 
-              <article className="pluginCard">
-                <div className="pluginLogo">GPT</div>
-                <div className="pluginCopy">
-                  <strong>OpenAI</strong>
-                  <small>Gunakan OpenAI API account user untuk GPT dan Web Search.</small>
-                </div>
-                <ApiProviderConnection session={session} provider="openai" />
-              </article>
+                <article className="pluginCard">
+                  <div className="pluginLogo">GPT</div>
+                  <div className="pluginCopy">
+                    <strong>OpenAI</strong>
+                    <small>Gunakan OpenAI API account user untuk GPT dan Web Search.</small>
+                  </div>
+                  <ApiProviderConnection session={session} provider="openai" />
+                </article>
 
-              <article className="pluginCard">
-                <div className="pluginLogo">C</div>
-                <div className="pluginCopy">
-                  <strong>Claude</strong>
-                  <small>Gunakan Claude API account user dan web search Anthropic.</small>
-                </div>
-                <ApiProviderConnection session={session} provider="anthropic" />
-              </article>
+                <article className="pluginCard">
+                  <div className="pluginLogo">C</div>
+                  <div className="pluginCopy">
+                    <strong>Claude</strong>
+                    <small>Gunakan Anthropic API account user dan web search Claude.</small>
+                  </div>
+                  <ApiProviderConnection session={session} provider="anthropic" />
+                </article>
+              </div>
+            </div>
+
+            <div className="pluginSection">
+              <small className="pluginSectionTitle">LOCAL DEVICE / CUSTOM ENDPOINT</small>
+              <div className="pluginGrid pluginGridTwo">
+                <article className="pluginCard">
+                  <div className="pluginLogo">⌁</div>
+                  <div className="pluginCopy">
+                    <strong>Local AI</strong>
+                    <small>LM Studio, Ollama, vLLM, atau endpoint OpenAI-compatible. Model berjalan di perangkat/server user.</small>
+                  </div>
+                  <LocalAiConnection />
+                </article>
+
+                <article className="pluginCard">
+                  <div className="pluginLogo">MCP</div>
+                  <div className="pluginCopy">
+                    <strong>MCP Server</strong>
+                    <small>Hubungkan tools/app lain lewat Model Context Protocol. Tool dapat dipanggil model lokal yang mendukung function calling.</small>
+                  </div>
+                  <McpConnection />
+                </article>
+              </div>
             </div>
           </section>
         </div>
@@ -3428,8 +3611,27 @@ function AiModePicker({
   const geminiIds = activeGeminiModelIds();
   const openAIIds = getStoredModelIds("rb-openai-models");
   const anthropicIds = getStoredModelIds("rb-anthropic-models");
+  const localAiConfig = getSessionLocalAiConfig();
+  const localModels = chatAction && localAiConfig.endpoint
+    ? localAiConfig.models.map((model) => ({
+        id: localAiModelId(model),
+        provider: "local-openai" as const,
+        label: model,
+        subtitle:
+          localAiConfig.kind === "lmstudio"
+            ? "LM Studio · perangkat user"
+            : localAiConfig.kind === "ollama"
+              ? "Ollama · perangkat user"
+              : "OpenAI-compatible · perangkat/user endpoint",
+        contexts: ["chat" as const],
+        efforts: [],
+        defaultEffort: "none" as const,
+        freeTier: true,
+        freeWeb: false,
+      }))
+    : [];
 
-  const visibleModels = AI_MODEL_CATALOG.filter((item) => {
+  const visibleModels = [...AI_MODEL_CATALOG, ...localModels].filter((item) => {
     if (!item.contexts.includes(context) || (!allowLocal && item.id === "local")) return false;
     if (item.provider === "gemini") {
       return !geminiIds.length || geminiIds.includes(providerModelId(item.id));
@@ -3778,8 +3980,230 @@ function BottomAskBar({
     };
   }
 
+
+  function localAiDatabaseContext(query: string) {
+    const words = Array.from(new Set(
+      query.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi)?.map((word) => word.toLowerCase()) || []
+    ));
+    const ranked = scopedLocalEntries()
+      .map((entry) => {
+        const haystack = (entry.title + " " + entry.category + " " + entry.content).toLowerCase();
+        const score = words.reduce((total, word) => total + (haystack.includes(word) ? 1 : 0), 0);
+        return { entry, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .filter((item, index) => item.score > 0 || index < 4)
+      .slice(0, 10);
+
+    let used = 0;
+    const chunks: string[] = [];
+    const refs: Array<{ id: string; title: string; category: string }> = [];
+
+    for (const { entry } of ranked) {
+      const chunk = ("[" + entry.title + " · " + entry.category + "]\n" + entry.content).trim();
+      if (!chunk) continue;
+      const remaining = 18000 - used;
+      if (remaining <= 0) break;
+      const clipped = chunk.slice(0, remaining);
+      chunks.push(clipped);
+      refs.push({ id: entry.id, title: entry.title, category: entry.category });
+      used += clipped.length;
+    }
+
+    return { context: chunks.join("\n\n---\n\n"), refs };
+  }
+
+  async function askLocalOpenAI(query: string) {
+    const config = getSessionLocalAiConfig();
+    if (!config.endpoint) {
+      throw new Error("Local AI belum terhubung. Buka + Plugin lalu hubungkan LM Studio, Ollama, atau endpoint OpenAI-compatible.");
+    }
+    if (selectedSources.includes("web")) {
+      throw new Error("Web Search Ruang Belajar tidak dijalankan oleh model lokal. Pilih model cloud untuk memakai Web.");
+    }
+
+    const useAi = selectedSources.includes("ai");
+    const useDatabase = selectedSources.includes("database");
+    const database = useDatabase ? localAiDatabaseContext(query) : { context: "", refs: [] as Array<{ id: string; title: string; category: string }> };
+
+    if (useDatabase && !useAi && !database.context) {
+      return {
+        text: "Materi ini belum tersedia di database.",
+        refs: database.refs,
+        model: providerModelId(aiSelection.model),
+      };
+    }
+
+    const rules = [
+      "Anda adalah tutor Ruang Belajar.",
+      "Sumber dipilih user:",
+      "- AI: " + (useAi ? "AKTIF" : "TIDAK"),
+      "- Database: " + (useDatabase ? "AKTIF" : "TIDAK"),
+      "- Web: TIDAK",
+      "",
+      useAi
+        ? "Anda boleh memakai pengetahuan internal model."
+        : "Jangan gunakan pengetahuan internal model sebagai sumber fakta. Jawab hanya dari Database yang diberikan.",
+      useDatabase
+        ? "Gunakan Database pribadi di bawah sebagai sumber."
+        : "Jangan mengklaim memakai Database karena Database tidak dipilih.",
+      "Jawab jelas, ringkas, dan terstruktur.",
+    ];
+
+    if (useDatabase && !useAi) {
+      rules.push('Jika Database tidak cukup, jawab persis: "Materi ini belum tersedia di database."');
+    }
+
+    const prompt = [
+      rules.join("\n"),
+      "",
+      "PERTANYAAN:",
+      query,
+      useDatabase ? "\nDATABASE PRIBADI:\n" + (database.context || "(kosong)") : "",
+    ].join("\n");
+
+    const base = config.endpoint.replace(/\/+$/, "");
+    const messages: any[] = [
+      { role: "system", content: "Ikuti instruksi sumber Ruang Belajar dengan ketat." },
+      { role: "user", content: prompt },
+    ];
+
+    let mcp: McpConfig | null = null;
+    try {
+      const savedMcp = getSessionMcpConfig();
+      if (savedMcp.url) mcp = await ensureMcpSession(savedMcp);
+    } catch {
+      mcp = null;
+    }
+
+    const toolMap = new Map<string, McpTool>();
+    const toolDefinitions = (mcp?.tools || []).slice(0, 40).map((tool, index) => {
+      const safe =
+        ("mcp_" + index + "_" + tool.name)
+          .replace(/[^a-zA-Z0-9_-]/g, "_")
+          .slice(0, 64);
+      toolMap.set(safe, tool);
+      return {
+        type: "function",
+        function: {
+          name: safe,
+          description: tool.description || ("MCP tool: " + tool.name),
+          parameters:
+            tool.inputSchema && typeof tool.inputSchema === "object"
+              ? tool.inputSchema
+              : { type: "object", properties: {} },
+        },
+      };
+    });
+
+    async function localCompletion(includeTools: boolean) {
+      let response: Response;
+      try {
+        response = await fetch(base + "/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(config.apiKey ? { Authorization: "Bearer " + config.apiKey } : {}),
+          },
+          body: JSON.stringify({
+            model: providerModelId(aiSelection.model),
+            messages,
+            stream: false,
+            ...(includeTools && toolDefinitions.length
+              ? { tools: toolDefinitions, tool_choice: "auto" }
+              : {}),
+          }),
+        });
+      } catch {
+        throw new Error(
+          "Browser tidak dapat menjangkau Local AI. Pastikan server aktif dan CORS mengizinkan origin https://web-fzalmajid.vercel.app."
+        );
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (includeTools && toolDefinitions.length) {
+          return localCompletion(false);
+        }
+        throw new Error(
+          String(data?.error?.message || data?.error || "Local AI gagal memproses request.")
+        );
+      }
+      return data;
+    }
+
+    let data = await localCompletion(true);
+
+    for (let round = 0; round < 2; round++) {
+      const assistant = data?.choices?.[0]?.message;
+      const toolCalls = Array.isArray(assistant?.tool_calls) ? assistant.tool_calls.slice(0, 4) : [];
+      if (!toolCalls.length || !mcp) break;
+
+      messages.push({
+        role: "assistant",
+        content: assistant?.content || "",
+        tool_calls: toolCalls,
+      });
+
+      for (const toolCall of toolCalls) {
+        const exposedName = String(toolCall?.function?.name || "");
+        const original = toolMap.get(exposedName);
+        if (!original) continue;
+
+        let args: Record<string, any> = {};
+        try {
+          const raw = String(toolCall?.function?.arguments || "{}");
+          args = JSON.parse(raw);
+        } catch {}
+
+        let result: any;
+        try {
+          const called = await mcpRpc(
+            mcp.url,
+            mcp.token,
+            "tools/call",
+            { name: original.name, arguments: args },
+            mcp.sessionId
+          );
+          mcp.sessionId = called.sessionId || mcp.sessionId;
+          window.sessionStorage.setItem("rb-mcp-session", mcp.sessionId);
+          result = called.result;
+        } catch (error: any) {
+          result = { error: error?.message || "MCP tool gagal dijalankan." };
+        }
+
+        messages.push({
+          role: "tool",
+          tool_call_id: String(toolCall?.id || exposedName),
+          content: JSON.stringify(result).slice(0, 16000),
+        });
+      }
+
+      data = await localCompletion(true);
+    }
+
+    const content = data?.choices?.[0]?.message?.content;
+    const text =
+      typeof content === "string"
+        ? content.trim()
+        : Array.isArray(content)
+          ? content.map((part: any) => String(part?.text || part?.content || "")).join("\n").trim()
+          : "";
+
+    if (!text) throw new Error("Local AI terhubung tetapi tidak mengembalikan teks.");
+
+    return {
+      text,
+      refs: database.refs,
+      model: providerModelId(aiSelection.model),
+    };
+  }
+
   function toggleSource(source: SourceKind) {
+    const provider = modelProvider(aiSelection.model);
     if (source !== "database" && aiSelection.model === "local") {
+      setAiSelection(defaultSelection("gemini-2.5-flash-lite", "chat"));
+    } else if (source === "web" && provider === "local-openai") {
       setAiSelection(defaultSelection("gemini-2.5-flash-lite", "chat"));
     }
 
@@ -3820,6 +4244,20 @@ function BottomAskBar({
       setAnswerModel("Browser / Local");
       setSources(local.refs);
       setBusy(false);
+      return;
+    }
+
+    if (modelProvider(aiSelection.model) === "local-openai") {
+      try {
+        const local = await askLocalOpenAI(question.trim());
+        setAnswer(local.text);
+        setAnswerModel(local.model + " · Local");
+        setSources(local.refs);
+      } catch (error: any) {
+        setAnswer(error?.message || "Local AI gagal menjawab.");
+      } finally {
+        setBusy(false);
+      }
       return;
     }
 
@@ -4204,8 +4642,26 @@ function GeminiAccountConnection({ session }: { session: Session }) {
             </div>
 
             <div className="notice">
-              Google AI Pro di aplikasi Gemini dan quota Gemini API adalah layanan berbeda. Connector ini membuat Ruang Belajar memakai
-              quota <strong>Google Cloud / Gemini API project milik user</strong>, bukan quota project pusat Ruang Belajar.
+              Connector ini memakai <strong>Google Cloud / Gemini API project milik user</strong>.
+              Jika akun punya Google AI Pro/Ultra, manfaat Developer Program dapat memberi kredit Cloud bulanan yang bisa diterapkan
+              ke billing account user. Setelah kredit aktif, project yang sama dapat dipakai Ruang Belajar.
+            </div>
+
+            <div className="proCreditBox">
+              <div>
+                <strong>Punya Google AI Pro / Ultra?</strong>
+                <small>
+                  Klaim manfaat Google Developer Program, terapkan kredit Cloud ke billing account, lalu kembali dan pilih Project ID yang sama.
+                </small>
+              </div>
+              <a
+                className="ghost proCreditLink"
+                href="https://developers.google.com/profile/u/me"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Aktifkan kredit Pro
+              </a>
             </div>
 
             <div className="googleConnectPrimary">
@@ -4294,6 +4750,324 @@ function GeminiAccountConnection({ session }: { session: Session }) {
             </details>
 
             {connected && <button className="ghost" onClick={disconnect}>Putuskan koneksi Gemini sendiri</button>}
+            {message && <div className="notice">{message}</div>}
+          </section>
+        </div>
+      )}
+    </>
+  );
+}
+
+function LocalAiConnection() {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<LocalAiKind>("lmstudio");
+  const [endpoint, setEndpoint] = useState(localAiPresetEndpoint("lmstudio"));
+  const [apiKey, setApiKey] = useState("");
+  const [models, setModels] = useState<string[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const saved = getSessionLocalAiConfig();
+    setKind(saved.kind);
+    setEndpoint(saved.endpoint || localAiPresetEndpoint(saved.kind));
+    setApiKey(saved.apiKey);
+    setModels(saved.models);
+    setConnected(Boolean(saved.endpoint && saved.models.length));
+  }, []);
+
+  function chooseKind(next: LocalAiKind) {
+    setKind(next);
+    const preset = localAiPresetEndpoint(next);
+    if (preset) setEndpoint(preset);
+    if (next === "custom" && endpoint === localAiPresetEndpoint(kind)) setEndpoint("");
+  }
+
+  async function connect() {
+    const base = endpoint.trim().replace(/\/+$/, "");
+    if (!base) {
+      setMessage("Masukkan endpoint OpenAI-compatible.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(base + "/models", {
+        method: "GET",
+        headers: apiKey.trim() ? { Authorization: "Bearer " + apiKey.trim() } : {},
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(data?.error?.message || data?.error || "Endpoint tidak dapat membaca daftar model."));
+      }
+
+      const available = Array.isArray(data?.data)
+        ? data.data.map((item: any) => String(item?.id || "").trim()).filter(Boolean)
+        : [];
+
+      if (!available.length) {
+        throw new Error("Endpoint terhubung, tetapi /models tidak mengembalikan model.");
+      }
+
+      window.sessionStorage.setItem("rb-local-ai-kind", kind);
+      window.sessionStorage.setItem("rb-local-ai-endpoint", base);
+      if (apiKey.trim()) window.sessionStorage.setItem("rb-local-ai-key", apiKey.trim());
+      else window.sessionStorage.removeItem("rb-local-ai-key");
+      setStoredModelIds("rb-local-ai-models", available);
+      setModels(available);
+      setConnected(true);
+      emitPluginChange();
+      setMessage(
+        "Terhubung langsung dari browser ke perangkat/endpoint user. " +
+          available.length +
+          " model tersedia di Choose Model."
+      );
+    } catch (error: any) {
+      setConnected(false);
+      setMessage(
+        (error?.message || "Local AI belum dapat dihubungkan.") +
+          " Pastikan server aktif dan mengizinkan akses browser (CORS) dari Ruang Belajar."
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function disconnect() {
+    window.sessionStorage.removeItem("rb-local-ai-kind");
+    window.sessionStorage.removeItem("rb-local-ai-endpoint");
+    window.sessionStorage.removeItem("rb-local-ai-key");
+    window.sessionStorage.removeItem("rb-local-ai-models");
+    setModels([]);
+    setConnected(false);
+    emitPluginChange();
+    setMessage("Local AI sudah diputus.");
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className={connected ? "geminiConnect connected" : "geminiConnect"}
+        onClick={() => setOpen(true)}
+      >
+        {connected ? "Terhubung ✓" : "Hubungkan lokal"}
+      </button>
+
+      {open && (
+        <div className="sheetBackdrop" onMouseDown={() => setOpen(false)}>
+          <section className="addSheet geminiConnectSheet" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <div>
+                <p className="eyebrow">LOCAL AI</p>
+                <h2>AI di perangkat user</h2>
+              </div>
+              <button className="closeBtn" onClick={() => setOpen(false)}>×</button>
+            </div>
+
+            <div className="notice">
+              Ruang Belajar menghubungi endpoint ini <strong>langsung dari browser user</strong>.
+              Prompt tidak memakai quota Gemini/OpenAI pusat.
+            </div>
+
+            <div className="localProviderTabs">
+              {([
+                ["lmstudio", "LM Studio"],
+                ["ollama", "Ollama"],
+                ["custom", "Custom"],
+              ] as Array<[LocalAiKind, string]>).map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={kind === value ? "active" : ""}
+                  onClick={() => chooseKind(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <label className="geminiKeyField">
+              OpenAI-compatible base URL
+              <input
+                type="text"
+                value={endpoint}
+                onChange={(e) => setEndpoint(e.target.value)}
+                placeholder="http://localhost:1234/v1"
+                autoComplete="off"
+              />
+            </label>
+
+            <label className="geminiKeyField">
+              API key (opsional)
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Kosongkan jika local server tidak memakai key"
+                autoComplete="off"
+              />
+            </label>
+
+            {!!models.length && (
+              <div className="localModelPreview">
+                <small>MODEL TERDETEKSI</small>
+                <span>{models.slice(0, 6).join(" · ")}{models.length > 6 ? " · +" + (models.length - 6) : ""}</span>
+              </div>
+            )}
+
+            <div className="geminiConnectActions">
+              <button className="primary" disabled={busy || !endpoint.trim()} onClick={connect}>
+                {busy ? "Mendeteksi..." : connected ? "Deteksi ulang" : "Hubungkan"}
+              </button>
+              {connected && <button className="ghost" onClick={disconnect}>Putuskan</button>}
+            </div>
+
+            {message && <div className="notice">{message}</div>}
+          </section>
+        </div>
+      )}
+    </>
+  );
+}
+
+function McpConnection() {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [tools, setTools] = useState<McpTool[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const saved = getSessionMcpConfig();
+    setUrl(saved.url);
+    setToken(saved.token);
+    setTools(saved.tools);
+    setConnected(Boolean(saved.url && saved.tools.length));
+  }, []);
+
+  async function connect() {
+    const target = url.trim();
+    if (!target) {
+      setMessage("Masukkan URL MCP Streamable HTTP.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    try {
+      const base: McpConfig = {
+        url: target,
+        token: token.trim(),
+        sessionId: "",
+        tools: [],
+      };
+      const ready = await ensureMcpSession(base);
+
+      window.sessionStorage.setItem("rb-mcp-url", target);
+      if (token.trim()) window.sessionStorage.setItem("rb-mcp-token", token.trim());
+      else window.sessionStorage.removeItem("rb-mcp-token");
+      window.sessionStorage.setItem("rb-mcp-session", ready.sessionId);
+      window.sessionStorage.setItem("rb-mcp-tools", JSON.stringify(ready.tools));
+      setTools(ready.tools);
+      setConnected(true);
+      emitPluginChange();
+      setMessage(
+        "MCP terhubung. " +
+          ready.tools.length +
+          " tool tersedia untuk model local/OpenAI-compatible yang mendukung function calling."
+      );
+    } catch (error: any) {
+      setConnected(false);
+      setMessage(
+        (error?.message || "MCP belum dapat dihubungkan.") +
+          " Pastikan server memakai Streamable HTTP dan mengizinkan CORS dari Ruang Belajar."
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function disconnect() {
+    window.sessionStorage.removeItem("rb-mcp-url");
+    window.sessionStorage.removeItem("rb-mcp-token");
+    window.sessionStorage.removeItem("rb-mcp-session");
+    window.sessionStorage.removeItem("rb-mcp-tools");
+    setTools([]);
+    setConnected(false);
+    emitPluginChange();
+    setMessage("MCP sudah diputus.");
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className={connected ? "geminiConnect connected" : "geminiConnect"}
+        onClick={() => setOpen(true)}
+      >
+        {connected ? "MCP ✓" : "Hubungkan MCP"}
+      </button>
+
+      {open && (
+        <div className="sheetBackdrop" onMouseDown={() => setOpen(false)}>
+          <section className="addSheet geminiConnectSheet" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <div>
+                <p className="eyebrow">MCP</p>
+                <h2>Model Context Protocol</h2>
+              </div>
+              <button className="closeBtn" onClick={() => setOpen(false)}>×</button>
+            </div>
+
+            <div className="notice">
+              Hubungkan MCP server milik user langsung dari browser. Ruang Belajar akan membaca <strong>tools/list</strong> dan
+              model lokal yang mendukung function calling dapat memanggil tool tersebut.
+            </div>
+
+            <label className="geminiKeyField">
+              Streamable HTTP URL
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://mcp.example.com/mcp"
+                autoComplete="off"
+              />
+            </label>
+
+            <label className="geminiKeyField">
+              Bearer token (opsional)
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Kosongkan jika server tidak memerlukan token"
+                autoComplete="off"
+              />
+            </label>
+
+            {!!tools.length && (
+              <div className="localModelPreview">
+                <small>TOOLS TERDETEKSI</small>
+                <span>
+                  {tools.slice(0, 8).map((tool) => tool.name).join(" · ")}
+                  {tools.length > 8 ? " · +" + (tools.length - 8) : ""}
+                </span>
+              </div>
+            )}
+
+            <div className="geminiConnectActions">
+              <button className="primary" disabled={busy || !url.trim()} onClick={connect}>
+                {busy ? "Menghubungkan..." : connected ? "Hubungkan ulang" : "Hubungkan"}
+              </button>
+              {connected && <button className="ghost" onClick={disconnect}>Putuskan</button>}
+            </div>
+
             {message && <div className="notice">{message}</div>}
           </section>
         </div>

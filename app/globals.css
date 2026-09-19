@@ -2482,3 +2482,110 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     grid-template-columns:1fr;
   }
 }
+
+
+.proCreditBox{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:11px 12px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--soft);
+}
+.proCreditBox>div{
+  display:grid;
+  gap:3px;
+  min-width:0;
+}
+.proCreditBox strong{
+  font-size:.78rem;
+}
+.proCreditBox small{
+  color:var(--muted);
+  font-size:.67rem;
+  line-height:1.4;
+}
+.proCreditLink{
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+@media(max-width:520px){
+  .proCreditBox{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .proCreditLink{
+    text-align:center;
+  }
+}
+
+
+/* Local AI + MCP plugin controls */
+.pluginSection{
+  display:grid;
+  gap:7px;
+}
+.pluginSection + .pluginSection{
+  margin-top:14px;
+  padding-top:12px;
+  border-top:1px solid var(--line);
+}
+.pluginSectionTitle{
+  font-size:.62rem;
+  font-weight:950;
+  letter-spacing:.1em;
+  color:var(--muted);
+}
+.pluginGridTwo{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+.localProviderTabs{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:6px;
+  padding:4px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--soft);
+}
+.localProviderTabs button{
+  min-height:34px;
+  padding:7px 9px;
+  border:0;
+  border-radius:9px;
+  background:transparent;
+  color:var(--muted);
+  font-size:.7rem;
+  font-weight:850;
+}
+.localProviderTabs button.active{
+  background:var(--card);
+  color:var(--ink);
+  box-shadow:0 1px 5px rgba(20,30,27,.08);
+}
+.localModelPreview{
+  display:grid;
+  gap:4px;
+  padding:9px 10px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--soft);
+}
+.localModelPreview small{
+  font-size:.61rem;
+  font-weight:900;
+  letter-spacing:.08em;
+  color:var(--muted);
+}
+.localModelPreview span{
+  font-size:.68rem;
+  line-height:1.4;
+  overflow-wrap:anywhere;
+}
+@media(max-width:760px){
+  .pluginGridTwo{
+    grid-template-columns:1fr;
+  }
+}

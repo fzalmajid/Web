@@ -1,5 +1,5 @@
 export type AiContext = "general" | "transcription" | "chat";
-export type AiProvider = "local" | "gemini" | "openai" | "anthropic";
+export type AiProvider = "local" | "local-openai" | "gemini" | "openai" | "anthropic";
 
 export type AiModelId =
   | "local"
@@ -18,7 +18,8 @@ export type AiModelId =
   | "anthropic:claude-fable-5"
   | "anthropic:claude-opus-5"
   | "anthropic:claude-sonnet-5"
-  | "anthropic:claude-haiku-4-5-20251001";
+  | "anthropic:claude-haiku-4-5-20251001"
+  | `local-openai:${string}`;
 
 export type AiEffort =
   | "none"
@@ -288,22 +289,39 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
   },
 ];
 
-export function modelCapability(model: AiModelId) {
+export function modelCapability(model: AiModelId): AiModelCapability {
+  if (model.startsWith("local-openai:")) {
+    const localModel = model.slice("local-openai:".length) || "Local model";
+    return {
+      id: model,
+      provider: "local-openai",
+      label: localModel,
+      subtitle: "Perangkat user · OpenAI-compatible",
+      contexts: ["chat"],
+      efforts: [],
+      defaultEffort: "none",
+      freeTier: true,
+      freeWeb: false,
+    };
+  }
   return AI_MODEL_CATALOG.find((item) => item.id === model) || AI_MODEL_CATALOG[0];
 }
 
 export function modelProvider(model: AiModelId): AiProvider {
+  if (model.startsWith("local-openai:")) return "local-openai";
   return modelCapability(model).provider;
 }
 
 export function providerModelId(model: AiModelId) {
   if (model.startsWith("openai:")) return model.slice("openai:".length);
   if (model.startsWith("anthropic:")) return model.slice("anthropic:".length);
+  if (model.startsWith("local-openai:")) return model.slice("local-openai:".length);
   return model;
 }
 
 export function normalizeAiModel(value: unknown, context: AiContext = "general"): AiModelId {
   const candidate = String(value || "") as AiModelId;
+  if (context === "chat" && candidate.startsWith("local-openai:")) return candidate;
   const found = AI_MODEL_CATALOG.find(
     (item) => item.id === candidate && item.contexts.includes(context)
   );
