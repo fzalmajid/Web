@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, checkAiCredits, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
 
     if (updateError) throw updateError;
 
-    const aiUsage = await consumeAiCredits(supabase, "transcription", aiMode);
+    const aiUsage = await finalizeAiCredits(supabase, "transcription", aiMode);
 
     return NextResponse.json({
       rawTranscript,
