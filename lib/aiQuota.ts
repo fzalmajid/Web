@@ -36,7 +36,7 @@ export async function recordAiTokenUsage(
   supabase: SupabaseClient,
   usage?: ActualGeminiUsage | null,
   model = "unknown",
-  provider: "shared-api-key" | "user-api-key" = "shared-api-key"
+  provider: "shared-api-key" | "user-api-key" | "user-google-oauth" = "shared-api-key"
 ) {
   if (!usage) return null;
   const total = Math.max(0, Math.round(Number(usage.totalTokens || 0)));
