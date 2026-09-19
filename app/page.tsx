@@ -2384,7 +2384,9 @@ function RecordingPage({
 
         if (message.setupComplete) {
           liveReadyRef.current = true;
+          stopBrowserSpeech();
           setLiveEngine("Gemini 3.5 Transcribe Live");
+          setStatus("Sedang merekam · Gemini Live aktif.");
           startAudioPump(stream);
         }
 
@@ -2412,7 +2414,7 @@ function RecordingPage({
 
     ws.onerror = () => {
       if (!recordingRef.current || liveStoppingRef.current) return;
-      setLiveEngine("Gemini Live gagal · Browser fallback");
+      setLiveEngine("Live browser");
       stopAudioPump();
       startBrowserSpeech(true);
     };
@@ -2421,7 +2423,7 @@ function RecordingPage({
       liveReadyRef.current = false;
       stopAudioPump();
       if (recordingRef.current && !liveStoppingRef.current) {
-        setLiveEngine("Gemini Live terputus · Browser fallback");
+        setLiveEngine("Live browser");
         startBrowserSpeech(true);
       }
     };
@@ -2509,15 +2511,25 @@ function RecordingPage({
       if (aiSelection.model === "local") {
         const started = startBrowserSpeech(false);
         if (!started) {
-          setStatus("Sedang merekam. Transkrip browser tidak tersedia; audio tetap disimpan.");
+          setStatus("Sedang merekam · audio tersimpan. Transkrip live browser tidak tersedia.");
         }
       } else {
+        const browserStarted = startBrowserSpeech(true);
+        setStatus(
+          browserStarted
+            ? "Sedang merekam · transkrip live aktif."
+            : "Sedang merekam · audio tersimpan. Menyiapkan Gemini Live..."
+        );
         void startGeminiLiveSpeech(stream).catch((error: any) => {
           console.warn("[GEMINI_LIVE_START_FAILED]", error?.message || "unknown");
           if (!recordingRef.current) return;
-          setStatus("Sedang merekam. Gemini Live tidak tersedia, memakai fallback browser.");
-          const started = startBrowserSpeech(true);
-          if (!started) setLiveEngine("Live transcript tidak tersedia · final transcript tetap dicoba setelah Stop");
+          const started = browserFallbackStartedRef.current || startBrowserSpeech(true);
+          setLiveEngine(started ? "Live browser" : "Final transcript setelah Stop");
+          setStatus(
+            started
+              ? "Sedang merekam · transkrip live aktif."
+              : "Sedang merekam · audio tersimpan. Final transcript diproses setelah Stop."
+          );
         });
       }
     } catch (error: any) {
@@ -4488,10 +4500,21 @@ function GeminiAccountConnection({ session }: { session: Session }) {
 
       if (!nextProjects.length) {
         setMessage(
-          "Akun Google terhubung. Google tidak mengembalikan daftar project aktif. Masukkan Project ID Google Cloud di bawah."
+          "Akun Google sudah terhubung. Google belum mengembalikan project yang bisa dipakai otomatis; Project ID tetap tersedia sebagai fallback."
         );
       } else {
-        setMessage("Akun Google terhubung. Pilih project yang akan memakai quota Gemini milik user.");
+        const oauthProjectNumber = String(GOOGLE_OAUTH_CLIENT_ID).split("-")[0];
+        const preferred =
+          nextProjects.find((project: GoogleProject) => project.projectNumber === oauthProjectNumber) ||
+          (nextProjects.length === 1 ? nextProjects[0] : null);
+
+        if (preferred?.projectId) {
+          setMessage("Akun Google terhubung. Menyiapkan Gemini otomatis...");
+          await chooseGoogleProject(preferred.projectId);
+          return;
+        }
+
+        setMessage("Akun Google terhubung. Pilih salah satu project Google Cloud yang tersedia.");
       }
     } catch (error: any) {
       setMessage(error?.message || "Gagal menghubungkan Google.");
@@ -4785,51 +4808,84 @@ function LocalAiConnection() {
   }
 
   async function connect() {
-    const base = endpoint.trim().replace(/\/+$/, "");
-    if (!base) {
+    setBusy(true);
+    setMessage("");
+
+    const entered = endpoint.trim().replace(/\/+$/, "");
+    const candidates =
+      kind === "lmstudio"
+        ? Array.from(new Set([entered, "http://127.0.0.1:1234/v1", "http://localhost:1234/v1"].filter(Boolean)))
+        : kind === "ollama"
+          ? Array.from(new Set([entered, "http://127.0.0.1:11434/v1", "http://localhost:11434/v1"].filter(Boolean)))
+          : entered
+            ? [entered]
+            : [];
+
+    if (!candidates.length) {
+      setBusy(false);
       setMessage("Masukkan endpoint OpenAI-compatible.");
       return;
     }
 
-    setBusy(true);
-    setMessage("");
+    let lastError = "";
     try {
-      const response = await fetch(base + "/models", {
-        method: "GET",
-        headers: apiKey.trim() ? { Authorization: "Bearer " + apiKey.trim() } : {},
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(String(data?.error?.message || data?.error || "Endpoint tidak dapat membaca daftar model."));
+      for (const base of candidates) {
+        try {
+          const controller = new AbortController();
+          const timer = window.setTimeout(() => controller.abort(), 2200);
+          const response = await fetch(base + "/models", {
+            method: "GET",
+            headers: apiKey.trim() ? { Authorization: "Bearer " + apiKey.trim() } : {},
+            signal: controller.signal,
+          });
+          window.clearTimeout(timer);
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            lastError = String(data?.error?.message || data?.error || "Endpoint menolak request.");
+            continue;
+          }
+
+          const available = Array.isArray(data?.data)
+            ? data.data.map((item: any) => String(item?.id || "").trim()).filter(Boolean)
+            : [];
+          if (!available.length) {
+            lastError = "Endpoint terhubung tetapi tidak mengembalikan model.";
+            continue;
+          }
+
+          window.sessionStorage.setItem("rb-local-ai-kind", kind);
+          window.sessionStorage.setItem("rb-local-ai-endpoint", base);
+          if (apiKey.trim()) window.sessionStorage.setItem("rb-local-ai-key", apiKey.trim());
+          else window.sessionStorage.removeItem("rb-local-ai-key");
+          setStoredModelIds("rb-local-ai-models", available);
+          setEndpoint(base);
+          setModels(available);
+          setConnected(true);
+          emitPluginChange();
+          setMessage(
+            "Terhubung otomatis ke " + base + ". " +
+              available.length +
+              " model tersedia di Choose Model."
+          );
+          return;
+        } catch (error: any) {
+          lastError = error?.name === "AbortError" ? "Timeout saat mendeteksi local server." : String(error?.message || "Failed to fetch");
+        }
       }
 
-      const available = Array.isArray(data?.data)
-        ? data.data.map((item: any) => String(item?.id || "").trim()).filter(Boolean)
-        : [];
-
-      if (!available.length) {
-        throw new Error("Endpoint terhubung, tetapi /models tidak mengembalikan model.");
-      }
-
-      window.sessionStorage.setItem("rb-local-ai-kind", kind);
-      window.sessionStorage.setItem("rb-local-ai-endpoint", base);
-      if (apiKey.trim()) window.sessionStorage.setItem("rb-local-ai-key", apiKey.trim());
-      else window.sessionStorage.removeItem("rb-local-ai-key");
-      setStoredModelIds("rb-local-ai-models", available);
-      setModels(available);
-      setConnected(true);
-      emitPluginChange();
-      setMessage(
-        "Terhubung langsung dari browser ke perangkat/endpoint user. " +
-          available.length +
-          " model tersedia di Choose Model."
-      );
-    } catch (error: any) {
       setConnected(false);
-      setMessage(
-        (error?.message || "Local AI belum dapat dihubungkan.") +
-          " Pastikan server aktif dan mengizinkan akses browser (CORS) dari Ruang Belajar."
-      );
+      if (kind === "lmstudio") {
+        setMessage(
+          "LM Studio belum bisa diakses browser. Di LM Studio buka Developer → Start Server lalu aktifkan Enable CORS. " +
+          "Atau jalankan: lms server start --cors"
+        );
+      } else if (kind === "ollama") {
+        setMessage(
+          "Ollama belum mengizinkan origin Ruang Belajar. Tambahkan https://web-fzalmajid.vercel.app ke OLLAMA_ORIGINS lalu restart Ollama."
+        );
+      } else {
+        setMessage((lastError || "Endpoint belum dapat dihubungkan.") + " Pastikan endpoint aktif dan CORS mengizinkan Ruang Belajar.");
+      }
     } finally {
       setBusy(false);
     }

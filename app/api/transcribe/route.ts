@@ -20,6 +20,197 @@ function normalizeMime(value: string) {
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+
+function geminiAuthHeaders(auth: ReturnType<typeof geminiUserAuthFromHeaders>): Record<string, string> {
+  const key = auth.apiKey || (!auth.accessToken ? process.env.GEMINI_API_KEY : undefined);
+  if (auth.accessToken) {
+    return {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + auth.accessToken,
+      "x-goog-user-project": auth.projectId || "",
+    };
+  }
+  if (!key) throw Object.assign(new Error("Gemini belum dikonfigurasi."), { statusCode: 500 });
+  return {
+    "Content-Type": "application/json",
+    "x-goog-api-key": key,
+  };
+}
+
+function usageFromProvider(data: any) {
+  const usage = data?.usageMetadata || {};
+  const inputTokens = Number(usage.promptTokenCount || 0);
+  const outputTokens = Number(usage.candidatesTokenCount || usage.responseTokenCount || 0);
+  const thoughtsTokens = Number(usage.thoughtsTokenCount || 0);
+  const totalTokens = Number(usage.totalTokenCount || inputTokens + outputTokens + thoughtsTokens);
+  return { inputTokens, outputTokens, thoughtsTokens, totalTokens };
+}
+
+function textFromGenerateContent(data: any) {
+  return (Array.isArray(data?.candidates) ? data.candidates : [])
+    .flatMap((candidate: any) => Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [])
+    .map((part: any) => String(part?.text || ""))
+    .join("")
+    .trim();
+}
+
+async function uploadGeminiAudio(
+  bytes: Buffer,
+  mimeType: string,
+  auth: ReturnType<typeof geminiUserAuthFromHeaders>
+) {
+  const headers = geminiAuthHeaders(auth);
+  const start = await fetch("https://generativelanguage.googleapis.com/upload/v1beta/files", {
+    method: "POST",
+    headers: {
+      ...headers,
+      "X-Goog-Upload-Protocol": "resumable",
+      "X-Goog-Upload-Command": "start",
+      "X-Goog-Upload-Header-Content-Length": String(bytes.byteLength),
+      "X-Goog-Upload-Header-Content-Type": mimeType,
+    },
+    body: JSON.stringify({ file: { display_name: "ruang-belajar-recording" } }),
+  });
+
+  if (!start.ok) {
+    const data = await start.json().catch(() => ({}));
+    throw Object.assign(
+      new Error(String(data?.error?.message || "Gemini Files API gagal menyiapkan upload audio.")),
+      { statusCode: start.status }
+    );
+  }
+
+  const uploadUrl = start.headers.get("x-goog-upload-url");
+  if (!uploadUrl) {
+    throw Object.assign(new Error("Gemini Files API tidak mengembalikan upload URL."), { statusCode: 502 });
+  }
+
+  const upload = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      "Content-Length": String(bytes.byteLength),
+      "X-Goog-Upload-Offset": "0",
+      "X-Goog-Upload-Command": "upload, finalize",
+      "Content-Type": mimeType,
+    },
+    body: new Uint8Array(bytes),
+  });
+
+  const info = await upload.json().catch(() => ({}));
+  if (!upload.ok || !info?.file?.uri) {
+    throw Object.assign(
+      new Error(String(info?.error?.message || "Gemini Files API gagal mengupload audio.")),
+      { statusCode: upload.status || 502 }
+    );
+  }
+
+  return {
+    uri: String(info.file.uri),
+    name: String(info.file.name || ""),
+  };
+}
+
+async function rawGenerateWithFile(
+  model: string,
+  fileUri: string,
+  mimeType: string,
+  auth: ReturnType<typeof geminiUserAuthFromHeaders>,
+  dedicatedTranscribe: boolean
+) {
+  const contents = dedicatedTranscribe
+    ? [{ parts: [{ fileData: { fileUri, mimeType } }] }]
+    : [{
+        parts: [
+          {
+            text:
+              "Transkripsikan audio berikut secara VERBATIM dalam bahasa yang terdengar. " +
+              "Tulis sedekat mungkin kata demi kata. Jangan merangkum atau menambah fakta. " +
+              "Rapikan tanda baca dan paragraf secukupnya.",
+          },
+          { fileData: { fileUri, mimeType } },
+        ],
+      }];
+
+  const response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/" +
+      encodeURIComponent(model) +
+      ":generateContent",
+    {
+      method: "POST",
+      headers: geminiAuthHeaders(auth),
+      body: JSON.stringify({
+        contents,
+        ...(dedicatedTranscribe
+          ? {
+              generationConfig: {
+                audioTranscriptionConfig: {
+                  languageCodes: ["id-ID"],
+                  mode: "VERBATIM",
+                },
+              },
+            }
+          : {}),
+      }),
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = String(data?.error?.message || "");
+    throw Object.assign(
+      new Error(message || "Model Gemini gagal mentranskripsikan audio."),
+      { statusCode: response.status, providerMessage: message }
+    );
+  }
+
+  const text = textFromGenerateContent(data);
+  if (!text) {
+    throw Object.assign(new Error("Model Gemini tidak mengembalikan transkrip audio."), { statusCode: 502 });
+  }
+
+  return { text, usage: usageFromProvider(data), model };
+}
+
+async function transcribeGeminiAudio(
+  bytes: Buffer,
+  mimeType: string,
+  auth: ReturnType<typeof geminiUserAuthFromHeaders>
+) {
+  const file = await uploadGeminiAudio(bytes, mimeType, auth);
+  const attempts = [
+    { model: "gemini-3.5-transcribe", dedicated: true },
+    { model: "gemini-3.8-flash", dedicated: false },
+    { model: "gemini-3.7-flash", dedicated: false },
+    { model: "gemini-3.6-flash", dedicated: false },
+    { model: "gemini-2.5-flash", dedicated: false },
+  ];
+
+  let lastError: any = null;
+  for (const attempt of attempts) {
+    try {
+      return await rawGenerateWithFile(attempt.model, file.uri, mimeType, auth, attempt.dedicated);
+    } catch (error: any) {
+      lastError = error;
+      const status = Number(error?.statusCode || 500);
+      const message = String(error?.providerMessage || error?.message || "");
+      const retryable =
+        status === 400 ||
+        status === 404 ||
+        status === 429 ||
+        status === 503 ||
+        /not available|not found|unsupported|high demand|overloaded|quota|invalid argument/i.test(message);
+      if (!retryable) break;
+    }
+  }
+
+  throw Object.assign(
+    new Error(
+      "Transkripsi Gemini final belum tersedia pada provider/project ini. Audio tetap tersimpan dan transkrip live/browser akan dipertahankan."
+    ),
+    { statusCode: Number(lastError?.statusCode || 503) }
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
     const token = bearer(req);
@@ -71,30 +262,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Rekaman maksimal 50 MB." }, { status: 413 });
     }
 
-    const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
+    const audioBytes = Buffer.from(await blob.arrayBuffer());
 
     const preflight = ownGemini ? null : await checkAiCredits(supabase, "transcription", aiMode);
     if (preflight && !preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
-    const rawResult = await geminiGenerateDetailed(
-      [
-        {
-          text:
-            "Transkripsikan audio berikut secara VERBATIM. Tulis apa yang benar-benar terdengar sedekat mungkin kata demi kata. Jangan mengoreksi istilah, jangan merangkum, jangan menambahkan fakta. Rapikan tanda baca dan paragraf secukupnya.",
-        },
-        { inlineData: { mimeType, data: base64 } },
-      ],
-      "Anda adalah mesin transkripsi. Jangan menjawab selain transkrip audio.",
-      {
-      models: modelPlanForSelection(aiSelection.model, aiMode, "audio"),
-      effort: aiSelection.effort,
-      apiKey: geminiAuth.apiKey,
-      accessToken: geminiAuth.accessToken,
-      projectId: geminiAuth.projectId,
-    }
-    );
+    const rawResult = await transcribeGeminiAudio(audioBytes, mimeType, geminiAuth);
     await recordAiTokenUsage(supabase, rawResult.usage, rawResult.model, geminiAuth.provider);
     const rawTranscript = rawResult.text;
 

@@ -15,6 +15,38 @@ function googleReason(data: any) {
   return String(data?.error?.status || "").trim();
 }
 
+
+const OAUTH_APP_PROJECT_NUMBER = "42957287889";
+
+async function searchProjects(googleToken: string) {
+  const response = await fetch(
+    "https://cloudresourcemanager.googleapis.com/v3/projects:search?pageSize=100&query=state%3AACTIVE",
+    {
+      headers: { Authorization: "Bearer " + googleToken },
+      cache: "no-store",
+    }
+  );
+  const data = await response.json().catch(() => ({}));
+  return { response, data };
+}
+
+async function tryEnableCloudResourceManager(googleToken: string) {
+  const response = await fetch(
+    "https://serviceusage.googleapis.com/v1/projects/" +
+      OAUTH_APP_PROJECT_NUMBER +
+      "/services/cloudresourcemanager.googleapis.com:enable",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + googleToken,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    }
+  );
+  return response.ok;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const token = bearer(req);
@@ -31,16 +63,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Google belum terhubung." }, { status: 400 });
     }
 
-    // Search is the correct API for "all projects this user can get", and does
-    // not require the user to have projects.list permission on an org/folder.
-    const response = await fetch(
-      "https://cloudresourcemanager.googleapis.com/v3/projects:search?pageSize=100&query=state%3AACTIVE",
-      {
-        headers: { Authorization: "Bearer " + googleToken },
-        cache: "no-store",
+    // Search projects the signed-in user can access. If the OAuth app project
+    // has not enabled Cloud Resource Manager yet, try enabling it once for the
+    // developer/owner account, then retry automatically.
+    let { response, data } = await searchProjects(googleToken);
+
+    if (!response.ok) {
+      const initialReason = googleReason(data);
+      const initialMessage = String(data?.error?.message || "");
+      const serviceDisabled =
+        /SERVICE_DISABLED/i.test(initialReason) ||
+        /has not been used|is disabled|enable it by visiting/i.test(initialMessage);
+
+      if (serviceDisabled) {
+        const enabled = await tryEnableCloudResourceManager(googleToken);
+        if (enabled) {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          const retried = await searchProjects(googleToken);
+          response = retried.response;
+          data = retried.data;
+        }
       }
-    );
-    const data = await response.json().catch(() => ({}));
+    }
 
     if (!response.ok) {
       const reason = googleReason(data);

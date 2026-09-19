@@ -6,6 +6,35 @@ function bearer(req: NextRequest) {
   return h.startsWith("Bearer ") ? h.slice(7) : "";
 }
 
+async function listGeminiModels(googleToken: string, projectId: string) {
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000", {
+    headers: {
+      Authorization: "Bearer " + googleToken,
+      "x-goog-user-project": projectId,
+    },
+    cache: "no-store",
+  });
+  const data = await response.json().catch(() => ({}));
+  return { response, data };
+}
+
+async function tryEnableGeminiApi(googleToken: string, projectId: string) {
+  const response = await fetch(
+    "https://serviceusage.googleapis.com/v1/projects/" +
+      encodeURIComponent(projectId) +
+      "/services/generativelanguage.googleapis.com:enable",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + googleToken,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    }
+  );
+  return response.ok;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const token = bearer(req);
@@ -23,13 +52,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Google token atau project belum dipilih." }, { status: 400 });
     }
 
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000", {
-      headers: {
-        Authorization: "Bearer " + googleToken,
-        "x-goog-user-project": projectId,
-      },
-    });
-    const data = await response.json().catch(() => ({}));
+    let { response, data } = await listGeminiModels(googleToken, projectId);
+
+    if (!response.ok) {
+      const initialMessage = String(data?.error?.message || "");
+      const apiDisabled = /SERVICE_DISABLED|has not been used|not enabled|is disabled/i.test(initialMessage);
+      if (apiDisabled) {
+        const enabled = await tryEnableGeminiApi(googleToken, projectId);
+        if (enabled) {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          const retried = await listGeminiModels(googleToken, projectId);
+          response = retried.response;
+          data = retried.data;
+        }
+      }
+    }
 
     if (!response.ok) {
       const providerMessage = String(data?.error?.message || "");
