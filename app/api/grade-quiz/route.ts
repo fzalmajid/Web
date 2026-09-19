@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -80,9 +80,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Database sumber kuis masih kosong." }, { status: 400 });
     }
 
-    const aiUsage = await consumeAiCredits(supabase, "study", aiMode);
-    if (!aiUsage.allowed) {
-      return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
+    const preflight = await checkAiCredits(supabase, "study", aiMode);
+    if (!preflight.allowed) {
+      return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
     const context = buildKnowledgeContext(
@@ -152,6 +152,7 @@ Aturan:
       };
     });
 
+    const aiUsage = await consumeAiCredits(supabase, "study", aiMode);
     return NextResponse.json({ results, aiUsage });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Gagal menilai jawaban." }, { status: 500 });
