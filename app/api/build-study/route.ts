@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, geminiModelsForMode, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
       ? Array.from(new Set(body.sourceNodeIds.map((value: unknown) => String(value)).filter(Boolean)))
       : [];
     const aiMode = normalizeAiMode(body.aiMode);
+    const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
     const ownGemini = Boolean(userGeminiKey);
     const studyInstruction = String(body.studyInstruction || "").trim().slice(0, 2000);
@@ -212,7 +214,11 @@ Aturan wajib:
 - Jangan bocorkan materi unit-unit berikutnya di unit sebelumnya.\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
       }],
       "Anda menyusun kurikulum belajar bertahap yang ketat pada sumber pengguna. Jangan mengarang fakta.",
-      { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
+      {
+      models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
+      effort: aiSelection.effort,
+      apiKey: userGeminiKey,
+    }
     );
     await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, ownGemini ? "user-api-key" : "shared-api-key");
     const raw = geminiResult.text;
