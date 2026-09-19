@@ -155,6 +155,11 @@ Aturan:
     const aiUsage = await finalizeAiCredits(supabase, "study", aiMode);
     return NextResponse.json({ results, aiUsage });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Gagal menilai jawaban." }, { status: 500 });
+    const status = Number(error?.statusCode || 500);
+    console.error("[API_GRADE_QUIZ_ERROR]", { name: error?.name, code: error?.code, status });
+    return NextResponse.json(
+      { error: error?.message || "Gagal menilai jawaban." },
+      { status: status >= 400 && status < 600 ? status : 500 }
+    );
   }
 }
