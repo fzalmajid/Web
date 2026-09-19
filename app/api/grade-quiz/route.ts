@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, checkAiCredits, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -152,7 +152,7 @@ Aturan:
       };
     });
 
-    const aiUsage = await consumeAiCredits(supabase, "study", aiMode);
+    const aiUsage = await finalizeAiCredits(supabase, "study", aiMode);
     return NextResponse.json({ results, aiUsage });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Gagal menilai jawaban." }, { status: 500 });
