@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
           apiKey: userGeminiKey,
         }
       );
-      await recordAiTokenUsage(supabase, extractionResult.usage, extractionResult.model);
+      await recordAiTokenUsage(supabase, extractionResult.usage, extractionResult.model, ownGemini ? "user-api-key" : "shared-api-key");
       rawText = extractionResult.text;
     }
 
@@ -194,7 +194,7 @@ Aturan:
       "Anda mengolah sumber belajar secara konservatif. Jangan mengarang fakta.",
       { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
     );
-    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model);
+    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model, ownGemini ? "user-api-key" : "shared-api-key");
     const structuredRaw = structuredResult.text;
 
     let structuredText = rawText;
