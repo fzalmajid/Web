@@ -1045,7 +1045,7 @@ function StudyPage({
 
   async function buildStudy() {
     if (!selectedSources.length) return alert("Pilih minimal satu Database.");
-    if (aiMode === "simple") return alert("Study terarah membutuhkan Gemini 3.6.");
+    if (aiMode === "simple") return alert("Study terarah membutuhkan mode Gemini. Pilih Instant, Medium, atau High.");
 
     setBuilding(true);
     const response = await fetch("/api/build-study", {
@@ -1331,7 +1331,7 @@ function StudyPage({
         <p className="eyebrow">STUDY</p>
         <h1>{node.emoji ? node.emoji + " " : ""}{node.title}</h1>
         <p className="muted">
-          Pilih Database yang ingin dipelajari. Gemini 3.6 menyusun urutan belajar,
+          Pilih Database yang ingin dipelajari. Model Gemini yang dipilih menyusun urutan belajar,
           membagi bab/subbab sesuai kompleksitas, lalu membuka materi berikutnya setelah recall benar.
         </p>
 
@@ -1393,7 +1393,7 @@ function StudyPage({
               placeholder='Contoh: "Saya mau fokus mempelajari aspek CPOB 2024 saja." Kosongkan jika ingin mempelajari seluruh materi dari Database terpilih.'
             />
             <small className="muted">
-              Jika diisi, Gemini 3.6 akan memakai instruksi ini saat memilih urutan bab/subbab dan merangkum materi.
+              Jika diisi, model Gemini yang aktif akan memakai instruksi ini saat memilih urutan bab/subbab dan merangkum materi.
             </small>
           </label>
 
@@ -1489,7 +1489,7 @@ function StudyPage({
           <div className="studyPulse" />
           <div>
             <strong>Sedang menyusun Study...</strong>
-            <p>Gemini 3.6 sedang menentukan urutan bab/subbab dan membuat recall quiz.</p>
+            <p>Gemini sedang menentukan urutan bab/subbab dan membuat recall quiz.</p>
           </div>
         </section>
       )}
@@ -2696,7 +2696,7 @@ function PracticePage({
       choices: isMcq ? choices : [],
       correct_answer: correctAnswer,
       explanation: isAi
-        ? "Dinilai Gemini 3.6 hanya berdasarkan Database."
+        ? "Dinilai model Gemini aktif hanya berdasarkan Database."
         : manualKind === "essay-fixed"
           ? "Essay dinilai lokal berdasarkan jawaban acuan."
           : "Kuis dibuat manual.",
@@ -2727,7 +2727,7 @@ function PracticePage({
 
     if (aiQuizzes.length) {
       if (aiMode === "simple") {
-        return alert("Soal yang dinilai AI membutuhkan Gemini 3.6. Pilih Instant, Medium, atau High terlebih dahulu.");
+        return alert("Soal yang dinilai AI membutuhkan mode Gemini. Pilih Instant, Medium, atau High terlebih dahulu.");
       }
 
       setGrading(true);
@@ -2885,7 +2885,7 @@ function PracticePage({
               <small className="muted">
                 {manualKind === "mcq-fixed"
                   ? "Lingkaran yang dipilih = jawaban benar."
-                  : "Gemini 3.6 akan menentukan pilihan yang benar berdasarkan Database saat kuis dinilai."}
+                  : "Model Gemini aktif akan menentukan pilihan yang benar berdasarkan Database saat kuis dinilai."}
               </small>
             </>
           )}
@@ -2906,7 +2906,7 @@ function PracticePage({
 
           {(manualKind === "mcq-ai" || manualKind === "essay-ai") && (
             <div className="essayInfo">
-              <strong>Gemini 3.6 akan menentukan benar/salah.</strong>
+              <strong>Model Gemini aktif akan menentukan benar/salah.</strong>
               <span>Penilaian hanya memakai Database di materi induk. Public Web tidak dipakai untuk penilaian kuis.</span>
             </div>
           )}
@@ -3028,7 +3028,7 @@ function PracticePage({
                     disabled={!allAnswered || grading}
                     onClick={finishQuiz}
                   >
-                    {grading ? "Gemini 3.6 sedang menilai..." : "Selesai & lihat nilai"}
+                    {grading ? "Gemini sedang menilai..." : "Selesai & lihat nilai"}
                   </button>
                 </>
               ) : (
