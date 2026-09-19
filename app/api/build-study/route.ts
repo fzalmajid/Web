@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerate, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -198,7 +198,7 @@ Aturan wajib:
 - recall_question hanya menguji materi yang SUDAH diajarkan pada unit tersebut atau unit sebelumnya.
 - recall_correct_answer harus sama persis dengan salah satu recall_choices.
 - recall_explanation singkat dan membantu mengingat konsep.
-- Jangan bocorkan materi unit-unit berikutnya di unit sebelumnya.`,
+- Jangan bocorkan materi unit-unit berikutnya di unit sebelumnya.\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
       }],
       "Anda menyusun kurikulum belajar bertahap yang ketat pada sumber pengguna. Jangan mengarang fakta."
     );
