@@ -96,10 +96,10 @@ function normalizeProviderError(
 export async function geminiGenerateDetailed(
   parts: GeminiPart[],
   systemInstruction?: string,
-  options?: { googleSearch?: boolean; models?: string[] }
+  options?: { googleSearch?: boolean; models?: string[]; apiKey?: string }
 ) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new GeminiApiError("GEMINI_API_KEY belum tersedia di server.", 500, "GEMINI_KEY_MISSING");
+  const key = String(options?.apiKey || process.env.GEMINI_API_KEY || "").trim();
+  if (!key) throw new GeminiApiError("Gemini API key belum tersedia.", 500, "GEMINI_KEY_MISSING");
 
   const models = Array.from(new Set((options?.models?.length ? options.models : [GEMINI_MODEL]).filter(Boolean)));
   let lastError: GeminiApiError | null = null;
