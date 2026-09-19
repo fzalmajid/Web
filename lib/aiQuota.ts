@@ -96,6 +96,11 @@ export async function checkAiCredits(
     used,
     limit,
     remaining,
+    fair_share: Number(data?.fair_share ?? limit),
+    active_accounts: Number(data?.active_accounts ?? 1),
+    pool_total: Number(data?.pool_total ?? 400),
+    pool_used: Number(data?.pool_used ?? 0),
+    pool_remaining: Number(data?.pool_remaining ?? 400),
     reset_timezone: String(data?.reset_timezone ?? "Asia/Jakarta"),
   };
 }
@@ -142,20 +147,13 @@ export async function consumeAiCredits(
 
 export function aiQuotaError(usage: AiUsage) {
   const active = Number(usage.active_accounts || 1);
-  const share = Number(usage.fair_share || usage.limit || 0);
   return {
     error:
-      "Credit AI hari ini tidak cukup untuk mode " +
+      "Batas penggunaan AI aplikasi untuk saat ini sudah tercapai pada mode " +
       aiModeLabel(usage.mode) +
-      ". Sisa " +
-      usage.remaining +
-      "/" +
-      usage.limit +
-      " credit. Jatah saat ini " +
-      share +
-      " credit karena ada " +
+      ". Pembagian sementara menyesuaikan " +
       active +
-      " akun aktif hari ini. Reset 00.00 WIB.",
+      " akun aktif hari ini. Usage Gemini aktual tetap dihitung terpisah. Reset 00.00 WIB.",
     aiUsage: usage,
   };
 }
