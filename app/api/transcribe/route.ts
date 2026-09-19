@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, geminiModelsForMode, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
@@ -73,14 +73,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
-    const rawResult = await geminiGenerateDetailed([
-      {
-        text:
-          "Transkripsikan audio berikut secara VERBATIM. Tulis apa yang benar-benar terdengar sedekat mungkin kata demi kata. Jangan mengoreksi istilah, jangan merangkum, jangan menambahkan fakta. Rapikan tanda baca dan paragraf secukupnya.",
-      },
-      { inlineData: { mimeType, data: base64 } },
-    ]);
-    await recordAiTokenUsage(supabase, rawResult.usage);
+    const rawResult = await geminiGenerateDetailed(
+      [
+        {
+          text:
+            "Transkripsikan audio berikut secara VERBATIM. Tulis apa yang benar-benar terdengar sedekat mungkin kata demi kata. Jangan mengoreksi istilah, jangan merangkum, jangan menambahkan fakta. Rapikan tanda baca dan paragraf secukupnya.",
+        },
+        { inlineData: { mimeType, data: base64 } },
+      ],
+      "Anda adalah mesin transkripsi. Jangan menjawab selain transkrip audio.",
+      { models: geminiModelsForMode(aiMode, "audio") }
+    );
+    await recordAiTokenUsage(supabase, rawResult.usage, rawResult.model);
     const rawTranscript = rawResult.text;
 
     const knowledge = await getScopeKnowledge(supabase, contextNodeId, 40);
@@ -106,9 +110,10 @@ export async function POST(req: NextRequest) {
             "7. " + aiModeInstruction(aiMode) + "\n8. " + WHATSAPP_FORMAT_INSTRUCTION,
         },
       ],
-      "Anda menyunting transkrip secara konservatif. Database yang diberikan adalah satu-satunya sumber untuk koreksi istilah faktual."
+      "Anda menyunting transkrip secara konservatif. Database yang diberikan adalah satu-satunya sumber untuk koreksi istilah faktual.",
+      { models: geminiModelsForMode(aiMode, "standard") }
     );
-    await recordAiTokenUsage(supabase, structuredResult.usage);
+    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model);
     const structuredRaw = structuredResult.text;
 
     let structuredTranscript = rawTranscript;
@@ -153,6 +158,8 @@ export async function POST(req: NextRequest) {
       summary,
       corrections,
       aiUsage,
+      transcriptionModel: rawResult.model,
+      structuringModel: structuredResult.model,
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
