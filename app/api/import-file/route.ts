@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
 import JSZip from "jszip";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, geminiModelsForMode, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
@@ -146,11 +146,15 @@ export async function POST(req: NextRequest) {
         : mimeType === "application/pdf"
           ? "Ekstrak isi dokumen PDF ini selengkap mungkin. Pertahankan judul, subjudul, daftar, angka, istilah, dan isi penting. Jangan meringkas dan jangan menambahkan pengetahuan luar."
           : "Ekstrak semua informasi tekstual yang dapat dibaca dari file/gambar ini. Jangan menambahkan informasi yang tidak ada pada sumber.";
-      const extractionResult = await geminiGenerateDetailed([
-        { text: prompt },
-        { inlineData: { mimeType, data: base64 } },
-      ]);
-      await recordAiTokenUsage(supabase, extractionResult.usage);
+      const extractionResult = await geminiGenerateDetailed(
+        [
+          { text: prompt },
+          { inlineData: { mimeType, data: base64 } },
+        ],
+        undefined,
+        { models: geminiModelsForMode(aiMode, isMediaMime(mimeType) ? "audio" : "standard") }
+      );
+      await recordAiTokenUsage(supabase, extractionResult.usage, extractionResult.model);
       rawText = extractionResult.text;
     }
 
@@ -182,9 +186,10 @@ Aturan:
 - Koreksi hanya dilakukan jika database benar-benar mendukungnya; semua koreksi harus dicatat.
 - Jika database tidak membantu, susun/rangkum berdasarkan SUMBER MENTAH saja.\n- ${aiModeInstruction(aiMode)}\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
       }],
-      "Anda mengolah sumber belajar secara konservatif. Jangan mengarang fakta."
+      "Anda mengolah sumber belajar secara konservatif. Jangan mengarang fakta.",
+      { models: geminiModelsForMode(aiMode, "standard") }
     );
-    await recordAiTokenUsage(supabase, structuredResult.usage);
+    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model);
     const structuredRaw = structuredResult.text;
 
     let structuredText = rawText;
