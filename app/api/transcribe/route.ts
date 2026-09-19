@@ -3,6 +3,7 @@ import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
+import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -31,8 +32,8 @@ export async function POST(req: NextRequest) {
     const mimeType = normalizeMime(String(body.mimeType || "audio/webm"));
     const aiMode = normalizeAiMode(body.aiMode);
     const aiSelection = selectionFromHeaders(req.headers, "transcription", aiMode);
-    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
-    const ownGemini = Boolean(userGeminiKey);
+    const geminiAuth = geminiUserAuthFromHeaders(req.headers);
+    const ownGemini = geminiAuth.ownGemini;
 
     if (aiMode === "simple") {
       return NextResponse.json({ error: "Mode Simple memakai transkrip Local dari browser dan tidak memanggil Gemini." }, { status: 400 });
@@ -89,10 +90,12 @@ export async function POST(req: NextRequest) {
       {
       models: modelPlanForSelection(aiSelection.model, aiMode, "audio"),
       effort: aiSelection.effort,
-      apiKey: userGeminiKey,
+      apiKey: geminiAuth.apiKey,
+      accessToken: geminiAuth.accessToken,
+      projectId: geminiAuth.projectId,
     }
     );
-    await recordAiTokenUsage(supabase, rawResult.usage, rawResult.model, ownGemini ? "user-api-key" : "shared-api-key");
+    await recordAiTokenUsage(supabase, rawResult.usage, rawResult.model, geminiAuth.provider);
     const rawTranscript = rawResult.text;
 
     const knowledge = await getScopeKnowledge(supabase, contextNodeId, 40);
@@ -122,10 +125,12 @@ export async function POST(req: NextRequest) {
       {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
-      apiKey: userGeminiKey,
+      apiKey: geminiAuth.apiKey,
+      accessToken: geminiAuth.accessToken,
+      projectId: geminiAuth.projectId,
     }
     );
-    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model, ownGemini ? "user-api-key" : "shared-api-key");
+    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model, geminiAuth.provider);
     const structuredRaw = structuredResult.text;
 
     let structuredTranscript = rawTranscript;
@@ -172,7 +177,7 @@ export async function POST(req: NextRequest) {
       aiUsage,
       transcriptionModel: rawResult.model,
       structuringModel: structuredResult.model,
-      provider: ownGemini ? "user-api-key" : "shared-api-key",
+      provider: geminiAuth.provider,
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
