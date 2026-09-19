@@ -55,6 +55,97 @@ export class GeminiModelUnavailableError extends GeminiApiError {
   }
 }
 
+const SAFE_GENERATE_FALLBACKS = [
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-pro-preview",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+];
+
+function geminiAuthHeaders(
+  accessToken: string,
+  projectId: string,
+  key: string
+): Record<string, string> {
+  return accessToken
+    ? {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + accessToken,
+        "x-goog-user-project": projectId,
+      }
+    : {
+        "Content-Type": "application/json",
+        "x-goog-api-key": key,
+      };
+}
+
+async function listGenerateModels(
+  accessToken: string,
+  projectId: string,
+  key: string
+): Promise<string[]> {
+  try {
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+      {
+        headers: geminiAuthHeaders(accessToken, projectId, key),
+        cache: "no-store",
+      }
+    );
+    if (!response.ok) return [];
+
+    const data = await response.json().catch(() => ({}));
+    if (!Array.isArray(data?.models)) return [];
+
+    return data.models
+      .filter((item: any) => {
+        const methods = Array.isArray(item?.supportedGenerationMethods)
+          ? item.supportedGenerationMethods.map(String)
+          : [];
+        return methods.includes("generateContent");
+      })
+      .map((item: any) => String(item?.name || "").replace(/^models\//, "").trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function prioritizeAvailableModels(
+  requested: string[],
+  available: string[],
+  audio = false
+) {
+  if (!available.length) return requested;
+
+  const availableSet = new Set(available);
+  const safeFallbacks = audio
+    ? ["gemini-3.5-transcribe", ...SAFE_GENERATE_FALLBACKS]
+    : SAFE_GENERATE_FALLBACKS;
+
+  const providerFallbacks = safeFallbacks.filter((model) => availableSet.has(model));
+  const otherTextModels = available.filter(
+    (model) =>
+      /^gemini-/i.test(model) &&
+      !/image|embedding|tts|live|robotics|omni/i.test(model) &&
+      (audio || !/transcribe/i.test(model))
+  );
+
+  return Array.from(
+    new Set([
+      ...requested.filter((model) => availableSet.has(model)),
+      ...providerFallbacks,
+      ...otherTextModels,
+    ])
+  );
+}
+
 export function geminiModelsForMode(
   mode: string,
   task: GeminiTask = "standard"
@@ -137,7 +228,24 @@ export async function geminiGenerateDetailed(
     throw new GeminiApiError("Gemini belum terhubung.", 500, "GEMINI_AUTH_MISSING");
   }
 
-  const models = Array.from(new Set((options?.models?.length ? options.models : [GEMINI_MODEL]).filter(Boolean)));
+  const requestedModels = Array.from(
+    new Set((options?.models?.length ? options.models : [GEMINI_MODEL]).filter(Boolean))
+  );
+  const availableModels = await listGenerateModels(accessToken, projectId, key);
+  const models = prioritizeAvailableModels(
+    requestedModels,
+    availableModels,
+    requestedModels.some((model) => model === "gemini-3.5-transcribe")
+  );
+
+  if (!models.length) {
+    throw new GeminiApiError(
+      "Project Gemini ini belum memiliki model generateContent yang bisa dipakai. Pilih project Google Cloud lain atau gunakan provider bersama.",
+      503,
+      "GEMINI_NO_AVAILABLE_MODEL"
+    );
+  }
+
   let lastError: GeminiApiError | null = null;
 
   for (let index = 0; index < models.length; index++) {
@@ -149,16 +257,7 @@ export async function geminiGenerateDetailed(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
           method: "POST",
-          headers: accessToken
-            ? {
-                "Content-Type": "application/json",
-                Authorization: "Bearer " + accessToken,
-                "x-goog-user-project": projectId,
-              }
-            : {
-                "Content-Type": "application/json",
-                "x-goog-api-key": key,
-              },
+          headers: geminiAuthHeaders(accessToken, projectId, key),
           body: JSON.stringify({
             systemInstruction: systemInstruction
               ? { parts: [{ text: systemInstruction }] }
@@ -198,6 +297,13 @@ export async function geminiGenerateDetailed(
           error.code === "WEB_SEARCH_QUOTA")
       ) {
         continue;
+      }
+      if (error.code === "GEMINI_MODEL_UNAVAILABLE" && index === models.length - 1) {
+        throw new GeminiApiError(
+          "Tidak ada model Gemini yang tersedia untuk credential/project ini. Pilih model/provider lain atau hubungkan project Google Cloud lain.",
+          503,
+          "GEMINI_NO_AVAILABLE_MODEL"
+        );
       }
       throw error;
     }
