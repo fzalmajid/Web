@@ -3,6 +3,9 @@ import { GEMINI_MODEL } from "./config";
 type GeminiPart = { text?: string; inlineData?: { mimeType: string; data: string } };
 export type GeminiWebSource = { title: string; uri: string };
 
+export const WHATSAPP_FORMAT_INSTRUCTION =
+  "Untuk teks yang akan dibaca user: bold WAJIB memakai *teks*, italic WAJIB memakai _teks_. Jangan memakai **teks** atau __teks__. Jangan gunakan markdown heading dengan #.";
+
 export async function geminiGenerateDetailed(
   parts: GeminiPart[],
   systemInstruction?: string,
