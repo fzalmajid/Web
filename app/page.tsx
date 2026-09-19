@@ -939,6 +939,453 @@ function DatabasePage({
   );
 }
 
+
+function StudyPage({
+  session,
+  user,
+  node,
+  nodes,
+  entries,
+  onOpen,
+  onChange,
+}: {
+  session: Session;
+  user: User;
+  node: StudyNode;
+  nodes: StudyNode[];
+  entries: KnowledgeEntry[];
+  onOpen: (id: string) => void;
+  onChange: () => void;
+}) {
+  const [path, setPath] = useState<StudyPath | null>(null);
+  const [units, setUnits] = useState<StudyUnit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [building, setBuilding] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [aiMode, setAiMode] = useState<AiMode>("instant");
+  const [recallAnswers, setRecallAnswers] = useState<Record<string, string>>({});
+  const [recallFeedback, setRecallFeedback] = useState<Record<string, "correct" | "wrong">>({});
+  const [quickDbOpen, setQuickDbOpen] = useState(false);
+  const [quickDbName, setQuickDbName] = useState("");
+  const [quickDbContent, setQuickDbContent] = useState("");
+  const [quickBusy, setQuickBusy] = useState(false);
+
+  const branchIds = useMemo(
+    () => node.parent_id ? collectSubtreeIds(nodes, node.parent_id) : [],
+    [nodes, node.parent_id]
+  );
+  const sourceDatabases = nodes.filter(
+    (item) => branchIds.includes(item.id) && item.node_type === "database"
+  );
+
+  useEffect(() => {
+    void loadStudy();
+  }, [node.id]);
+
+  async function loadStudy() {
+    setLoading(true);
+    const { data: pathData, error: pathError } = await supabase
+      .from("study_paths")
+      .select("*")
+      .eq("node_id", node.id)
+      .maybeSingle();
+
+    if (pathError) {
+      setLoading(false);
+      return alert(pathError.message);
+    }
+
+    const nextPath = (pathData || null) as StudyPath | null;
+    setPath(nextPath);
+
+    if (!nextPath) {
+      setUnits([]);
+      setSelectedSources([]);
+      setSetupOpen(true);
+      setLoading(false);
+      return;
+    }
+
+    setSelectedSources(nextPath.source_node_ids || []);
+    setAiMode(nextPath.ai_mode || "instant");
+
+    const { data: unitData, error: unitError } = await supabase
+      .from("study_units")
+      .select("*")
+      .eq("study_path_id", nextPath.id)
+      .order("position", { ascending: true });
+
+    if (unitError) {
+      setLoading(false);
+      return alert(unitError.message);
+    }
+
+    setUnits((unitData || []) as StudyUnit[]);
+    setSetupOpen(nextPath.status === "error");
+    setLoading(false);
+  }
+
+  function toggleSource(id: string) {
+    setSelectedSources((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id]
+    );
+  }
+
+  async function buildStudy() {
+    if (!selectedSources.length) return alert("Pilih minimal satu Database.");
+    if (aiMode === "simple") return alert("Study terarah membutuhkan Gemini 3.6.");
+
+    setBuilding(true);
+    const response = await fetch("/api/build-study", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({
+        studyNodeId: node.id,
+        sourceNodeIds: selectedSources,
+        aiMode,
+      }),
+    });
+
+    const result = await response.json();
+    setBuilding(false);
+
+    if (!response.ok) return alert(result.error || "Gagal menyusun Study.");
+
+    setSetupOpen(false);
+    setRecallAnswers({});
+    setRecallFeedback({});
+    await loadStudy();
+  }
+
+  async function createQuickDatabase(e: FormEvent) {
+    e.preventDefault();
+    if (!node.parent_id) return alert("Study harus berada di dalam Materi.");
+    if (!quickDbName.trim()) return;
+
+    setQuickBusy(true);
+    const { data: created, error } = await supabase
+      .from("study_nodes")
+      .insert({
+        user_id: user.id,
+        parent_id: node.parent_id,
+        title: quickDbName.trim(),
+        node_type: "database",
+        emoji: "🗂️",
+        card_color: "sage",
+      })
+      .select("id")
+      .single();
+
+    if (error || !created) {
+      setQuickBusy(false);
+      return alert(error?.message || "Gagal membuat Database.");
+    }
+
+    if (quickDbContent.trim()) {
+      const { error: entryError } = await supabase.from("knowledge_entries").insert({
+        user_id: user.id,
+        node_id: created.id,
+        title: quickDbName.trim(),
+        category: "",
+        content: quickDbContent.trim(),
+        raw_content: quickDbContent.trim(),
+        source_type: "manual",
+      });
+
+      if (entryError) {
+        setQuickBusy(false);
+        return alert(entryError.message);
+      }
+    }
+
+    setSelectedSources((current) => [...new Set([...current, created.id])]);
+    const hadContent = Boolean(quickDbContent.trim());
+    setQuickDbName("");
+    setQuickDbContent("");
+    setQuickDbOpen(false);
+    setQuickBusy(false);
+    onChange();
+
+    if (!hadContent) onOpen(created.id);
+  }
+
+  async function checkRecall(unit: StudyUnit) {
+    const answer = recallAnswers[unit.id];
+    if (!answer) return;
+
+    if (answer !== unit.recall_correct_answer) {
+      setRecallFeedback((current) => ({ ...current, [unit.id]: "wrong" }));
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("study_units")
+      .update({ completed_at: now })
+      .eq("id", unit.id);
+
+    if (error) return alert(error.message);
+
+    const next = units.find((item) => item.position === unit.position + 1);
+    if (next) {
+      const { error: nextError } = await supabase
+        .from("study_units")
+        .update({ is_unlocked: true })
+        .eq("id", next.id);
+      if (nextError) return alert(nextError.message);
+    }
+
+    setRecallFeedback((current) => ({ ...current, [unit.id]: "correct" }));
+    await loadStudy();
+  }
+
+  const completedCount = units.filter((unit) => unit.completed_at).length;
+  const visibleUnits = units.filter((unit) => unit.completed_at || unit.is_unlocked);
+  const isFinished = units.length > 0 && completedCount === units.length;
+  const sourceNameMap = new Map(nodes.map((item) => [item.id, item.title]));
+
+  if (loading) {
+    return <section className="toolPage"><div className="loader">Memuat Study...</div></section>;
+  }
+
+  return (
+    <section className="toolPage studyPage">
+      <div className="toolHeader studyHero">
+        <p className="eyebrow">STUDY</p>
+        <h1>{node.emoji ? node.emoji + " " : ""}{node.title}</h1>
+        <p className="muted">
+          Pilih Database yang ingin dipelajari. Gemini 3.6 menyusun urutan belajar,
+          membagi bab/subbab sesuai kompleksitas, lalu membuka materi berikutnya setelah recall benar.
+        </p>
+
+        {path?.status === "ready" && !setupOpen && (
+          <div className="studyHeaderActions">
+            <div className="studyProgressText">
+              <strong>{completedCount}/{units.length}</strong>
+              <span>unit selesai</span>
+            </div>
+            <button className="ghost" onClick={() => setSetupOpen(true)}>Atur sumber / susun ulang</button>
+          </div>
+        )}
+      </div>
+
+      {(setupOpen || !path) && (
+        <section className="panel studySetup">
+          <div className="studySetupHead">
+            <div>
+              <p className="eyebrow">SUMBER STUDY</p>
+              <h2>Pilih Database</h2>
+              <p className="muted">Bisa pilih lebih dari satu Database dalam cabang materi ini.</p>
+            </div>
+            {path?.status === "ready" && (
+              <button className="ghost" onClick={() => setSetupOpen(false)}>Batal</button>
+            )}
+          </div>
+
+          <div className="studySourceGrid">
+            {sourceDatabases.map((database) => {
+              const count = entries.filter((entry) => entry.node_id === database.id).length;
+              const active = selectedSources.includes(database.id);
+              return (
+                <button
+                  type="button"
+                  key={database.id}
+                  className={active ? "studySource active" : "studySource"}
+                  onClick={() => toggleSource(database.id)}
+                >
+                  <span className="studySourceCheck">{active ? "✓" : ""}</span>
+                  <span className="studySourceIcon">{database.emoji || "🗂️"}</span>
+                  <span className="studySourceCopy">
+                    <strong>{database.title}</strong>
+                    <small>{count ? count + " isi Database" : "Belum ada isi"}</small>
+                  </span>
+                </button>
+              );
+            })}
+            {!sourceDatabases.length && (
+              <div className="emptyStudySource">Belum ada Database di cabang ini.</div>
+            )}
+          </div>
+
+          <div className="studySetupTools">
+            <button className="ghost" onClick={() => setQuickDbOpen((current) => !current)}>
+              + Tambah Database dari sini
+            </button>
+            <AiModePicker value={aiMode} onChange={setAiMode} action="study" allowSimple={false} />
+            <button className="primary" disabled={building || !selectedSources.length} onClick={buildStudy}>
+              {building ? "Sedang menyusun urutan belajar..." : path ? "Susun ulang Study" : "Mulai susun Study"}
+            </button>
+          </div>
+
+          {quickDbOpen && (
+            <form className="quickDbForm" onSubmit={createQuickDatabase}>
+              <div>
+                <strong>Database baru</strong>
+                <small className="muted">Paste teks sekarang, atau kosongkan isi untuk membuka halaman Database lengkap.</small>
+              </div>
+              <input
+                value={quickDbName}
+                onChange={(e) => setQuickDbName(e.target.value)}
+                placeholder="Nama Database, misal: Materi CPOB 2024"
+                required
+              />
+              <textarea
+                rows={6}
+                value={quickDbContent}
+                onChange={(e) => setQuickDbContent(e.target.value)}
+                placeholder="Opsional: paste materi langsung di sini..."
+              />
+              <button className="primary" disabled={quickBusy}>
+                {quickBusy ? "Membuat..." : quickDbContent.trim() ? "Buat + pilih Database" : "Buat & buka Database"}
+              </button>
+            </form>
+          )}
+
+          {path?.status === "error" && path.error_message && (
+            <div className="notice">Gagal menyusun sebelumnya: {path.error_message}</div>
+          )}
+        </section>
+      )}
+
+      {path?.status === "processing" && (
+        <section className="panel studyProcessing">
+          <div className="studyPulse" />
+          <div>
+            <strong>Sedang menyusun Study...</strong>
+            <p>Gemini 3.6 sedang menentukan urutan bab/subbab dan membuat recall quiz.</p>
+          </div>
+        </section>
+      )}
+
+      {path?.status === "ready" && !setupOpen && (
+        <>
+          <section className="studyOverview">
+            <div>
+              <small>SUMBER</small>
+              <div className="studySourceChips">
+                {(path.source_node_ids || []).map((id) => (
+                  <span key={id}>{sourceNameMap.get(id) || "Database"}</span>
+                ))}
+              </div>
+            </div>
+            {path.overview && (
+              <div>
+                <small>URUTAN BELAJAR</small>
+                <p>{path.overview}</p>
+              </div>
+            )}
+          </section>
+
+          <div className="studyTimeline">
+            {visibleUnits.map((unit) => {
+              const completed = Boolean(unit.completed_at);
+              const selected = recallAnswers[unit.id] || "";
+              const feedback = recallFeedback[unit.id];
+
+              if (completed) {
+                return (
+                  <details className="studyUnit completed" key={unit.id}>
+                    <summary>
+                      <span className="studyUnitNumber">✓</span>
+                      <span>
+                        <small>{unit.unit_level === "subchapter" ? "SUBBAB" : "BAB"} {unit.position}</small>
+                        <strong>{unit.title}</strong>
+                      </span>
+                    </summary>
+                    <div className="studyUnitBody">
+                      <div className="studyTeaching">{unit.teaching_text}</div>
+                      <div className="recallPassed">Recall selesai · {unit.recall_explanation}</div>
+                    </div>
+                  </details>
+                );
+              }
+
+              return (
+                <article className="studyUnit active" key={unit.id}>
+                  <div className="studyUnitTitle">
+                    <span className="studyUnitNumber">{unit.position}</span>
+                    <div>
+                      <small>{unit.unit_level === "subchapter" ? "SUBBAB" : "BAB"} {unit.position}</small>
+                      <h2>{unit.title}</h2>
+                    </div>
+                  </div>
+
+                  <div className="studyTeaching">{unit.teaching_text}</div>
+
+                  <div className="recallBox">
+                    <div className="recallHead">
+                      <span>RECALL</span>
+                      <strong>Cek pemahaman sebelum lanjut</strong>
+                    </div>
+                    <h3>{unit.recall_question}</h3>
+
+                    <div className="recallChoices">
+                      {unit.recall_choices.map((choice) => (
+                        <button
+                          type="button"
+                          key={choice}
+                          className={selected === choice ? "selected" : ""}
+                          onClick={() => {
+                            setRecallAnswers((current) => ({ ...current, [unit.id]: choice }));
+                            setRecallFeedback((current) => {
+                              const next = { ...current };
+                              delete next[unit.id];
+                              return next;
+                            });
+                          }}
+                        >
+                          {choice}
+                        </button>
+                      ))}
+                    </div>
+
+                    {feedback === "wrong" && (
+                      <div className="recallFeedback wrong">
+                        Belum tepat. Baca lagi bagian di atas, lalu coba sekali lagi.
+                      </div>
+                    )}
+
+                    {feedback === "correct" && (
+                      <div className="recallFeedback correct">
+                        Benar. {unit.recall_explanation}
+                      </div>
+                    )}
+
+                    <button className="primary recallSubmit" disabled={!selected} onClick={() => checkRecall(unit)}>
+                      Cek jawaban
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          {!isFinished && units.length > visibleUnits.length && (
+            <div className="studyLockedHint">
+              🔒 Materi berikutnya akan muncul setelah recall saat ini benar.
+            </div>
+          )}
+
+          {isFinished && (
+            <section className="studyComplete">
+              <div>🏆</div>
+              <h2>Study selesai</h2>
+              <p>Kamu sudah melewati seluruh bab/subbab dan recall dari Database yang dipilih.</p>
+              <button className="ghost" onClick={() => setSetupOpen(true)}>Pelajari sumber lain / susun ulang</button>
+            </section>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function RecordingPage({
   session,
   user,
