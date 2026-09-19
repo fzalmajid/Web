@@ -512,8 +512,6 @@ function DatabasePage({
   files: SourceFile[];
   onChange: () => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("");
   const [content, setContent] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -530,8 +528,8 @@ function DatabasePage({
     const { error } = await supabase.from("knowledge_entries").insert({
       user_id: user.id,
       node_id: node.id,
-      title: title.trim(),
-      category: category.trim(),
+      title: node.title,
+      category: "",
       content: content.trim(),
       raw_content: content.trim(),
       source_type: "manual",
@@ -540,8 +538,6 @@ function DatabasePage({
     setBusy(false);
     if (error) return alert(error.message);
 
-    setTitle("");
-    setCategory("");
     setContent("");
     onChange();
   }
@@ -640,27 +636,23 @@ function DatabasePage({
       <div className="toolHeader">
         <p className="eyebrow">DATABASE</p>
         <h1>{node.title}</h1>
-        <p className="muted">Isi database inilah yang dipakai AI untuk memahami konteks, istilah, dan membuat latihan.</p>
+        <p className="muted">Masukkan isi materi langsung sebagai teks atau file. Konteks mengikuti jalur materi tempat Database ini berada.</p>
       </div>
 
       <div className="toolGrid">
         <article className="panel">
-          <h2>Tambah teks</h2>
+          <h2>Masukkan teks</h2>
+          <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti Database serta jalur materi yang sedang dibuka.</p>
           <form className="stack" onSubmit={saveText}>
-            <label>
-              Judul
-              <input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Definisi CPOB" />
-            </label>
-            <label>
-              Kategori
-              <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Modul, istilah, catatan..." />
-            </label>
-            <label>
-              Isi
-              <textarea required rows={10} value={content} onChange={(e) => setContent(e.target.value)} />
-            </label>
-            <button className="primary" disabled={busy || !title.trim() || !content.trim()}>
-              {busy ? "Menyimpan..." : "Simpan ke Database"}
+            <textarea
+              required
+              rows={14}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Paste teks materi di sini..."
+            />
+            <button className="primary" disabled={busy || !content.trim()}>
+              {busy ? "Menyimpan..." : "Tambahkan ke Database"}
             </button>
           </form>
         </article>
