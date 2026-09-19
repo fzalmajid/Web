@@ -1699,7 +1699,8 @@ function RecordingPage({
     added: boolean;
   } | null>(null);
   const [targetDbId, setTargetDbId] = useState("");
-  const [aiMode, setAiMode] = useState<AiMode>("simple");
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "transcription"));
+  const aiMode = legacyModeForSelection(aiSelection);
 
   const localRecordings = recordings.filter((item) => item.node_id === node.id);
   const siblingDatabases = nodes.filter(
@@ -1933,7 +1934,7 @@ function RecordingPage({
 
     const response = await fetch("/api/live-transcribe-token", {
       method: "POST",
-      headers: aiRequestHeaders(session),
+      headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({ aiMode }),
     });
     const data = await response.json();
@@ -2072,7 +2073,7 @@ function RecordingPage({
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
-        await new Promise((resolve) => window.setTimeout(resolve, aiMode === "simple" ? 250 : 1100));
+        await new Promise((resolve) => window.setTimeout(resolve, aiSelection.model === "local" ? 250 : 1100));
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
         if (!blob.size) {
           setBusy(false);
@@ -2121,7 +2122,7 @@ function RecordingPage({
     recordingRef.current = false;
     setRecording(false);
     setStatus(
-      aiMode === "simple"
+      aiSelection.model === "local"
         ? "Rekaman berhenti. Menyimpan transkrip browser..."
         : "Rekaman berhenti. Menyiapkan verbatim final & versi tertata..."
     );
@@ -2268,7 +2269,7 @@ function RecordingPage({
 
   async function retryTranscription(item: Recording) {
     if (aiSelection.model === "local") {
-      return alert("Transkrip ulang audio tersimpan membutuhkan mode Gemini. Pilih Instant, Medium, atau High.");
+      return alert("Transkrip ulang audio tersimpan membutuhkan model Gemini.");
     }
 
     setRetryingId(item.id);
@@ -2384,8 +2385,8 @@ function RecordingPage({
         <p className="eyebrow">REKAMAN & TRANSKRIP</p>
         <h1>{node.title}</h1>
         <p className="muted">
-          Simple memakai transkrip browser tanpa Gemini. Mode Gemini memakai Gemini 3.5 Transcribe Live untuk teks langsung,
-          lalu membuat verbatim final dan versi tertata setelah Stop. Jika salah satu layanan gagal, audio dan hasil live yang sudah ada tetap dipertahankan.
+          Local memakai transkrip browser tanpa Gemini. Jika memilih model Gemini, teks langsung memakai Gemini 3.5 Transcribe Live,
+          sedangkan model yang dipilih dipakai untuk hasil final/penataan. Jika salah satu layanan gagal, audio dan hasil live yang sudah ada tetap dipertahankan.
         </p>
       </div>
 
@@ -2401,10 +2402,15 @@ function RecordingPage({
         <div className="recordEngineInfo">
           <div>
             <small>MODE TRANSKRIP</small>
-            <strong>{aiMode === "simple" ? "Simple · Browser · tanpa API" : liveEngine}</strong>
+            <strong>{aiSelection.model === "local" ? "Local · Browser · tanpa API" : liveEngine}</strong>
           </div>
           <div className={recording ? "recordModeLocked" : ""}>
-            <AiModePicker value={aiMode} onChange={setAiMode} action="transcription" />
+            <AiModePicker
+              value={aiSelection}
+              onChange={setAiSelection}
+              action="transcription"
+              context="transcription"
+            />
           </div>
         </div>
 
@@ -3341,7 +3347,7 @@ function BottomAskBar({
   const composerRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
-    if (aiMode === "simple" && knowledgeMode !== "database") {
+    if (aiSelection.model === "local" && knowledgeMode !== "database") {
       setKnowledgeMode("database");
     }
   }, [aiMode, knowledgeMode]);
@@ -3499,7 +3505,7 @@ function BottomAskBar({
           <div className="aiAnswerHead">
             <div>
               <small title={scopeName}>
-                {aiMode === "simple" ? "Simple · Browser" : aiMode[0].toUpperCase() + aiMode.slice(1)}
+                {aiSelection.model === "local" ? "Simple · Browser" : aiMode[0].toUpperCase() + aiMode.slice(1)}
                 {" · "}{activeKnowledgeLabel}
                 {answerModel ? " · " + answerModel : ""}
                 {" · "}{scopeName}
@@ -3511,7 +3517,7 @@ function BottomAskBar({
           {warning && <div className="aiWarning"><RichText text={warning} /></div>}
           <div className="aiAnswerBody">
             {busy
-              ? aiMode === "simple"
+              ? aiSelection.model === "local"
                 ? "Mencari secara lokal di Database..."
                 : knowledgeMode === "web"
                   ? "Mencari di Database dan Web..."
@@ -3554,7 +3560,7 @@ function BottomAskBar({
               <button
                 type="button"
                 className={knowledgeMode === "hybrid" ? "active" : ""}
-                disabled={aiMode === "simple"}
+                disabled={aiSelection.model === "local"}
                 onClick={() => setKnowledgeMode("hybrid")}
                 title="Database utama + pengetahuan internal model, tanpa browsing"
               >
@@ -3563,7 +3569,7 @@ function BottomAskBar({
               <button
                 type="button"
                 className={knowledgeMode === "web" ? "active" : ""}
-                disabled={aiMode === "simple"}
+                disabled={aiSelection.model === "local"}
                 onClick={() => setKnowledgeMode("web")}
                 title="Database + Google Search"
               >
