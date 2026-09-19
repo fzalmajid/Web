@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
 import JSZip from "jszip";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, geminiModelsForMode, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
+import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -85,6 +86,7 @@ export async function POST(req: NextRequest) {
     const fileName = String(body.fileName || "File");
     const mimeType = normalizeMime(String(body.mimeType || "application/octet-stream"));
     const aiMode = normalizeAiMode(body.aiMode);
+    const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
     const ownGemini = Boolean(userGeminiKey);
 
@@ -155,7 +157,8 @@ export async function POST(req: NextRequest) {
         ],
         undefined,
         {
-          models: geminiModelsForMode(aiMode, isMediaMime(mimeType) ? "audio" : "standard"),
+          models: modelPlanForSelection(aiSelection.model, aiMode, isMediaMime(mimeType) ? "audio" : "standard"),
+          effort: aiSelection.effort,
           apiKey: userGeminiKey,
         }
       );
@@ -192,7 +195,11 @@ Aturan:
 - Jika database tidak membantu, susun/rangkum berdasarkan SUMBER MENTAH saja.\n- ${aiModeInstruction(aiMode)}\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
       }],
       "Anda mengolah sumber belajar secara konservatif. Jangan mengarang fakta.",
-      { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
+      {
+      models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
+      effort: aiSelection.effort,
+      apiKey: userGeminiKey,
+    }
     );
     await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model, ownGemini ? "user-api-key" : "shared-api-key");
     const structuredRaw = structuredResult.text;
