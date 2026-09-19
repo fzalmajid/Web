@@ -3,6 +3,7 @@ import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
+import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -21,8 +22,8 @@ export async function POST(req: NextRequest) {
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
-    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
-    const ownGemini = Boolean(userGeminiKey);
+    const geminiAuth = geminiUserAuthFromHeaders(req.headers);
+    const ownGemini = geminiAuth.ownGemini;
 
     if (aiMode === "simple") {
       return NextResponse.json({ error: "Mode Simple diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
@@ -82,9 +83,11 @@ Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, ja
     }], "Jangan gunakan pengetahuan di luar database yang diberikan.", {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
-      apiKey: userGeminiKey,
+      apiKey: geminiAuth.apiKey,
+      accessToken: geminiAuth.accessToken,
+      projectId: geminiAuth.projectId,
     });
-    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, ownGemini ? "user-api-key" : "shared-api-key");
+    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, geminiAuth.provider);
     const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
@@ -143,7 +146,7 @@ Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, ja
       quizzes: quizzes.length,
       aiUsage,
       model: geminiResult.model,
-      provider: ownGemini ? "user-api-key" : "shared-api-key",
+      provider: geminiAuth.provider,
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
