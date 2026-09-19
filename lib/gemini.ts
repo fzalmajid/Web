@@ -2,6 +2,12 @@ import { GEMINI_MODEL } from "./config";
 
 type GeminiPart = { text?: string; inlineData?: { mimeType: string; data: string } };
 export type GeminiWebSource = { title: string; uri: string };
+export type GeminiUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  thoughtsTokens: number;
+  totalTokens: number;
+};
 
 export const WHATSAPP_FORMAT_INSTRUCTION =
   "Untuk teks yang akan dibaca user: bold WAJIB memakai *teks*, italic WAJIB memakai _teks_. Setiap penanda * untuk bold harus punya pasangan penutup pada baris yang sama. Untuk daftar/poin WAJIB gunakan '- ' di awal baris, JANGAN gunakan '* ' sebagai bullet. Jangan memakai **teks** atau __teks__. Jangan gunakan markdown heading dengan #.";
@@ -66,6 +72,14 @@ export async function geminiGenerateDetailed(
 
   if (!text) throw new Error("Gemini tidak mengembalikan teks.");
 
+  const usageMetadata = data?.usageMetadata || {};
+  const usage: GeminiUsage = {
+    inputTokens: Number(usageMetadata.promptTokenCount || 0),
+    outputTokens: Number(usageMetadata.candidatesTokenCount || usageMetadata.responseTokenCount || 0),
+    thoughtsTokens: Number(usageMetadata.thoughtsTokenCount || 0),
+    totalTokens: Number(usageMetadata.totalTokenCount || 0),
+  };
+
   const webSources: GeminiWebSource[] = [];
   const seen = new Set<string>();
   const chunks = candidate?.groundingMetadata?.groundingChunks || [];
@@ -78,7 +92,7 @@ export async function geminiGenerateDetailed(
     webSources.push({ title, uri });
   }
 
-  return { text, webSources };
+  return { text, webSources, usage };
 }
 
 export async function geminiGenerate(parts: GeminiPart[], systemInstruction?: string) {
