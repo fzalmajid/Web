@@ -455,6 +455,12 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     void loadAll();
   }, [refreshKey]);
 
+  useEffect(() => {
+    const openPlugins = () => setSettingsOpen(true);
+    window.addEventListener("rb-open-plugins", openPlugins);
+    return () => window.removeEventListener("rb-open-plugins", openPlugins);
+  }, []);
+
   async function loadAll() {
     const result = await Promise.all([
       supabase.from("study_nodes").select("*").order("position").order("created_at"),
@@ -541,7 +547,6 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         <div className="headerActions">
           <AiCreditBadge />
           <ThemePicker value={theme} onChange={onThemeChange} />
-          <button className="ghost settingsBtn pluginButton" onClick={() => setSettingsOpen(true)}>+ Plugin</button>
           <span className="userPill">{user.email}</span>
           <button className="ghost" onClick={() => supabase.auth.signOut()}>Keluar</button>
         </div>
@@ -3494,7 +3499,19 @@ function AiModePicker({
               <span className="aiModeSectionLabel">CHOOSE MODEL</span>
               <strong>{selected?.label || "Local"}</strong>
             </div>
-            <button type="button" className="modelPickerClose" onClick={() => setOpen(false)}>×</button>
+            <div className="modelPickerActions">
+              <button
+                type="button"
+                className="modelPluginButton"
+                onClick={() => {
+                  setOpen(false);
+                  window.dispatchEvent(new Event("rb-open-plugins"));
+                }}
+              >
+                + Plugin
+              </button>
+              <button type="button" className="modelPickerClose" onClick={() => setOpen(false)}>×</button>
+            </div>
           </div>
 
           <div className="modelCardGrid">
