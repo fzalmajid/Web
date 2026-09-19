@@ -786,7 +786,7 @@ function DatabasePage({
       if (!localSupported) {
         await supabase.from("source_files").update({
           processing_status: "error",
-          error_message: "Format ini membutuhkan Gemini. Pilih Instant, Medium, atau High.",
+          error_message: "Format ini membutuhkan model Gemini.",
         }).eq("id", row.id);
         setFileBusy(false);
         setFileStatus("Local belum mendukung format ini.");
@@ -1248,7 +1248,7 @@ function StudyPage({
       if (!localSupported) {
         await supabase.from("source_files").update({
           processing_status: "error",
-          error_message: "Format ini membutuhkan Gemini. Pilih Instant, Medium, atau High.",
+          error_message: "Format ini membutuhkan model Gemini.",
         }).eq("id", row.id);
 
         setQuickFileBusy(false);
@@ -1330,7 +1330,7 @@ function StudyPage({
     setQuickDbContent("");
     setQuickDbCreatedId(null);
     setQuickDbFile(null);
-    setQuickDbAiMode("simple");
+    setQuickDbAiSelection(defaultSelection("local"));
     setQuickDbStatus("");
   }
 
@@ -2155,7 +2155,7 @@ function RecordingPage({
         : "Rekaman berhenti. Menyiapkan verbatim final & versi tertata..."
     );
     stopBrowserSpeech();
-    stopGeminiLive(aiMode !== "simple");
+    stopGeminiLive(aiSelection.model !== "local");
 
     try {
       if (recRef.current?.state && recRef.current.state !== "inactive") {
