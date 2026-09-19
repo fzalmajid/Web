@@ -905,7 +905,7 @@ function DatabasePage({
               </div>
               <button className="dangerSmall" onClick={() => removeEntry(entry.id)}>Hapus</button>
             </div>
-            <div className="dataText">{entry.content}</div>
+            <div className="dataText"><RichText text={entry.content} /></div>
           </article>
         ))}
 
@@ -922,13 +922,13 @@ function DatabasePage({
             {file.structured_text && (
               <details>
                 <summary>Versi tertata</summary>
-                <div className="dataText">{file.structured_text}</div>
+                <div className="dataText"><RichText text={file.structured_text} /></div>
               </details>
             )}
             {file.raw_text && (
               <details>
                 <summary>Sumber mentah / verbatim</summary>
-                <div className="dataText raw">{file.raw_text}</div>
+                <div className="dataText raw"><RichText text={file.raw_text} /></div>
               </details>
             )}
             {!!file.corrections?.length && <CorrectionList corrections={file.corrections} />}
@@ -1277,7 +1277,7 @@ function StudyPage({
             {path.overview && (
               <div>
                 <small>URUTAN BELAJAR</small>
-                <p>{path.overview}</p>
+                <p><RichText text={path.overview} /></p>
               </div>
             )}
           </section>
@@ -1299,8 +1299,8 @@ function StudyPage({
                       </span>
                     </summary>
                     <div className="studyUnitBody">
-                      <div className="studyTeaching">{unit.teaching_text}</div>
-                      <div className="recallPassed">Recall selesai · {unit.recall_explanation}</div>
+                      <div className="studyTeaching"><RichText text={unit.teaching_text} /></div>
+                      <div className="recallPassed">Recall selesai · <RichText text={unit.recall_explanation} /></div>
                     </div>
                   </details>
                 );
@@ -1316,14 +1316,14 @@ function StudyPage({
                     </div>
                   </div>
 
-                  <div className="studyTeaching">{unit.teaching_text}</div>
+                  <div className="studyTeaching"><RichText text={unit.teaching_text} /></div>
 
                   <div className="recallBox">
                     <div className="recallHead">
                       <span>RECALL</span>
                       <strong>Cek pemahaman sebelum lanjut</strong>
                     </div>
-                    <h3>{unit.recall_question}</h3>
+                    <h3><RichText text={unit.recall_question} /></h3>
 
                     <div className="recallChoices">
                       {unit.recall_choices.map((choice) => (
@@ -1340,7 +1340,7 @@ function StudyPage({
                             });
                           }}
                         >
-                          {choice}
+                          <RichText text={choice} />
                         </button>
                       ))}
                     </div>
@@ -1353,7 +1353,7 @@ function StudyPage({
 
                     {feedback === "correct" && (
                       <div className="recallFeedback correct">
-                        Benar. {unit.recall_explanation}
+                        Benar. <RichText text={unit.recall_explanation} />
                       </div>
                     )}
 
@@ -1758,12 +1758,12 @@ function RecordingPage({
 
             <div className="resultSection">
               <strong>Versi tertata & terkonteks</strong>
-              <div className="dataText">{result.structured}</div>
+              <div className="dataText"><RichText text={result.structured} /></div>
             </div>
 
             <details>
               <summary>Verbatim final</summary>
-              <div className="dataText raw">{result.raw}</div>
+              <div className="dataText raw"><RichText text={result.raw} /></div>
             </details>
 
             {!!result.corrections.length && <CorrectionList corrections={result.corrections} />}
@@ -2764,7 +2764,7 @@ function BottomAskBar({
             </div>
             <button onClick={() => setOpen(false)}>×</button>
           </div>
-          <div className="aiAnswerBody">{busy ? (aiMode === "simple" ? "Mencari secara Local..." : "Mencari di Database...") : answer || "..."}</div>
+          <div className="aiAnswerBody">{busy ? (aiMode === "simple" ? "Mencari secara Local..." : "Mencari di Database...") : <RichText text={answer || "..."} />}</div>
           {(!!sources.length || !!webSources.length) && (
             <div className="aiSources">
               {sources.map((source) => (
@@ -2892,10 +2892,10 @@ function CorrectionList({ corrections }: { corrections: Correction[] }) {
       <strong>Koreksi berbasis Database</strong>
       {corrections.map((item, index) => (
         <div key={item.heard + "-" + index}>
-          <span>{item.heard}</span>
+          <span><RichText text={item.heard} /></span>
           <b>→</b>
-          <span>{item.corrected}</span>
-          {item.basis && <small>{item.basis}</small>}
+          <span><RichText text={item.corrected} /></span>
+          {item.basis && <small><RichText text={item.basis} /></small>}
         </div>
       ))}
     </div>
