@@ -97,10 +97,25 @@ function normalizeProviderError(
 export async function geminiGenerateDetailed(
   parts: GeminiPart[],
   systemInstruction?: string,
-  options?: { googleSearch?: boolean; models?: string[]; apiKey?: string; effort?: AiEffort }
+  options?: {
+    googleSearch?: boolean;
+    models?: string[];
+    apiKey?: string;
+    accessToken?: string;
+    projectId?: string;
+    effort?: AiEffort;
+  }
 ) {
-  const key = String(options?.apiKey || process.env.GEMINI_API_KEY || "").trim();
-  if (!key) throw new GeminiApiError("Gemini API key belum tersedia.", 500, "GEMINI_KEY_MISSING");
+  const accessToken = String(options?.accessToken || "").trim();
+  const projectId = String(options?.projectId || "").trim();
+  const key = String(options?.apiKey || (!accessToken ? process.env.GEMINI_API_KEY : "") || "").trim();
+
+  if (accessToken && !projectId) {
+    throw new GeminiApiError("Google Cloud project belum dipilih.", 400, "GOOGLE_PROJECT_MISSING");
+  }
+  if (!accessToken && !key) {
+    throw new GeminiApiError("Gemini belum terhubung.", 500, "GEMINI_AUTH_MISSING");
+  }
 
   const models = Array.from(new Set((options?.models?.length ? options.models : [GEMINI_MODEL]).filter(Boolean)));
   let lastError: GeminiApiError | null = null;
@@ -114,10 +129,16 @@ export async function geminiGenerateDetailed(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": key,
-          },
+          headers: accessToken
+            ? {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + accessToken,
+                "x-goog-user-project": projectId,
+              }
+            : {
+                "Content-Type": "application/json",
+                "x-goog-api-key": key,
+              },
           body: JSON.stringify({
             systemInstruction: systemInstruction
               ? { parts: [{ text: systemInstruction }] }
