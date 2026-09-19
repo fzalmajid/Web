@@ -537,7 +537,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         <div className="headerActions">
           <AiCreditBadge />
           <ThemePicker value={theme} onChange={onThemeChange} />
-          <button className="ghost settingsBtn" onClick={() => setSettingsOpen(true)}>Pengaturan</button>
+          <button className="ghost settingsBtn pluginButton" onClick={() => setSettingsOpen(true)}>+ Plugin</button>
           <span className="userPill">{user.email}</span>
           <button className="ghost" onClick={() => supabase.auth.signOut()}>Keluar</button>
         </div>
@@ -627,21 +627,46 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
       {settingsOpen && (
         <div className="sheetBackdrop" onMouseDown={() => setSettingsOpen(false)}>
-          <section className="addSheet settingsSheet" onMouseDown={(e) => e.stopPropagation()}>
+          <section className="addSheet settingsSheet pluginSheet" onMouseDown={(e) => e.stopPropagation()}>
             <div className="sheetHead">
               <div>
-                <p className="eyebrow">PENGATURAN</p>
-                <h2>Integrasi & akun</h2>
+                <p className="eyebrow">AI PLUGINS</p>
+                <h2>+ Plugin</h2>
               </div>
               <button className="closeBtn" onClick={() => setSettingsOpen(false)}>×</button>
             </div>
 
-            <div className="settingsSection">
-              <div>
-                <strong>Gemini milik user</strong>
-                <p className="muted">Hubungkan akun Google + project Cloud sendiri agar quota Gemini berasal dari project user.</p>
-              </div>
-              <GeminiAccountConnection session={session} />
+            <p className="muted pluginIntro">
+              Hubungkan provider milik user. Model dari provider yang belum terhubung tidak akan muncul di Choose Model.
+            </p>
+
+            <div className="pluginGrid">
+              <article className="pluginCard">
+                <div className="pluginLogo">G</div>
+                <div className="pluginCopy">
+                  <strong>Gemini</strong>
+                  <small>OAuth Google + project Cloud user. API key manual hanya fallback.</small>
+                </div>
+                <GeminiAccountConnection session={session} />
+              </article>
+
+              <article className="pluginCard">
+                <div className="pluginLogo">GPT</div>
+                <div className="pluginCopy">
+                  <strong>OpenAI</strong>
+                  <small>Gunakan OpenAI API account user untuk GPT dan Web Search.</small>
+                </div>
+                <ApiProviderConnection session={session} provider="openai" />
+              </article>
+
+              <article className="pluginCard">
+                <div className="pluginLogo">C</div>
+                <div className="pluginCopy">
+                  <strong>Claude</strong>
+                  <small>Gunakan Claude API account user dan web search Anthropic.</small>
+                </div>
+                <ApiProviderConnection session={session} provider="anthropic" />
+              </article>
             </div>
           </section>
         </div>
@@ -4033,6 +4058,11 @@ function GeminiAccountConnection({ session }: { session: Session }) {
 
     window.sessionStorage.setItem("rb-google-gemini-project", nextProjectId);
     window.sessionStorage.removeItem("rb-user-gemini-key");
+    const googleModelIds = Array.isArray(data.availableModels)
+      ? data.availableModels.map((item: any) => String(item?.id || "")).filter(Boolean)
+      : [];
+    setStoredModelIds("rb-gemini-models", googleModelIds);
+    emitPluginChange();
     setProvider("google");
     setProjectId(nextProjectId);
 
@@ -4075,12 +4105,17 @@ function GeminiAccountConnection({ session }: { session: Session }) {
     }
 
     window.sessionStorage.setItem("rb-user-gemini-key", candidate);
+    setStoredModelIds(
+      "rb-gemini-models",
+      Array.isArray(data.availableModels) ? data.availableModels.map(String) : []
+    );
     window.sessionStorage.removeItem("rb-google-gemini-token");
     window.sessionStorage.removeItem("rb-google-gemini-project");
     window.sessionStorage.removeItem("rb-google-gemini-exp");
     setProvider("api-key");
     setProjectId("");
     setKeyInput("");
+    emitPluginChange();
     setMessage("API key user aktif untuk sesi browser ini.");
   }
 
@@ -4089,6 +4124,8 @@ function GeminiAccountConnection({ session }: { session: Session }) {
     window.sessionStorage.removeItem("rb-google-gemini-token");
     window.sessionStorage.removeItem("rb-google-gemini-project");
     window.sessionStorage.removeItem("rb-google-gemini-exp");
+    window.sessionStorage.removeItem("rb-gemini-models");
+    emitPluginChange();
     setProjects([]);
     setKeyInput("");
     setProvider("none");
@@ -4200,6 +4237,151 @@ function GeminiAccountConnection({ session }: { session: Session }) {
             </details>
 
             {connected && <button className="ghost" onClick={disconnect}>Putuskan koneksi Gemini sendiri</button>}
+            {message && <div className="notice">{message}</div>}
+          </section>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ApiProviderConnection({
+  session,
+  provider,
+}: {
+  session: Session;
+  provider: "openai" | "anthropic";
+}) {
+  const config =
+    provider === "openai"
+      ? {
+          label: "GPT / OpenAI",
+          eyebrow: "OPENAI",
+          storageKey: "rb-user-openai-key",
+          modelsKey: "rb-openai-models",
+          header: "X-RB-OpenAI-Key",
+          endpoint: "/api/check-openai-key",
+          placeholder: "Tempel OpenAI API key",
+          help: "https://platform.openai.com/api-keys",
+        }
+      : {
+          label: "Claude / Anthropic",
+          eyebrow: "CLAUDE",
+          storageKey: "rb-user-anthropic-key",
+          modelsKey: "rb-anthropic-models",
+          header: "X-RB-Anthropic-Key",
+          endpoint: "/api/check-anthropic-key",
+          placeholder: "Tempel Claude API key",
+          help: "https://console.anthropic.com/settings/keys",
+        };
+
+  const [open, setOpen] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setConnected(Boolean(window.sessionStorage.getItem(config.storageKey)));
+  }, [config.storageKey]);
+
+  async function connect() {
+    const candidate = keyInput.trim() || String(window.sessionStorage.getItem(config.storageKey) || "").trim();
+    if (!candidate) {
+      setMessage("Masukkan credential API user.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    const response = await fetch(config.endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+        [config.header]: candidate,
+      },
+      body: "{}",
+    });
+    const data = await response.json().catch(() => ({}));
+    setBusy(false);
+
+    if (!response.ok || data.valid === false) {
+      setMessage(data.error || "Credential belum dapat dipakai.");
+      return;
+    }
+
+    window.sessionStorage.setItem(config.storageKey, candidate);
+    setStoredModelIds(
+      config.modelsKey,
+      Array.isArray(data.availableModels) ? data.availableModels.map(String) : []
+    );
+    setKeyInput("");
+    setConnected(true);
+    emitPluginChange();
+    const models = Array.isArray(data.recommendedAvailable) ? data.recommendedAvailable : [];
+    setMessage(
+      "Terhubung untuk sesi browser ini." +
+        (models.length ? " Model tersedia: " + models.join(", ") + "." : "")
+    );
+  }
+
+  function disconnect() {
+    window.sessionStorage.removeItem(config.storageKey);
+    window.sessionStorage.removeItem(config.modelsKey);
+    setConnected(false);
+    setKeyInput("");
+    emitPluginChange();
+    setMessage("Plugin sudah diputus.");
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className={connected ? "geminiConnect connected" : "geminiConnect"}
+        onClick={() => setOpen(true)}
+      >
+        {connected ? "Terhubung ✓" : "Hubungkan API"}
+      </button>
+
+      {open && (
+        <div className="sheetBackdrop" onMouseDown={() => setOpen(false)}>
+          <section className="addSheet geminiConnectSheet" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <div>
+                <p className="eyebrow">{config.eyebrow}</p>
+                <h2>{config.label}</h2>
+              </div>
+              <button className="closeBtn" onClick={() => setOpen(false)}>×</button>
+            </div>
+
+            <div className="notice">
+              Credential disimpan hanya di <strong>sessionStorage browser</strong>. Ruang Belajar tidak menyimpannya di Supabase.
+              Pemakaian dan biaya masuk ke account API milik user.
+            </div>
+
+            <label className="geminiKeyField">
+              API credential
+              <input
+                type="password"
+                autoComplete="off"
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+                placeholder={connected ? "Credential sesi ini aktif" : config.placeholder}
+              />
+            </label>
+
+            <div className="geminiConnectActions">
+              <button className="primary" disabled={busy || (!keyInput.trim() && !connected)} onClick={connect}>
+                {busy ? "Memeriksa..." : connected ? "Periksa / ganti credential" : "Hubungkan"}
+              </button>
+              <a className="textBtn" href={config.help} target="_blank" rel="noreferrer">
+                Buka console provider
+              </a>
+            </div>
+
+            {connected && <button className="ghost" onClick={disconnect}>Putuskan plugin</button>}
             {message && <div className="notice">{message}</div>}
           </section>
         </div>
