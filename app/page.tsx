@@ -3146,19 +3146,28 @@ function AiModePicker({
   onChange,
   action,
   compact = false,
-  allowSimple = true,
+  allowLocal = true,
+  context = "general",
 }: {
-  value: AiMode;
-  onChange: (mode: AiMode) => void;
+  value: AiSelection;
+  onChange: (selection: AiSelection) => void;
   action: "ask" | "ask_web" | "study" | "transcription" | "file_light" | "file_heavy";
   compact?: boolean;
-  allowSimple?: boolean;
+  allowLocal?: boolean;
+  context?: "general" | "transcription";
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   void action;
-  const visibleModes = allowSimple ? aiModes : aiModes.filter((item) => item.provider === "Gemini");
-  const selected = visibleModes.find((item) => item.value === value) || visibleModes[0];
+
+  const visibleModels = AI_MODEL_CATALOG.filter(
+    (item) => item.contexts.includes(context) && (allowLocal || item.id !== "local")
+  );
+  const selected =
+    visibleModels.find((item) => item.id === value.model) ||
+    visibleModels.find((item) => item.id !== "local") ||
+    visibleModels[0];
+  const selectedEffort = selected?.efforts.find((item) => item.value === value.effort);
 
   useEffect(() => {
     if (!open) return;
@@ -3175,10 +3184,16 @@ function AiModePicker({
     };
   }, [open]);
 
-  const choose = (mode: AiMode) => {
-    onChange(mode);
+  function chooseModel(model: AiModelId) {
+    const next = defaultSelection(model, context);
+    onChange(next);
+    if (!modelCapability(model).efforts.length) setOpen(false);
+  }
+
+  function chooseEffort(effort: AiEffort) {
+    onChange({ model: selected.id, effort });
     setOpen(false);
-  };
+  }
 
   return (
     <div ref={wrapRef} className={compact ? "aiModeSelect compact" : "aiModeSelect"}>
@@ -3189,38 +3204,58 @@ function AiModePicker({
         aria-expanded={open}
       >
         <span>
-          <strong>{selected.label}</strong>
-          <small>{selected.provider === "Gemini" ? selected.model + " · usage aktual" : "Browser · tanpa API"}</small>
+          <strong>{selected?.label || "Local"}</strong>
+          <small>
+            {selected?.id === "local"
+              ? "Tanpa API"
+              : selectedEffort
+                ? selectedEffort.label + " · usage token aktual"
+                : selected?.subtitle}
+          </small>
         </span>
         <b>⌄</b>
       </button>
 
       {open && (
-        <div className="aiModePopover">
-          <div className="aiModeSectionLabel">BROWSER / TANPA API</div>
-          {allowSimple && aiModes.filter((item) => item.provider === "Local").map((item) => (
-            <button type="button" key={item.value} className={value === item.value ? "aiModeOption active" : "aiModeOption"} onClick={() => choose(item.value)}>
-              <span className="modeCheck">{value === item.value ? "✓" : ""}</span>
+        <div className="aiModePopover aiModelPopover">
+          <div className="aiModeSectionLabel">PILIH MODEL</div>
+          {visibleModels.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              className={value.model === item.id ? "aiModeOption active" : "aiModeOption"}
+              onClick={() => chooseModel(item.id)}
+            >
+              <span className="modeCheck">{value.model === item.id ? "✓" : ""}</span>
               <span className="modeCopy">
                 <strong>{item.label}</strong>
-                <small>{item.hint}</small>
+                <small>{item.subtitle}</small>
               </span>
-              <span className="modeMeta">Browser · tanpa API</span>
+              <span className="modeMeta">
+                {item.efforts.length ? item.efforts.map((effort) => effort.label).join(" · ") : "langsung"}
+              </span>
             </button>
           ))}
 
-          {allowSimple && <div className="aiModeDivider" />}
-          <div className="aiModeSectionLabel">GEMINI MODELS</div>
-          {aiModes.filter((item) => item.provider === "Gemini").map((item) => (
-            <button type="button" key={item.value} className={value === item.value ? "aiModeOption active" : "aiModeOption"} onClick={() => choose(item.value)}>
-              <span className="modeCheck">{value === item.value ? "✓" : ""}</span>
-              <span className="modeCopy">
-                <strong>{item.label}</strong>
-                <small>{item.hint}</small>
-              </span>
-              <span className="modeMeta">{item.model}</span>
-            </button>
-          ))}
+          {!!selected?.efforts.length && (
+            <>
+              <div className="aiModeDivider" />
+              <div className="aiModeSectionLabel">TINGKAT PENALARAN · {selected.label}</div>
+              <div className="aiEffortGrid">
+                {selected.efforts.map((effort) => (
+                  <button
+                    type="button"
+                    key={effort.value}
+                    className={value.effort === effort.value ? "aiEffortOption active" : "aiEffortOption"}
+                    onClick={() => chooseEffort(effort.value)}
+                  >
+                    <strong>{effort.label}</strong>
+                    <small>{effort.hint}</small>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
