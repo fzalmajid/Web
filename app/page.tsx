@@ -1853,6 +1853,36 @@ function StoredRecording({
   );
 }
 
+function RichText({ text, className = "" }: { text: string; className?: string }) {
+  const value = String(text || "");
+  const parts: any[] = [];
+  const pattern = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = pattern.exec(value))) {
+    if (match.index > last) parts.push(value.slice(last, match.index));
+    const token = match[0];
+
+    if (token.startsWith("**") && token.endsWith("**")) {
+      parts.push(<strong key={"b" + key++}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("__") && token.endsWith("__")) {
+      parts.push(<em key={"i" + key++}>{token.slice(2, -2)}</em>);
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      parts.push(<strong key={"b" + key++}>{token.slice(1, -1)}</strong>);
+    } else if (token.startsWith("_") && token.endsWith("_")) {
+      parts.push(<em key={"i" + key++}>{token.slice(1, -1)}</em>);
+    } else {
+      parts.push(token);
+    }
+    last = pattern.lastIndex;
+  }
+
+  if (last < value.length) parts.push(value.slice(last));
+  return <span className={"richText " + className}>{parts}</span>;
+}
+
 function normalizeQuizAnswer(value: string) {
   return value
     .trim()
