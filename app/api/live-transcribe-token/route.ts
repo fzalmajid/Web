@@ -20,16 +20,18 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const aiMode = normalizeAiMode(body.aiMode);
+    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
+    const ownGemini = Boolean(userGeminiKey);
     if (aiMode === "simple") {
       return NextResponse.json({ error: "Mode Simple memakai transkrip browser." }, { status: 400 });
     }
 
-    const preflight = await checkAiCredits(supabase, "transcription", aiMode);
-    if (!preflight.allowed) {
+    const preflight = ownGemini ? null : await checkAiCredits(supabase, "transcription", aiMode);
+    if (preflight && !preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
-    const key = process.env.GEMINI_API_KEY;
+    const key = userGeminiKey || process.env.GEMINI_API_KEY;
     if (!key) {
       return NextResponse.json({ error: "Gemini API belum dikonfigurasi." }, { status: 500 });
     }
@@ -81,6 +83,7 @@ export async function POST(req: NextRequest) {
       token: data.name,
       model: "gemini-3.5-transcribe-live",
       expiresAt: expireTime,
+      provider: ownGemini ? "user-api-key" : "shared-api-key",
     });
   } catch (error: any) {
     console.error("[LIVE_TRANSCRIBE_TOKEN_ERROR]", {
