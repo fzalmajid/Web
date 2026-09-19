@@ -1808,3 +1808,14 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     margin-left:0;
   }
 }
+
+
+.recordModeLocked{
+  pointer-events:none;
+  opacity:.65;
+}
+.recordHistoryActions{
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
