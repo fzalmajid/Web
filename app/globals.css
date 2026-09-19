@@ -1206,3 +1206,39 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   .manualCreateBox{justify-items:stretch}
   .quizProgress{top:66px;align-items:stretch;flex-direction:column}
 }
+
+
+/* Essay AI quiz */
+.quizKindTabs{
+  display:flex;
+  gap:7px;
+  flex-wrap:wrap;
+}
+.quizKindTabs button{
+  border:1px solid var(--line);
+  background:var(--card);
+  color:var(--ink);
+  border-radius:11px;
+  padding:8px 11px;
+  font-weight:800;
+  font-size:.78rem;
+}
+.quizKindTabs button.active{
+  border-color:var(--accent);
+  background:var(--soft);
+}
+.essayInfo{
+  display:grid;
+  gap:4px;
+  padding:13px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--soft);
+}
+.essayInfo strong{font-size:.86rem}
+.essayInfo span{font-size:.78rem;color:var(--muted);line-height:1.45}
+.essayCard textarea{
+  margin-top:10px;
+  resize:vertical;
+}
+.quizScore .muted{font-size:.76rem}
