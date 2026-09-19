@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     const ownGemini = geminiAuth.ownGemini;
 
     if (aiMode === "simple") {
-      return NextResponse.json({ error: "Mode Simple diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
+      return NextResponse.json({ error: "Local diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
     }
 
     if (!sourceFileId || !filePath || !nodeId) {
