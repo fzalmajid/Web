@@ -20,6 +20,10 @@ export async function POST(req: NextRequest) {
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
 
+    if (aiMode === "simple") {
+      return NextResponse.json({ error: "Mode Simple diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
+    }
+
     if (!sourceNodeId || !targetNodeId) {
       return NextResponse.json({ error: "Scope materi belum dipilih." }, { status: 400 });
     }
