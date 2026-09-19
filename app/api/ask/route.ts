@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   geminiGenerateDetailed,
-  geminiModelsForMode,
   GeminiWebSearchQuotaError,
   WHATSAPP_FORMAT_INSTRUCTION,
 } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge, searchScopeKnowledge } from "@/lib/knowledge";
+import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import {
   aiModeInstruction,
   aiQuotaError,
@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
     const question = body.question;
     const scopeNodeId = body.scopeNodeId ?? null;
     const aiMode = normalizeAiMode(body.aiMode ?? "instant");
+    const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
     const ownGemini = Boolean(userGeminiKey);
     const knowledgeMode: KnowledgeMode =
@@ -162,7 +163,12 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
         const result = await geminiGenerateDetailed(
           [{ text: webPrompt }],
           "Anda adalah tutor Ruang Belajar. Database pribadi tetap prioritas dan Google Search boleh dipakai karena pengguna memilih Web + Database.",
-          { googleSearch: true, models: geminiModelsForMode(aiMode, "web"), apiKey: userGeminiKey }
+          {
+            googleSearch: true,
+            models: modelPlanForSelection(aiSelection.model, aiMode, "web"),
+            effort: aiSelection.effort,
+            apiKey: userGeminiKey,
+          }
         );
 
         await recordAiTokenUsage(supabase, result.usage, result.model, ownGemini ? "user-api-key" : "shared-api-key");
@@ -186,7 +192,11 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
         const fallbackResult = await geminiGenerateDetailed(
           [{ text: hybridPrompt }],
           "Anda adalah tutor Ruang Belajar. Gunakan Database sebagai konteks utama dan pengetahuan internal model sebagai pelengkap. Jangan browsing internet.",
-          { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
+          {
+            models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
+            effort: aiSelection.effort,
+            apiKey: userGeminiKey,
+          }
         );
 
         await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model, ownGemini ? "user-api-key" : "shared-api-key");
@@ -221,7 +231,11 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       useHybrid
         ? "Anda adalah tutor Ruang Belajar. Database adalah referensi utama; pengetahuan internal model boleh dipakai sebagai pelengkap dan harus dibedakan."
         : "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal.",
-      { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
+      {
+            models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
+            effort: aiSelection.effort,
+            apiKey: userGeminiKey,
+          }
     );
 
     await recordAiTokenUsage(supabase, result.usage, result.model, ownGemini ? "user-api-key" : "shared-api-key");
