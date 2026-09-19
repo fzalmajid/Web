@@ -1,4 +1,5 @@
 import { GEMINI_MODEL } from "./config";
+import { thinkingConfigForModel, type AiEffort } from "./aiModels";
 
 type GeminiPart = { text?: string; inlineData?: { mimeType: string; data: string } };
 export type GeminiWebSource = { title: string; uri: string };
@@ -96,7 +97,7 @@ function normalizeProviderError(
 export async function geminiGenerateDetailed(
   parts: GeminiPart[],
   systemInstruction?: string,
-  options?: { googleSearch?: boolean; models?: string[]; apiKey?: string }
+  options?: { googleSearch?: boolean; models?: string[]; apiKey?: string; effort?: AiEffort }
 ) {
   const key = String(options?.apiKey || process.env.GEMINI_API_KEY || "").trim();
   if (!key) throw new GeminiApiError("Gemini API key belum tersedia.", 500, "GEMINI_KEY_MISSING");
@@ -124,8 +125,13 @@ export async function geminiGenerateDetailed(
             contents: [{ role: "user", parts }],
             tools: options?.googleSearch ? [{ google_search: {} }] : undefined,
             generationConfig: {
-              temperature: 0.2,
+              temperature: model === "gemini-3.5-transcribe" ? undefined : 0.2,
               maxOutputTokens: 8192,
+              thinkingConfig: thinkingConfigForModel(model, options?.effort || "none"),
+              audioTranscriptionConfig:
+                model === "gemini-3.5-transcribe"
+                  ? { languageCodes: ["id-ID"], mode: "VERBATIM" }
+                  : undefined,
             },
           }),
         }
