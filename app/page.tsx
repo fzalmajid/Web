@@ -86,7 +86,7 @@ const aiModes: Array<{ value: AiMode; label: string; provider: "Local" | "Gemini
   { value: "high", label: "High", provider: "Gemini", hint: "Paling mendalam · Gemini 3.6" },
 ];
 
-const nodeEmojis = ["📚","🧠","📝","🎓","💊","🧪","🔬","📖","🎙️","🗂️","✨","🌱","💡","📌","✅","⭐"];
+const nodeEmojis = ["📚","🧠","📝","🎓","💊","🧪","🔬","📖","🎙️","🗂️","✨","🌱","💡","📌","✅","⭐","🧬","🧫","⚗️","🏥","💉","🩺","🧴","🧾","📂","📁","📊","📈","📉","🧩","❓","❗","🧮","🧭","🗒️","📒","📓","📔","📕","📗","📘","📙","🎧","🎤","🎥","🖼️","🧑‍⚕️","👩‍🔬","👨‍🔬","🧑‍🏫","🏆","🎯","⏱️","🔖","🧷","🪄","🌟","🔥","💬","🗃️","🧱","🔎","🧷"];
 const nodeColors = [
   { value: "default", label: "Default" },
   { value: "rose", label: "Rose" },
@@ -120,8 +120,11 @@ const labels: Record<NodeType, string> = {
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
 
   useEffect(() => {
+    const savedTheme = (window.localStorage.getItem("rb-theme") || "system") as "light" | "dark" | "system";
+    setTheme(savedTheme);
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
@@ -140,11 +143,28 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      const resolved = theme === "system"
+        ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        : theme;
+      root.dataset.theme = resolved;
+      root.dataset.themePreference = theme;
+      window.localStorage.setItem("rb-theme", theme);
+    };
+    apply();
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const listener = () => theme === "system" && apply();
+    media.addEventListener?.("change", listener);
+    return () => media.removeEventListener?.("change", listener);
+  }, [theme]);
+
   if (loading) {
     return <main className="center"><div className="loader">Memuat Ruang Belajar...</div></main>;
   }
   if (!session) return <Auth />;
-  return <Workspace session={session} user={session.user} />;
+  return <Workspace session={session} user={session.user} theme={theme} onThemeChange={setTheme} />;
 }
 
 function Auth() {
@@ -208,7 +228,7 @@ function Auth() {
   );
 }
 
-function Workspace({ session, user }: { session: Session; user: User }) {
+function Workspace({ session, user, theme, onThemeChange }: { session: Session; user: User; theme: "light" | "dark" | "system"; onThemeChange: (theme: "light" | "dark" | "system") => void }) {
   const [nodes, setNodes] = useState<StudyNode[]>([]);
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
   const [files, setFiles] = useState<SourceFile[]>([]);
@@ -309,6 +329,7 @@ function Workspace({ session, user }: { session: Session; user: User }) {
         </button>
         <div className="headerActions">
           <AiCreditBadge />
+          <ThemePicker value={theme} onChange={onThemeChange} />
           <span className="userPill">{user.email}</span>
           <button className="ghost" onClick={() => supabase.auth.signOut()}>Keluar</button>
         </div>
@@ -1871,6 +1892,44 @@ function BottomAskBar({
         <button className="sendAsk" disabled={busy || !question.trim()}>{busy ? "..." : "↑"}</button>
       </form>
     </>
+  );
+}
+
+function ThemePicker({
+  value,
+  onChange,
+}: {
+  value: "light" | "dark" | "system";
+  onChange: (theme: "light" | "dark" | "system") => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = value === "light" ? "Terang" : value === "dark" ? "Gelap" : "Sistem";
+  return (
+    <div className="themePicker">
+      <button className="themeTrigger" onClick={() => setOpen((current) => !current)} title="Tema">
+        <span>{value === "light" ? "☀️" : value === "dark" ? "🌙" : "◐"}</span>
+        <small>{label}</small>
+      </button>
+      {open && (
+        <div className="themeMenu">
+          {[
+            { value: "light" as const, label: "Terang", icon: "☀️" },
+            { value: "dark" as const, label: "Gelap", icon: "🌙" },
+            { value: "system" as const, label: "Ikuti sistem", icon: "◐" },
+          ].map((item) => (
+            <button
+              key={item.value}
+              className={value === item.value ? "active" : ""}
+              onClick={() => { onChange(item.value); setOpen(false); }}
+            >
+              <span>{item.icon}</span>
+              <span>{item.label}</span>
+              {value === item.value && <b>✓</b>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
