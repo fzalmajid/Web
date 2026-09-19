@@ -16,6 +16,8 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const aiMode = normalizeAiMode(body.aiMode);
+    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
+    const ownGemini = Boolean(userGeminiKey);
     const items = Array.isArray(body.answers)
       ? body.answers
           .map((item: any) => ({
@@ -80,8 +82,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Database sumber kuis masih kosong." }, { status: 400 });
     }
 
-    const preflight = await checkAiCredits(supabase, "study", aiMode);
-    if (!preflight.allowed) {
+    const preflight = ownGemini ? null : await checkAiCredits(supabase, "study", aiMode);
+    if (preflight && !preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
@@ -136,6 +138,7 @@ Aturan:
 - ${WHATSAPP_FORMAT_INSTRUCTION}`
     }], "Anda adalah penilai kuis yang ketat dan hanya boleh memakai database yang diberikan.", {
       models: geminiModelsForMode(aiMode, "standard"),
+      apiKey: userGeminiKey,
     });
     await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model);
     const raw = geminiResult.text;
@@ -154,8 +157,13 @@ Aturan:
       };
     });
 
-    const aiUsage = await finalizeAiCredits(supabase, "study", aiMode);
-    return NextResponse.json({ results, aiUsage });
+    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "study", aiMode);
+    return NextResponse.json({
+      results,
+      aiUsage,
+      model: geminiResult.model,
+      provider: ownGemini ? "user-api-key" : "shared-api-key",
+    });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
     console.error("[API_GRADE_QUIZ_ERROR]", { name: error?.name, code: error?.code, status });
