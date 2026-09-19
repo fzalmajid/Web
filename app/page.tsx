@@ -63,7 +63,11 @@ function Auth() {
 
     const result = mode === "login"
       ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password });
+      : await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: window.location.origin },
+        });
 
     if (result.error) setMessage(result.error.message);
     else if (mode === "signup" && !result.data.session) {
