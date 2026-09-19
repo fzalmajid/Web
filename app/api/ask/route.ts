@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   geminiGenerateDetailed,
+  geminiModelsForMode,
   GeminiWebSearchQuotaError,
   WHATSAPP_FORMAT_INSTRUCTION,
 } from "@/lib/gemini";
@@ -126,10 +127,10 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
         const result = await geminiGenerateDetailed(
           [{ text: webPrompt }],
           "Anda adalah tutor Ruang Belajar. Database pribadi tetap prioritas, tetapi Google Search boleh dipakai karena pengguna secara eksplisit mengaktifkan Public Web.",
-          { googleSearch: true }
+          { googleSearch: true, models: geminiModelsForMode(aiMode, "web") }
         );
 
-        await recordAiTokenUsage(supabase, result.usage);
+        await recordAiTokenUsage(supabase, result.usage, result.model);
         const aiUsage = await finalizeAiCredits(supabase, "ask_web", aiMode);
 
         return NextResponse.json({
@@ -166,10 +167,11 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
         // Graceful fallback: answer from the private Database only, then charge normal ask credits.
         const fallbackResult = await geminiGenerateDetailed(
           [{ text: databasePrompt }],
-          "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal."
+          "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal.",
+          { models: geminiModelsForMode(aiMode, "standard") }
         );
 
-        await recordAiTokenUsage(supabase, fallbackResult.usage);
+        await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model);
         const aiUsage = await finalizeAiCredits(supabase, "ask", aiMode);
 
         return NextResponse.json({
@@ -198,9 +200,10 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
 
     const result = await geminiGenerateDetailed(
       [{ text: databasePrompt }],
-      "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal."
+      "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal.",
+      { models: geminiModelsForMode(aiMode, "standard") }
     );
-    await recordAiTokenUsage(supabase, result.usage);
+    await recordAiTokenUsage(supabase, result.usage, result.model);
     const aiUsage = await finalizeAiCredits(supabase, "ask", aiMode);
 
     return NextResponse.json({
