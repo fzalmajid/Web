@@ -48,6 +48,10 @@ export async function POST(req: NextRequest) {
     const mimeType = normalizeMime(String(body.mimeType || "application/octet-stream"));
     const aiMode = normalizeAiMode(body.aiMode);
 
+    if (aiMode === "simple") {
+      return NextResponse.json({ error: "Mode Simple diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
+    }
+
     if (!sourceFileId || !filePath || !nodeId) {
       return NextResponse.json({ error: "Data file tidak lengkap." }, { status: 400 });
     }
