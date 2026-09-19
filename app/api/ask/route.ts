@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { geminiGenerateDetailed } from "@/lib/gemini";
+import { geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge, searchScopeKnowledge } from "@/lib/knowledge";
 import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 
@@ -69,7 +69,7 @@ Mode Public Web AKTIF.
 - Bedakan dengan jelas bila informasi berasal dari web publik.
 - Jangan mengarang sumber.
 ${aiModeInstruction(aiMode)}
-- Jawab dengan jelas dan terstruktur.`
+- Jawab dengan jelas dan terstruktur.\n${WHATSAPP_FORMAT_INSTRUCTION}`
       : `PERTANYAAN:
 ${question.trim()}
 
@@ -81,7 +81,7 @@ ${aiModeInstruction(aiMode)}
 - Jika database tidak cukup untuk menjawab pertanyaan, jawab persis: "Materi ini belum tersedia di database."
 - Jangan gunakan pengetahuan umum atau internet.
 - Bila ada istilah yang berbeda, utamakan istilah yang benar-benar tertulis/terdefinisi di database.
-- Jawab dengan jelas dan terstruktur.`;
+- Jawab dengan jelas dan terstruktur.\n${WHATSAPP_FORMAT_INSTRUCTION}`;
 
     const result = await geminiGenerateDetailed(
       [{ text: prompt }],
