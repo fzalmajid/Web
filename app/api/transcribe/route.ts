@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiQuotaError, consumeAiCredits } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
     const filePath = String(body.filePath || "");
     const contextNodeId = body.contextNodeId ? String(body.contextNodeId) : null;
     const mimeType = normalizeMime(String(body.mimeType || "audio/webm"));
+    const aiMode = normalizeAiMode(body.aiMode);
 
     if (!recordingId || !filePath) {
       return NextResponse.json({ error: "Data rekaman tidak lengkap." }, { status: 400 });
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
 
-    const aiUsage = await consumeAiCredits(supabase, "transcription");
+    const aiUsage = await consumeAiCredits(supabase, "transcription", aiMode);
     if (!aiUsage.allowed) {
       return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
     }
@@ -95,7 +96,8 @@ export async function POST(req: NextRequest) {
             '3. Contoh: bila terdengar "CPOD" tetapi database pada konteks yang sama jelas memakai/menjelaskan "CPOB", versi tertata boleh menulis CPOB dan koreksinya dicatat.\n' +
             "4. Jangan mengubah transkrip verbatim.\n" +
             "5. Bila database kosong/tidak relevan, jangan menambah fakta luar; cukup tata dan rangkum berdasarkan rekaman.\n" +
-            "6. basis harus singkat dan menyebut dasar dari database.",
+            "6. basis harus singkat dan menyebut dasar dari database.\n" +
+            "7. " + aiModeInstruction(aiMode),
         },
       ],
       "Anda menyunting transkrip secara konservatif. Database yang diberikan adalah satu-satunya sumber untuk koreksi istilah faktual."
