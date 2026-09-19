@@ -215,6 +215,8 @@ export async function geminiGenerateDetailed(
     accessToken?: string;
     projectId?: string;
     effort?: AiEffort;
+    responseMimeType?: "application/json";
+    maxOutputTokens?: number;
   }
 ) {
   const accessToken = String(options?.accessToken || "").trim();
@@ -269,7 +271,8 @@ export async function geminiGenerateDetailed(
                 model === "gemini-3.5-transcribe" || model.startsWith("gemini-3")
                   ? undefined
                   : 0.2,
-              maxOutputTokens: 8192,
+              maxOutputTokens: Math.max(1024, Math.min(Number(options?.maxOutputTokens || 8192), 32768)),
+              responseMimeType: options?.responseMimeType,
               thinkingConfig: thinkingConfigForModel(model, options?.effort || "none"),
               audioTranscriptionConfig:
                 model === "gemini-3.5-transcribe"
@@ -354,4 +357,61 @@ export async function geminiGenerate(parts: GeminiPart[], systemInstruction?: st
 
 export function cleanJsonText(value: string) {
   return value.replace(/^\`\`\`json\s*/i, "").replace(/^\`\`\`\s*/i, "").replace(/\s*\`\`\`$/i, "").trim();
+}
+
+
+export function parseJsonSafely(value: string) {
+  const cleaned = cleanJsonText(value);
+  try {
+    return JSON.parse(cleaned);
+  } catch {}
+
+  const firstObject = cleaned.indexOf("{");
+  const firstArray = cleaned.indexOf("[");
+  const start =
+    firstObject < 0
+      ? firstArray
+      : firstArray < 0
+        ? firstObject
+        : Math.min(firstObject, firstArray);
+
+  if (start < 0) throw new Error("AI tidak mengembalikan JSON.");
+
+  let inString = false;
+  let escaped = false;
+  let depthCurly = 0;
+  let depthSquare = 0;
+
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depthCurly++;
+    if (ch === "}") depthCurly--;
+    if (ch === "[") depthSquare++;
+    if (ch === "]") depthSquare--;
+
+    if (depthCurly === 0 && depthSquare === 0) {
+      const candidate = cleaned.slice(start, i + 1);
+      try {
+        return JSON.parse(candidate);
+      } catch {}
+    }
+  }
+
+  throw new Error("AI mengembalikan JSON yang belum lengkap.");
 }
