@@ -648,7 +648,6 @@ export async function POST(req: NextRequest) {
     let transcriptionModel = "";
     let transcriptionProvider = "browser-live";
     let transcriptionWarning = "";
-    let usedDedicatedTranscriber = false;
     let lastAudioError: any = null;
 
     for (const auth of authCandidates) {
@@ -659,7 +658,6 @@ export async function POST(req: NextRequest) {
         rawTranscript = result.text;
         transcriptionModel = result.model;
         transcriptionProvider = auth.provider;
-        usedDedicatedTranscriber = Boolean(result.dedicated);
         if (auth.provider === "shared-api-key") usedShared = true;
         await recordAiTokenUsage(supabase, result.usage, result.model, auth.provider);
         break;
@@ -738,50 +736,6 @@ export async function POST(req: NextRequest) {
         structuring: "none",
       },
       mode: purpose === "question" ? "question-verbatim" : "recording-verbatim",
-    });
-  } catch (error: any) {
-        console.warn("[TRANSCRIPT_STRUCTURE_FALLBACK]", {
-          provider: auth.provider,
-          status: Number(error?.statusCode || 500),
-          message: String(error?.message || "").slice(0, 220),
-        });
-      }
-    }
-
-    if (!structuringModel) {
-      structuringWarning =
-        "Transkrip verbatim berhasil, tetapi perapihan/koreksi berbasis Database belum dapat dijalankan. Transkrip mentah tetap disimpan.";
-    }
-
-    const { error: updateError } = await supabase
-      .from("recordings")
-      .update({
-        raw_transcript: rawTranscript,
-        structured_transcript: structuredTranscript,
-        transcript: structuredTranscript,
-        corrections,
-      })
-      .eq("id", recordingId);
-
-    if (updateError) throw updateError;
-
-    const aiUsage = usedShared
-      ? await finalizeAiCredits(supabase, "transcription", aiMode)
-      : null;
-
-    return NextResponse.json({
-      rawTranscript,
-      structuredTranscript,
-      summary,
-      corrections,
-      warning: [transcriptionWarning, structuringWarning].filter(Boolean).join(" "),
-      aiUsage,
-      transcriptionModel,
-      structuringModel,
-      provider: {
-        transcription: transcriptionProvider,
-        structuring: structuringProvider || "none",
-      },
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
