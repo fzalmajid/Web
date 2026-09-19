@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
+import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -47,8 +48,8 @@ export async function POST(req: NextRequest) {
       : [];
     const aiMode = normalizeAiMode(body.aiMode);
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
-    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
-    const ownGemini = Boolean(userGeminiKey);
+    const geminiAuth = geminiUserAuthFromHeaders(req.headers);
+    const ownGemini = geminiAuth.ownGemini;
     const studyInstruction = String(body.studyInstruction || "").trim().slice(0, 2000);
 
     if (!studyNodeId || !sourceNodeIds.length) {
@@ -219,10 +220,12 @@ Aturan wajib:
       {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
-      apiKey: userGeminiKey,
+      apiKey: geminiAuth.apiKey,
+      accessToken: geminiAuth.accessToken,
+      projectId: geminiAuth.projectId,
     }
     );
-    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, ownGemini ? "user-api-key" : "shared-api-key");
+    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, geminiAuth.provider);
     const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
@@ -296,7 +299,7 @@ Aturan wajib:
       unitCount: units.length,
       aiUsage,
       model: geminiResult.model,
-      provider: ownGemini ? "user-api-key" : "shared-api-key",
+      provider: geminiAuth.provider,
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
