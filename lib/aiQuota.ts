@@ -17,6 +17,11 @@ export type AiUsage = {
   used: number;
   limit: number;
   remaining: number;
+  fair_share?: number;
+  active_accounts?: number;
+  pool_total?: number;
+  pool_used?: number;
+  pool_remaining?: number;
   reset_timezone: string;
 };
 
@@ -54,7 +59,7 @@ export async function checkAiCredits(
   if (error) throw error;
   const cost = getAiCreditCost(action, mode);
   const used = Number(data?.used ?? 0);
-  const limit = Number(data?.limit ?? 40);
+  const limit = Number(data?.limit ?? 400);
   const remaining = Number(data?.remaining ?? Math.max(limit - used, 0));
   return {
     allowed: remaining >= cost,
@@ -93,8 +98,8 @@ export async function consumeAiCredits(
       mode: "simple",
       cost: 0,
       used: Number(data?.used ?? 0),
-      limit: Number(data?.limit ?? 40),
-      remaining: Number(data?.remaining ?? 40),
+      limit: Number(data?.limit ?? 400),
+      remaining: Number(data?.remaining ?? 400),
       reset_timezone: String(data?.reset_timezone ?? "Asia/Jakarta"),
     };
   }
