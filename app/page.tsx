@@ -214,10 +214,28 @@ function Auth() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
+  function signupPasswordError(value: string) {
+    if (value.length < 12) return "Password baru minimal 12 karakter.";
+    if (!/[a-z]/.test(value)) return "Password baru harus memiliki huruf kecil.";
+    if (!/[A-Z]/.test(value)) return "Password baru harus memiliki huruf besar.";
+    if (!/[0-9]/.test(value)) return "Password baru harus memiliki angka.";
+    if (!/[^A-Za-z0-9]/.test(value)) return "Password baru harus memiliki simbol.";
+    return "";
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
     setMessage("");
+
+    if (mode === "signup") {
+      const policyError = signupPasswordError(password);
+      if (policyError) {
+        setMessage(policyError);
+        return;
+      }
+    }
+
+    setBusy(true);
 
     const result =
       mode === "login"
@@ -251,7 +269,17 @@ function Auth() {
           </label>
           <label>
             Password
-            <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input
+              type="password"
+              required
+              minLength={mode === "signup" ? 12 : 6}
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            {mode === "signup" && (
+              <small className="muted">Minimal 12 karakter + huruf besar, huruf kecil, angka, dan simbol.</small>
+            )}
           </label>
           <button className="primary" disabled={busy}>
             {busy ? "Memproses..." : mode === "login" ? "Masuk" : "Buat akun"}
