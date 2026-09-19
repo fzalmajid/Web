@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
+import { aiQuotaError, consumeAiCredits } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -61,6 +62,11 @@ export async function POST(req: NextRequest) {
     }
 
     const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
+
+    const aiUsage = await consumeAiCredits(supabase, "transcription");
+    if (!aiUsage.allowed) {
+      return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
+    }
 
     const rawTranscript = await geminiGenerate([
       {
@@ -134,6 +140,7 @@ export async function POST(req: NextRequest) {
       structuredTranscript,
       summary,
       corrections,
+      aiUsage,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Transkripsi gagal." }, { status: 500 });
