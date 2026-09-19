@@ -3341,7 +3341,8 @@ function BottomAskBar({
   const [knowledgeMode, setKnowledgeMode] = useState<KnowledgeMode>("database");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const [aiMode, setAiMode] = useState<AiMode>("simple");
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const aiMode = legacyModeForSelection(aiSelection);
   const [composerBottom, setComposerBottom] = useState(16);
   const [composerHeight, setComposerHeight] = useState(118);
   const dragRef = useRef<{ y: number; bottom: number } | null>(null);
@@ -3506,7 +3507,12 @@ function BottomAskBar({
           <div className="aiAnswerHead">
             <div>
               <small title={scopeName}>
-                {aiSelection.model === "local" ? "Simple · Browser" : aiMode[0].toUpperCase() + aiMode.slice(1)}
+                {aiSelection.model === "local"
+                  ? "Local"
+                  : modelCapability(aiSelection.model).label +
+                    (modelCapability(aiSelection.model).efforts.length
+                      ? " · " + modelCapability(aiSelection.model).efforts.find((item) => item.value === aiSelection.effort)?.label
+                      : "")}
                 {" · "}{activeKnowledgeLabel}
                 {answerModel ? " · " + answerModel : ""}
                 {" · "}{scopeName}
@@ -3578,8 +3584,8 @@ function BottomAskBar({
               </button>
             </div>
             <AiModePicker
-              value={aiMode}
-              onChange={setAiMode}
+              value={aiSelection}
+              onChange={setAiSelection}
               action={knowledgeMode === "web" ? "ask_web" : "ask"}
               compact
             />
