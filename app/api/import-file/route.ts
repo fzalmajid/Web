@@ -3,6 +3,7 @@ import * as mammoth from "mammoth";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
+import { aiQuotaError, consumeAiCredits } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -70,6 +71,25 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(await blob.arrayBuffer());
     let rawText = "";
+
+    const heavyFile =
+      isMediaMime(mimeType) ||
+      mimeType === "application/pdf" ||
+      mimeType.startsWith("image/");
+    const aiUsage = await consumeAiCredits(
+      supabase,
+      heavyFile ? "file_heavy" : "file_light"
+    );
+    if (!aiUsage.allowed) {
+      await supabase
+        .from("source_files")
+        .update({
+          processing_status: "error",
+          error_message: "Kuota AI hari ini habis. Coba lagi setelah 00.00 WIB.",
+        })
+        .eq("id", sourceFileId);
+      return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
+    }
 
     if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.toLowerCase().endsWith(".docx")) {
       const extracted = await mammoth.extractRawText({ buffer });
@@ -179,6 +199,7 @@ Aturan:
       structuredText,
       summary,
       corrections,
+      aiUsage,
     });
   } catch (error: any) {
     if (sourceFileId) {
