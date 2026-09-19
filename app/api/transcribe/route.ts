@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -68,9 +68,9 @@ export async function POST(req: NextRequest) {
 
     const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
 
-    const aiUsage = await consumeAiCredits(supabase, "transcription", aiMode);
-    if (!aiUsage.allowed) {
-      return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
+    const preflight = await checkAiCredits(supabase, "transcription", aiMode);
+    if (!preflight.allowed) {
+      return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
     const rawResult = await geminiGenerateDetailed([
@@ -144,6 +144,8 @@ export async function POST(req: NextRequest) {
       .eq("id", recordingId);
 
     if (updateError) throw updateError;
+
+    const aiUsage = await consumeAiCredits(supabase, "transcription", aiMode);
 
     return NextResponse.json({
       rawTranscript,
