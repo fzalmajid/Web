@@ -1660,3 +1660,21 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     flex-direction:column;
   }
 }
+
+
+/* Friendly fallback when Google Search grounding is unavailable */
+.aiWarning{
+  margin:12px 14px 0;
+  padding:10px 12px;
+  border:1px solid #ead8a5;
+  border-radius:12px;
+  background:#fff8df;
+  color:#6c5723;
+  font-size:.76rem;
+  line-height:1.45;
+}
+:root[data-theme="dark"] .aiWarning{
+  background:#2d2819;
+  border-color:#5a4d29;
+  color:#ead8a5;
+}
