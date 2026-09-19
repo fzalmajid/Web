@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, geminiModelsForMode, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
@@ -134,8 +134,10 @@ Aturan:
 - Jika database tidak cukup untuk menilai suatu soal, gradable=false, correct=false, score=0 dan jelaskan kekurangan sumber di feedback.
 - basis harus singkat dan menyebut dasar dari database tanpa mengarang kutipan.
 - ${WHATSAPP_FORMAT_INSTRUCTION}`
-    }], "Anda adalah penilai kuis yang ketat dan hanya boleh memakai database yang diberikan.");
-    await recordAiTokenUsage(supabase, geminiResult.usage);
+    }], "Anda adalah penilai kuis yang ketat dan hanya boleh memakai database yang diberikan.", {
+      models: geminiModelsForMode(aiMode, "standard"),
+    });
+    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model);
     const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
