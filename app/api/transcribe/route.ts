@@ -345,6 +345,99 @@ function uniqueAuthCandidates(items: GeminiAuth[]) {
   );
 }
 
+function normalizedWords(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9À-ÿ\s]/gi, " ")
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+}
+
+function multisetCoverage(source: string[], candidate: string[]) {
+  if (!source.length) return 1;
+  const counts = new Map<string, number>();
+  for (const word of candidate) counts.set(word, (counts.get(word) || 0) + 1);
+  let matched = 0;
+  for (const word of source) {
+    const count = counts.get(word) || 0;
+    if (count > 0) {
+      matched++;
+      counts.set(word, count - 1);
+    }
+  }
+  return matched / source.length;
+}
+
+function structuredCandidateIsFaithful(raw: string, candidate: string) {
+  const rawWords = normalizedWords(raw);
+  const candidateWords = normalizedWords(candidate);
+  if (!candidateWords.length) return false;
+  if (rawWords.length <= 4) return candidateWords.join(" ") === rawWords.join(" ");
+
+  const rawCoverage = multisetCoverage(rawWords, candidateWords);
+  const candidateCoverage = multisetCoverage(candidateWords, rawWords);
+  const lengthRatio = candidateWords.length / Math.max(1, rawWords.length);
+  const requiredRawCoverage = rawWords.length < 20 ? 0.78 : 0.7;
+
+  return (
+    rawCoverage >= requiredRawCoverage &&
+    candidateCoverage >= 0.62 &&
+    lengthRatio >= 0.65 &&
+    lengthRatio <= 1.45
+  );
+}
+
+function safeTranscriptCorrections(
+  raw: string,
+  value: unknown
+): Array<{ heard: string; corrected: string; basis: string }> {
+  if (!Array.isArray(value)) return [];
+  const rawLower = raw.toLowerCase();
+
+  return value
+    .slice(0, 30)
+    .map((x: any) => ({
+      heard: String(x?.heard || "").trim(),
+      corrected: String(x?.corrected || "").trim(),
+      basis: String(x?.basis || "").trim(),
+    }))
+    .filter((item) => {
+      if (!item.heard || !item.corrected || !item.basis) return false;
+      if (!rawLower.includes(item.heard.toLowerCase())) return false;
+
+      const heardWords = normalizedWords(item.heard);
+      const correctedWords = normalizedWords(item.corrected);
+      if (!heardWords.length || !correctedWords.length) return false;
+      if (heardWords.length > 6 || correctedWords.length > 6) return false;
+      if (correctedWords.length > heardWords.length + 3) return false;
+      return true;
+    });
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
+}
+
+function applyTranscriptCorrections(
+  raw: string,
+  corrections: Array<{ heard: string; corrected: string; basis: string }>
+) {
+  let result = raw;
+  for (const correction of corrections) {
+    try {
+      result = result.replace(
+        new RegExp(escapeRegex(correction.heard), "gi"),
+        correction.corrected
+      );
+    } catch {
+      // Keep raw text unchanged if a correction cannot be applied safely.
+    }
+  }
+  return result;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const token = bearer(req);
@@ -486,13 +579,16 @@ export async function POST(req: NextRequest) {
       "\n\nKeluarkan JSON valid tanpa markdown dengan bentuk:\n" +
       '{"structured_transcript":"...","summary":"...","corrections":[{"heard":"...","corrected":"...","basis":"..."}]}\n\n' +
       "Aturan:\n" +
-      "1. structured_transcript harus menata ulang isi ucapan agar runtut tanpa mengubah makna.\n" +
-      "2. Istilah hanya boleh dikoreksi bila DATABASE REFERENSI benar-benar mendukung koreksi itu.\n" +
-      '3. Contoh: bila terdengar "CPOD" tetapi database pada konteks yang sama jelas memakai/menjelaskan "CPOB", versi tertata boleh menulis CPOB dan koreksinya dicatat.\n' +
-      "4. Jangan mengubah transkrip verbatim.\n" +
-      "5. Bila database kosong/tidak relevan, jangan menambah fakta luar; cukup tata dan rangkum berdasarkan rekaman.\n" +
-      "6. basis harus singkat dan menyebut dasar dari database.\n" +
-      "7. " +
+      "1. TRANSKRIP VERBATIM adalah sumber utama dan tidak boleh kalah oleh Database.\n" +
+      "2. structured_transcript WAJIB mempertahankan kalimat, topik, maksud, dan hampir seluruh kata dari TRANSKRIP VERBATIM. Jangan paraphrase. Jangan mengganti isi dengan materi Database.\n" +
+      "3. Yang boleh diubah hanya tanda baca, paragraf, filler ringan, dan istilah/nama/akronim yang sangat mungkin salah dengar.\n" +
+      "4. Istilah hanya boleh dikoreksi bila DATABASE REFERENSI secara jelas mendukung koreksi yang sangat lokal.\n" +
+      '5. Contoh boleh: "CPOD" → "CPOB" bila konteks dan Database jelas. Contoh DILARANG: mengganti satu kalimat tentang lagu menjadi kalimat tentang topik Database.\n' +
+      "6. summary WAJIB merangkum TRANSKRIP VERBATIM saja. Database tidak boleh menambah topik/fakta ke summary.\n" +
+      "7. corrections hanya untuk potongan pendek yang benar-benar muncul di TRANSKRIP VERBATIM; jangan koreksi seluruh kalimat.\n" +
+      "8. basis harus singkat dan menyebut dasar dari Database.\n" +
+      "9. Bila ragu, pertahankan kata asli dari TRANSKRIP VERBATIM.\n" +
+      "10. " +
       aiModeInstruction(aiMode) +
       "\n8. " +
       WHATSAPP_FORMAT_INSTRUCTION;
@@ -516,7 +612,7 @@ export async function POST(req: NextRequest) {
       try {
         const result = await geminiGenerateDetailed(
           [{ text: structuringPrompt }],
-          "Anda menyunting transkrip secara konservatif. Database yang diberikan adalah satu-satunya sumber untuk koreksi istilah faktual.",
+          "Anda menyunting transkrip secara sangat konservatif. Raw/verbatim selalu menang atas Database. Database hanya boleh membantu koreksi istilah lokal dan tidak boleh mengubah makna, topik, atau kalimat.",
           {
             models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
             effort: aiSelection.effort,
@@ -533,20 +629,26 @@ export async function POST(req: NextRequest) {
 
         try {
           const parsed = JSON.parse(cleanJsonText(result.text));
-          structuredTranscript = String(parsed.structured_transcript || rawTranscript).trim();
+          const candidate = String(parsed.structured_transcript || "").trim();
+          corrections = safeTranscriptCorrections(rawTranscript, parsed.corrections);
+          const minimallyCorrectedRaw = applyTranscriptCorrections(rawTranscript, corrections);
+
+          if (candidate && structuredCandidateIsFaithful(rawTranscript, candidate)) {
+            structuredTranscript = candidate;
+          } else {
+            structuredTranscript = minimallyCorrectedRaw;
+            if (candidate) {
+              structuringWarning =
+                "Versi tertata AI terlalu jauh dari raw transcript, jadi sistem mempertahankan raw dan hanya menerapkan koreksi istilah yang aman.";
+            }
+          }
+
           summary = String(parsed.summary || "").trim();
-          corrections = Array.isArray(parsed.corrections)
-            ? parsed.corrections
-                .slice(0, 30)
-                .map((x: any) => ({
-                  heard: String(x.heard || ""),
-                  corrected: String(x.corrected || ""),
-                  basis: String(x.basis || ""),
-                }))
-                .filter((x: any) => x.heard && x.corrected)
-            : [];
         } catch {
-          structuredTranscript = result.text || rawTranscript;
+          structuredTranscript = rawTranscript;
+          corrections = [];
+          structuringWarning =
+            "Perapihan AI tidak lolos validasi, jadi raw transcript dipertahankan apa adanya.";
         }
         break;
       } catch (error: any) {

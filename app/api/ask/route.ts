@@ -38,6 +38,87 @@ function isWebSearchQuotaError(error: unknown) {
   );
 }
 
+function isWebProviderFailure(error: any) {
+  const status = Number(error?.statusCode || 0);
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return (
+    isWebSearchQuotaError(error) ||
+    status === 400 ||
+    status === 401 ||
+    status === 403 ||
+    status === 404 ||
+    status === 429 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    /web.?search|grounding|quota|rate.?limit|not available|not supported|unsupported|temporarily unavailable|high demand/i.test(
+      code + " " + message
+    )
+  );
+}
+
+async function openAIWebModelCandidates(apiKey: string, preferred = "") {
+  if (!apiKey) return [] as string[];
+  try {
+    const response = await fetch("https://api.openai.com/v1/models", {
+      headers: { Authorization: "Bearer " + apiKey },
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(data?.data)) return [] as string[];
+
+    const available = data.data
+      .map((item: any) => String(item?.id || "").trim())
+      .filter(
+        (id: string) =>
+          /^gpt-/i.test(id) &&
+          !/audio|realtime|transcribe|tts|image|embedding|search-preview/i.test(id)
+      );
+
+    const ranked = available.sort((a: string, b: string) => {
+      const score = (id: string) =>
+        (id === preferred ? 100 : 0) +
+        (/gpt-5/i.test(id) ? 50 : 0) +
+        (/gpt-4\.1/i.test(id) ? 30 : 0);
+      return score(b) - score(a);
+    });
+    return Array.from(new Set<string>(ranked as string[])).slice(0, 8);
+  } catch {
+    return [] as string[];
+  }
+}
+
+async function anthropicWebModelCandidates(apiKey: string, preferred = "") {
+  if (!apiKey) return [] as string[];
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/models?limit=100", {
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(data?.data)) return [] as string[];
+
+    const available = data.data
+      .map((item: any) => String(item?.id || "").trim())
+      .filter((id: string) => /^claude-/i.test(id));
+
+    const ranked = available.sort((a: string, b: string) => {
+      const score = (id: string) =>
+        (id === preferred ? 100 : 0) +
+        (/sonnet|opus|fable/i.test(id) ? 40 : 0) +
+        (/haiku/i.test(id) ? 10 : 0);
+      return score(b) - score(a);
+    });
+    return Array.from(new Set<string>(ranked as string[])).slice(0, 8);
+  } catch {
+    return [] as string[];
+  }
+}
+
 type SourceKind = "ai" | "database" | "web";
 
 function normalizeSources(body: any): SourceKind[] {
@@ -213,35 +294,221 @@ export async function POST(req: NextRequest) {
 
     const sharedGemini = selectedProvider === "gemini" && !geminiAuth.ownGemini;
     const action = useWeb ? "ask_web" : "ask";
-    const preflight = sharedGemini ? await checkAiCredits(supabase, action, aiMode) : null;
-    if (preflight && !preflight.allowed) {
-      return NextResponse.json(aiQuotaError(preflight), { status: 429 });
+    const initialPreflight = sharedGemini ? await checkAiCredits(supabase, action, aiMode) : null;
+
+    if (initialPreflight && !initialPreflight.allowed && !useWeb) {
+      return NextResponse.json(aiQuotaError(initialPreflight), { status: 429 });
     }
 
-    async function generate(targetPrompt: string, withWeb: boolean, forceSharedGemini = false) {
-      if (selectedProvider === "openai") return openaiGenerateDetailed({ apiKey: openAIKey, model: selectedProviderModel, prompt: targetPrompt, system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.", effort: aiSelection.effort, web: withWeb });
-      if (selectedProvider === "anthropic") return anthropicGenerateDetailed({ apiKey: anthropicKey, model: selectedProviderModel, prompt: targetPrompt, system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.", effort: aiSelection.effort, web: withWeb });
-      const sharedKey = String(process.env.GEMINI_API_KEY || "").trim();
-      return geminiGenerateDetailed([{ text: targetPrompt }], "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.", {
-        googleSearch: withWeb,
-        models: modelPlanForSelection(aiSelection.model, aiMode, withWeb ? "web" : "standard"),
-        effort: aiSelection.effort,
-        apiKey: forceSharedGemini ? sharedKey : geminiAuth.apiKey,
-        accessToken: forceSharedGemini ? undefined : geminiAuth.accessToken,
-        projectId: forceSharedGemini ? undefined : geminiAuth.projectId,
-      });
+    async function generateSelected(targetPrompt: string, withWeb: boolean) {
+      if (selectedProvider === "openai") {
+        return openaiGenerateDetailed({
+          apiKey: openAIKey,
+          model: selectedProviderModel,
+          prompt: targetPrompt,
+          system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
+          effort: aiSelection.effort,
+          web: withWeb,
+        });
+      }
+
+      if (selectedProvider === "anthropic") {
+        return anthropicGenerateDetailed({
+          apiKey: anthropicKey,
+          model: selectedProviderModel,
+          prompt: targetPrompt,
+          system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
+          effort: aiSelection.effort,
+          web: withWeb,
+        });
+      }
+
+      return geminiGenerateDetailed(
+        [{ text: targetPrompt }],
+        "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
+        {
+          googleSearch: withWeb,
+          models: modelPlanForSelection(
+            aiSelection.model,
+            aiMode,
+            withWeb ? "web" : "standard"
+          ),
+          effort: aiSelection.effort,
+          apiKey: geminiAuth.apiKey,
+          accessToken: geminiAuth.accessToken,
+          projectId: geminiAuth.projectId,
+        }
+      );
     }
 
-    function usageProvider() {
+    function selectedUsageProvider() {
       if (selectedProvider === "openai") return "user-openai-api-key" as const;
       if (selectedProvider === "anthropic") return "user-anthropic-api-key" as const;
       return geminiAuth.provider;
     }
 
+    async function tryOwnGeminiWeb() {
+      if (!geminiAuth.ownGemini) return null;
+      try {
+        const result = await geminiGenerateDetailed(
+          [{ text: prompt }],
+          "Anda adalah tutor Ruang Belajar. Jawab menggunakan Web sesuai sumber yang dipilih user.",
+          {
+            googleSearch: true,
+            models: modelPlanForSelection("gemini-2.5-flash", aiMode, "web"),
+            effort: "none",
+            apiKey: geminiAuth.apiKey,
+            accessToken: geminiAuth.accessToken,
+            projectId: geminiAuth.projectId,
+          }
+        );
+        await recordAiTokenUsage(supabase, result.usage, result.model, geminiAuth.provider);
+        return {
+          result,
+          provider: geminiAuth.provider,
+          warning: "Web memakai Gemini milik user sebagai fallback pencarian.",
+          aiUsage: null,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    async function tryOpenAIWeb() {
+      if (!openAIKey) return null;
+      const preferred = selectedProvider === "openai" ? selectedProviderModel : "";
+      const models = await openAIWebModelCandidates(openAIKey, preferred);
+      for (const model of models) {
+        if (selectedProvider === "openai" && model === selectedProviderModel) continue;
+        try {
+          const result = await openaiGenerateDetailed({
+            apiKey: openAIKey,
+            model,
+            prompt,
+            system: "Anda adalah tutor Ruang Belajar. Gunakan Web sebagai sumber publik dan hormati sumber lain yang dipilih user.",
+            effort: "none",
+            web: true,
+          });
+          await recordAiTokenUsage(
+            supabase,
+            result.usage,
+            result.model,
+            "user-openai-api-key"
+          );
+          return {
+            result,
+            provider: "user-openai-api-key" as const,
+            warning: "Web dialihkan ke OpenAI milik user karena provider/model awal tidak dapat melakukan pencarian.",
+            aiUsage: null,
+          };
+        } catch {
+          continue;
+        }
+      }
+      return null;
+    }
+
+    async function tryAnthropicWeb() {
+      if (!anthropicKey) return null;
+      const preferred = selectedProvider === "anthropic" ? selectedProviderModel : "";
+      const models = await anthropicWebModelCandidates(anthropicKey, preferred);
+      for (const model of models) {
+        if (selectedProvider === "anthropic" && model === selectedProviderModel) continue;
+        try {
+          const result = await anthropicGenerateDetailed({
+            apiKey: anthropicKey,
+            model,
+            prompt,
+            system: "Anda adalah tutor Ruang Belajar. Gunakan Web sebagai sumber publik dan hormati sumber lain yang dipilih user.",
+            effort: "none",
+            web: true,
+          });
+          await recordAiTokenUsage(
+            supabase,
+            result.usage,
+            result.model,
+            "user-anthropic-api-key"
+          );
+          return {
+            result,
+            provider: "user-anthropic-api-key" as const,
+            warning: "Web dialihkan ke Claude milik user karena provider/model awal tidak dapat melakukan pencarian.",
+            aiUsage: null,
+          };
+        } catch {
+          continue;
+        }
+      }
+      return null;
+    }
+
+    async function trySharedGeminiWeb() {
+      const sharedKey = String(process.env.GEMINI_API_KEY || "").trim();
+      if (!sharedKey) return null;
+
+      const preflight = await checkAiCredits(supabase, "ask_web", aiMode);
+      if (!preflight.allowed) return null;
+
+      try {
+        const result = await geminiGenerateDetailed(
+          [{ text: prompt }],
+          "Anda adalah tutor Ruang Belajar. Jawab menggunakan Web sesuai sumber yang dipilih user.",
+          {
+            googleSearch: true,
+            models: modelPlanForSelection("gemini-2.5-flash", aiMode, "web"),
+            effort: "none",
+            apiKey: sharedKey,
+          }
+        );
+        await recordAiTokenUsage(
+          supabase,
+          result.usage,
+          result.model,
+          "shared-api-key"
+        );
+        const aiUsage = await finalizeAiCredits(supabase, "ask_web", aiMode);
+        return {
+          result,
+          provider: "shared-api-key" as const,
+          warning: "Web memakai provider bersama sebagai fallback pencarian.",
+          aiUsage,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    async function alternateWebResult() {
+      const attempts = [
+        ...(selectedProvider === "gemini" ? [] : [tryOwnGeminiWeb]),
+        ...(selectedProvider === "openai" ? [] : [tryOpenAIWeb]),
+        ...(selectedProvider === "anthropic" ? [] : [tryAnthropicWeb]),
+        trySharedGeminiWeb,
+        ...(selectedProvider === "openai" ? [tryOpenAIWeb] : []),
+        ...(selectedProvider === "anthropic" ? [tryAnthropicWeb] : []),
+      ];
+
+      for (const attempt of attempts) {
+        const fallback = await attempt();
+        if (fallback) return fallback;
+      }
+      return null;
+    }
+
     try {
-      const result = await generate(prompt, useWeb);
-      await recordAiTokenUsage(supabase, result.usage, result.model, usageProvider());
-      const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, action, aiMode) : null;
+      if (initialPreflight && !initialPreflight.allowed && sharedGemini && useWeb) {
+        throw Object.assign(new Error("Shared Web quota unavailable."), {
+          statusCode: 429,
+          code: "WEB_SEARCH_QUOTA",
+        });
+      }
+
+      const result = await generateSelected(prompt, useWeb);
+      await recordAiTokenUsage(supabase, result.usage, result.model, selectedUsageProvider());
+      const aiUsage =
+        sharedGemini && (!initialPreflight || initialPreflight.allowed)
+          ? await finalizeAiCredits(supabase, action, aiMode)
+          : null;
 
       return NextResponse.json({
         answer: result.text,
@@ -253,37 +520,36 @@ export async function POST(req: NextRequest) {
         webFallback: false,
         model: result.model,
         aiUsage,
-        provider: usageProvider(),
+        provider: selectedUsageProvider(),
       });
     } catch (error: any) {
       const fallbackSources = selectedSources.filter((source) => source !== "web");
-      const webSpecificFailure =
-        useWeb &&
-        (isWebSearchQuotaError(error) ||
-          (error instanceof ExternalAiError && error.statusCode === 400));
+      const webSpecificFailure = useWeb && isWebProviderFailure(error);
 
       if (!webSpecificFailure) throw error;
 
-      if (selectedProvider === "gemini" && geminiAuth.ownGemini) {
-        const sharedKey = String(process.env.GEMINI_API_KEY || "").trim();
-        if (sharedKey) {
-          const sharedPreflight = await checkAiCredits(supabase, "ask_web", aiMode);
-          if (sharedPreflight.allowed) {
-            try {
-              const sharedResult = await generate(prompt, true, true);
-              await recordAiTokenUsage(supabase, sharedResult.usage, sharedResult.model, "shared-api-key");
-              const aiUsage = await finalizeAiCredits(supabase, "ask_web", aiMode);
-              return NextResponse.json({ answer:sharedResult.text, sources:databaseSources, webSources:sharedResult.webSources, grounded:!useAi, publicWeb:true, selectedSources, webFallback:false, providerFallback:"shared-api-key", warning:"Web memakai provider bersama karena Search Grounding pada project Google user tidak tersedia.", model:sharedResult.model, aiUsage, provider:"shared-api-key" });
-            } catch {}
-          }
-        }
+      const alternate = await alternateWebResult();
+      if (alternate) {
+        return NextResponse.json({
+          answer: alternate.result.text,
+          sources: databaseSources,
+          webSources: alternate.result.webSources,
+          grounded: !useAi,
+          publicWeb: true,
+          selectedSources,
+          webFallback: true,
+          warning: alternate.warning,
+          model: alternate.result.model,
+          aiUsage: alternate.aiUsage,
+          provider: alternate.provider,
+        });
       }
 
       if (!fallbackSources.length) {
         return NextResponse.json(
           {
             error:
-              "Web sedang tidak tersedia pada provider ini. Aktifkan AI atau Database sebagai sumber tambahan, atau pilih model/provider lain.",
+              "Web belum tersedia pada provider yang terhubung saat ini. Hubungkan Gemini/OpenAI/Claude yang memiliki akses Web, atau aktifkan AI/Database sebagai fallback.",
             webSearchUnavailable: true,
           },
           { status: 503 }
@@ -299,9 +565,17 @@ export async function POST(req: NextRequest) {
         aiMode,
       });
 
-      const fallbackResult = await generate(fallbackPrompt, false);
-      await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model, usageProvider());
-      const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, "ask", aiMode) : null;
+      const fallbackResult = await generateSelected(fallbackPrompt, false);
+      await recordAiTokenUsage(
+        supabase,
+        fallbackResult.usage,
+        fallbackResult.model,
+        selectedUsageProvider()
+      );
+      const aiUsage =
+        sharedGemini && (!initialPreflight || initialPreflight.allowed)
+          ? await finalizeAiCredits(supabase, "ask", aiMode)
+          : null;
 
       return NextResponse.json({
         answer: fallbackResult.text,
@@ -311,10 +585,11 @@ export async function POST(req: NextRequest) {
         publicWeb: false,
         selectedSources: fallbackSources,
         webFallback: true,
-        warning: "Web sedang tidak tersedia. Sistem melanjutkan hanya dengan sumber lain yang sudah kamu pilih.",
+        warning:
+          "Semua provider Web yang terhubung sedang tidak tersedia. Sistem melanjutkan hanya dengan sumber non-Web yang sudah dipilih.",
         model: fallbackResult.model,
         aiUsage,
-        provider: usageProvider(),
+        provider: selectedUsageProvider(),
       });
     }
   } catch (error: any) {

@@ -91,7 +91,7 @@ export async function openaiGenerateDetailed(options: {
       model: options.model,
       instructions: options.system || undefined,
       input: options.prompt,
-      reasoning: { effort },
+      reasoning: effort === "none" ? undefined : { effort },
       tools: options.web ? [{ type: "web_search" }] : undefined,
     }),
   });

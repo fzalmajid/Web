@@ -352,7 +352,6 @@ function getSessionGoogleGeminiAuth() {
 }
 
 function aiRequestHeaders(session: Session, selection?: AiSelection) {
-  const provider = selection ? modelProvider(selection.model) : "gemini";
   const googleAuth = getSessionGoogleGeminiAuth();
   const geminiKey = googleAuth.accessToken && googleAuth.projectId ? "" : getSessionGeminiKey();
   const openAIKey = getSessionOpenAIKey();
@@ -361,18 +360,16 @@ function aiRequestHeaders(session: Session, selection?: AiSelection) {
   return {
     "Content-Type": "application/json",
     Authorization: "Bearer " + session.access_token,
-    ...(provider === "gemini" && googleAuth.accessToken && googleAuth.projectId
+    ...(googleAuth.accessToken && googleAuth.projectId
       ? {
           "X-RB-Google-Access-Token": googleAuth.accessToken,
           "X-RB-Google-Project": googleAuth.projectId,
         }
-      : provider === "gemini" && geminiKey
+      : geminiKey
         ? { "X-RB-Gemini-Key": geminiKey }
-        : provider === "openai" && openAIKey
-          ? { "X-RB-OpenAI-Key": openAIKey }
-          : provider === "anthropic" && anthropicKey
-            ? { "X-RB-Anthropic-Key": anthropicKey }
-            : {}),
+        : {}),
+    ...(openAIKey ? { "X-RB-OpenAI-Key": openAIKey } : {}),
+    ...(anthropicKey ? { "X-RB-Anthropic-Key": anthropicKey } : {}),
     ...(selection ? { "X-RB-AI-Model": selection.model, "X-RB-AI-Effort": selection.effort } : {}),
   };
 }
