@@ -12,11 +12,36 @@ export type GeminiUsage = {
 export const WHATSAPP_FORMAT_INSTRUCTION =
   "Untuk teks yang akan dibaca user: bold WAJIB memakai *teks*, italic WAJIB memakai _teks_. Setiap penanda * untuk bold harus punya pasangan penutup pada baris yang sama. Untuk daftar/poin WAJIB gunakan '- ' di awal baris, JANGAN gunakan '* ' sebagai bullet. Jangan memakai **teks** atau __teks__. Jangan gunakan markdown heading dengan #.";
 
-export class GeminiWebSearchQuotaError extends Error {
-  code = "WEB_SEARCH_QUOTA";
-  constructor(message = "Quota Google Search Grounding tidak tersedia atau sedang habis.") {
+export class GeminiApiError extends Error {
+  code: string;
+  statusCode: number;
+
+  constructor(message: string, statusCode = 500, code = "GEMINI_API_ERROR") {
     super(message);
+    this.name = "GeminiApiError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+export class GeminiQuotaError extends GeminiApiError {
+  constructor(message = "Batas penggunaan Gemini API sedang tercapai. Coba lagi setelah quota provider tersedia.") {
+    super(message, 429, "GEMINI_QUOTA");
+    this.name = "GeminiQuotaError";
+  }
+}
+
+export class GeminiWebSearchQuotaError extends GeminiApiError {
+  constructor(message = "Public Web belum tersedia karena quota Google Search Grounding sedang tidak tersedia atau tercapai.") {
+    super(message, 429, "WEB_SEARCH_QUOTA");
     this.name = "GeminiWebSearchQuotaError";
+  }
+}
+
+export class GeminiUnavailableError extends GeminiApiError {
+  constructor(message = "Layanan Gemini sedang sibuk atau sementara tidak tersedia. Coba lagi sebentar.") {
+    super(message, 503, "GEMINI_UNAVAILABLE");
+    this.name = "GeminiUnavailableError";
   }
 }
 
@@ -52,15 +77,25 @@ export async function geminiGenerateDetailed(
 
   const data = await response.json();
   if (!response.ok) {
-    const message = data?.error?.message || "Gemini API gagal merespons.";
-    if (
-      options?.googleSearch &&
-      response.status === 429 &&
-      /quota|rate.?limit|billing|resource.?exhausted/i.test(message)
-    ) {
+    const providerMessage = String(data?.error?.message || "");
+    const quotaLike =
+      response.status === 429 ||
+      /quota|rate.?limit|resource.?exhausted/i.test(providerMessage);
+
+    if (quotaLike && options?.googleSearch) {
       throw new GeminiWebSearchQuotaError();
     }
-    throw new Error(message);
+    if (quotaLike) {
+      throw new GeminiQuotaError();
+    }
+    if (response.status === 503 || response.status === 502 || response.status === 504) {
+      throw new GeminiUnavailableError();
+    }
+
+    throw new GeminiApiError(
+      "Gemini API gagal memproses permintaan ini.",
+      response.status >= 400 && response.status < 600 ? response.status : 500
+    );
   }
 
   const candidate = data?.candidates?.[0];
