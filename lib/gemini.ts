@@ -21,7 +21,7 @@ export async function geminiGenerate(parts: GeminiPart[], systemInstruction?: st
         contents: [{ role: "user", parts }],
         generationConfig: {
           temperature: 0.2,
-          maxOutputTokens: 4096,
+          maxOutputTokens: 8192,
         },
       }),
     }
