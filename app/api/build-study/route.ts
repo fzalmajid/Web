@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerate, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
-import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
+import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -159,7 +159,7 @@ ${bodyText}`;
           ? "5-8"
           : "4-6";
 
-    const raw = await geminiGenerate(
+    const geminiResult = await geminiGenerateDetailed(
       [{
         text: `NAMA STUDY:
 ${studyNode.title}
@@ -211,6 +211,8 @@ Aturan wajib:
       }],
       "Anda menyusun kurikulum belajar bertahap yang ketat pada sumber pengguna. Jangan mengarang fakta."
     );
+    await recordAiTokenUsage(supabase, geminiResult.usage);
+    const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
     const rawUnits = Array.isArray(parsed.units) ? parsed.units : [];
