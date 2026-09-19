@@ -1242,3 +1242,54 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   resize:vertical;
 }
 .quizScore .muted{font-size:.76rem}
+
+
+/* Public Web toggle + mixed sources */
+.askControls{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex:0 0 auto;
+}
+.webToggle{
+  border:1px solid var(--line)!important;
+  background:var(--card)!important;
+  color:var(--muted)!important;
+  width:auto!important;
+  height:auto!important;
+  min-height:32px;
+  border-radius:10px!important;
+  padding:6px 8px!important;
+  font-size:.68rem!important;
+  font-weight:800;
+  white-space:nowrap;
+}
+.webToggle.active{
+  color:var(--ink)!important;
+  border-color:#7aa990!important;
+  background:#eef8f2!important;
+}
+.webToggle:disabled{opacity:.45}
+.aiSources a{
+  font-size:.72rem;
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:6px 9px;
+  background:var(--soft);
+  color:var(--ink);
+  text-decoration:none;
+}
+.aiSources a:hover{text-decoration:underline}
+:root[data-theme="dark"] .webToggle.active{
+  background:#183026!important;
+  border-color:#416e58!important;
+}
+@media(max-width:620px){
+  .askControls{
+    gap:3px;
+  }
+  .webToggle{
+    font-size:.62rem!important;
+    padding:5px 6px!important;
+  }
+}
