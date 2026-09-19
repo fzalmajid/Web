@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerate, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    const raw = await geminiGenerate([{
+    const geminiResult = await geminiGenerateDetailed([{
       text: `SOAL DAN JAWABAN PESERTA:
 ${JSON.stringify(qa, null, 2)}
 
@@ -135,6 +135,8 @@ Aturan:
 - basis harus singkat dan menyebut dasar dari database tanpa mengarang kutipan.
 - ${WHATSAPP_FORMAT_INSTRUCTION}`
     }], "Anda adalah penilai kuis yang ketat dan hanya boleh memakai database yang diberikan.");
+    await recordAiTokenUsage(supabase, geminiResult.usage);
+    const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
     const rawResults = Array.isArray(parsed.results) ? parsed.results : [];
