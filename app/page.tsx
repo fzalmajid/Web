@@ -77,6 +77,8 @@ type Quiz = {
   explanation: string;
   material_id: string | null;
   scope_node_id: string | null;
+  quiz_type: "mcq" | "essay";
+  grading_mode: "fixed" | "ai";
 };
 
 const aiModes: Array<{ value: AiMode; label: string; provider: "Local" | "Gemini"; hint: string }> = [
@@ -1380,10 +1382,20 @@ function PracticePage({
   const mode = node.node_type === "flashcards" ? "flashcards" : "quiz";
   const localCards = cards.filter((item) => item.scope_node_id === node.id);
   const localQuizzes = quizzes.filter((item) => item.scope_node_id === node.id);
+  const fixedQuizzes = localQuizzes.filter((item) => (item.quiz_type || "mcq") === "mcq");
   const [busy, setBusy] = useState(false);
   const [flipped, setFlipped] = useState<Record<string, boolean>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
   const [aiMode, setAiMode] = useState<AiMode>("simple");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualQuestion, setManualQuestion] = useState("");
+  const [manualChoices, setManualChoices] = useState(["", "", "", ""]);
+  const [manualCorrect, setManualCorrect] = useState(0);
+
+  const answeredFixed = fixedQuizzes.filter((quiz) => answers[quiz.id]).length;
+  const correctFixed = fixedQuizzes.filter((quiz) => answers[quiz.id] === quiz.correct_answer).length;
+  const scorePercent = fixedQuizzes.length ? Math.round((correctFixed / fixedQuizzes.length) * 100) : 0;
 
   async function generate() {
     if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada database sumber.");
@@ -1430,12 +1442,15 @@ function PracticePage({
           choices,
           correct_answer: correct,
           explanation: "Jawaban diambil langsung dari Database.",
+          quiz_type: "mcq",
+          grading_mode: "fixed",
         };
       }).filter((item) => item.choices.length >= 2);
 
       const { error } = await supabase.from("quizzes").insert(localQuiz);
       setBusy(false);
       if (error) return alert(error.message);
+      setSubmitted(false);
       onChange();
       return;
     }
@@ -1459,6 +1474,51 @@ function PracticePage({
     setBusy(false);
 
     if (!response.ok) return alert(result.error || "Gagal membuat latihan.");
+    setSubmitted(false);
+    onChange();
+  }
+
+  async function saveManualQuiz(e: FormEvent) {
+    e.preventDefault();
+    const choices = manualChoices.map((item) => item.trim()).filter(Boolean);
+    if (!manualQuestion.trim()) return;
+    if (choices.length < 2) return alert("Isi minimal 2 pilihan jawaban.");
+    const correctText = manualChoices[manualCorrect]?.trim();
+    if (!correctText || !choices.includes(correctText)) return alert("Pilih jawaban benar yang sudah diisi.");
+
+    setBusy(true);
+    const { error } = await supabase.from("quizzes").insert({
+      user_id: session.user.id,
+      material_id: null,
+      scope_node_id: node.id,
+      question: manualQuestion.trim(),
+      choices,
+      correct_answer: correctText,
+      explanation: "Kuis dibuat manual.",
+      quiz_type: "mcq",
+      grading_mode: "fixed",
+    });
+    setBusy(false);
+    if (error) return alert(error.message);
+
+    setManualQuestion("");
+    setManualChoices(["", "", "", ""]);
+    setManualCorrect(0);
+    setManualOpen(false);
+    setSubmitted(false);
+    onChange();
+  }
+
+  async function removeQuiz(id: string) {
+    if (!confirm("Hapus soal ini?")) return;
+    const { error } = await supabase.from("quizzes").delete().eq("id", id);
+    if (error) return alert(error.message);
+    setAnswers((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    setSubmitted(false);
     onChange();
   }
 
@@ -1468,11 +1528,67 @@ function PracticePage({
         <p className="eyebrow">{mode === "flashcards" ? "FLASHCARD" : "KUIS"}</p>
         <h1>{node.title}</h1>
         <p className="muted">Dibuat hanya dari Database pada halaman induknya.</p>
-        <AiModePicker value={aiMode} onChange={setAiMode} action="study" />
-        <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
-          {busy ? "Membuat..." : mode === "flashcards" ? "Buat Flashcard" : "Buat Kuis"}
-        </button>
+
+        {mode === "flashcards" ? (
+          <>
+            <AiModePicker value={aiMode} onChange={setAiMode} action="study" />
+            <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
+              {busy ? "Membuat..." : "Buat Flashcard"}
+            </button>
+          </>
+        ) : (
+          <div className="quizCreateActions">
+            <div>
+              <small className="createLabel">BUAT DENGAN AI</small>
+              <AiModePicker value={aiMode} onChange={setAiMode} action="study" />
+              <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
+                {busy ? "Membuat..." : "Buat Kuis dari Database"}
+              </button>
+            </div>
+            <div className="manualCreateBox">
+              <small className="createLabel">BUAT SENDIRI</small>
+              <button className="ghost" onClick={() => setManualOpen((current) => !current)}>
+                {manualOpen ? "Tutup form" : "+ Tambah soal manual"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {mode === "quiz" && manualOpen && (
+        <form className="panel manualQuizForm" onSubmit={saveManualQuiz}>
+          <div>
+            <p className="eyebrow">SOAL MANUAL</p>
+            <h2>Buat pertanyaan sendiri</h2>
+            <p className="muted">Isi pilihan jawaban lalu tandai mana yang benar.</p>
+          </div>
+          <label>
+            Pertanyaan
+            <textarea rows={3} required value={manualQuestion} onChange={(e) => setManualQuestion(e.target.value)} placeholder="Tulis pertanyaan..." />
+          </label>
+          <div className="manualChoices">
+            {manualChoices.map((choice, index) => (
+              <label className="manualChoiceRow" key={index}>
+                <input
+                  type="radio"
+                  name="manual-correct"
+                  checked={manualCorrect === index}
+                  onChange={() => setManualCorrect(index)}
+                  title="Jawaban benar"
+                />
+                <span>{String.fromCharCode(65 + index)}</span>
+                <input
+                  value={choice}
+                  onChange={(e) => setManualChoices((current) => current.map((item, i) => i === index ? e.target.value : item))}
+                  placeholder={"Pilihan " + String.fromCharCode(65 + index)}
+                />
+              </label>
+            ))}
+          </div>
+          <small className="muted">Lingkaran yang dipilih = jawaban benar.</small>
+          <button className="primary" disabled={busy}>{busy ? "Menyimpan..." : "Simpan soal"}</button>
+        </form>
+      )}
 
       {mode === "flashcards" && (
         <div className="flashGrid">
@@ -1492,30 +1608,63 @@ function PracticePage({
       )}
 
       {mode === "quiz" && (
-        <div className="quizList">
-          {localQuizzes.map((quiz) => (
-            <article className="dataCard" key={quiz.id}>
-              <h3>{quiz.question}</h3>
-              {quiz.choices.map((choice) => (
+        <>
+          {!!fixedQuizzes.length && (
+            <div className="quizProgress">
+              <span>{answeredFixed}/{fixedQuizzes.length} terjawab</span>
+              {!submitted ? (
                 <button
-                  key={choice}
-                  className={answers[quiz.id] === choice ? "choice selected" : "choice"}
-                  onClick={() => setAnswers((value) => ({ ...value, [quiz.id]: choice }))}
+                  className="primary"
+                  disabled={answeredFixed !== fixedQuizzes.length}
+                  onClick={() => setSubmitted(true)}
                 >
-                  {choice}
+                  Selesai & lihat nilai
                 </button>
-              ))}
-              {answers[quiz.id] && (
-                <div className={answers[quiz.id] === quiz.correct_answer ? "answerState ok" : "answerState bad"}>
-                  {answers[quiz.id] === quiz.correct_answer ? "Benar" : "Belum tepat"} · Jawaban: {quiz.correct_answer}
-                  <br />
-                  {quiz.explanation}
-                </div>
+              ) : (
+                <button className="ghost" onClick={() => { setSubmitted(false); setAnswers({}); }}>Ulangi kuis</button>
               )}
-            </article>
-          ))}
-          {!localQuizzes.length && <p className="muted">Belum ada kuis.</p>}
-        </div>
+            </div>
+          )}
+
+          {submitted && !!fixedQuizzes.length && (
+            <div className="quizScore">
+              <div className="scoreNumber">{scorePercent}</div>
+              <div>
+                <small>NILAI AKHIR</small>
+                <strong>{correctFixed} benar dari {fixedQuizzes.length} soal</strong>
+              </div>
+            </div>
+          )}
+
+          <div className="quizList">
+            {fixedQuizzes.map((quiz, index) => (
+              <article className="dataCard quizCard" key={quiz.id}>
+                <div className="quizCardHead">
+                  <small>SOAL {index + 1}</small>
+                  <button className="dangerSmall" onClick={() => removeQuiz(quiz.id)}>Hapus</button>
+                </div>
+                <h3>{quiz.question}</h3>
+                {quiz.choices.map((choice) => (
+                  <button
+                    key={choice}
+                    disabled={submitted}
+                    className={answers[quiz.id] === choice ? "choice selected" : "choice"}
+                    onClick={() => setAnswers((value) => ({ ...value, [quiz.id]: choice }))}
+                  >
+                    {choice}
+                  </button>
+                ))}
+                {submitted && (
+                  <div className={answers[quiz.id] === quiz.correct_answer ? "answerState ok" : "answerState bad"}>
+                    {answers[quiz.id] === quiz.correct_answer ? "Benar" : "Salah"} · Jawaban: {quiz.correct_answer}
+                    {quiz.explanation && <><br />{quiz.explanation}</>}
+                  </div>
+                )}
+              </article>
+            ))}
+            {!fixedQuizzes.length && <p className="muted">Belum ada kuis.</p>}
+          </div>
+        </>
       )}
     </section>
   );
