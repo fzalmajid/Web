@@ -99,9 +99,10 @@ const nodeColors = [
   { value: "slate", label: "Slate" },
 ];
 
-function aiCost(action: "ask" | "study" | "transcription" | "file_light" | "file_heavy", mode: AiMode) {
+function aiCost(action: "ask" | "ask_web" | "study" | "transcription" | "file_light" | "file_heavy", mode: AiMode) {
   const table = {
     ask: { simple: 0, instant: 1, medium: 2, high: 4 },
+    ask_web: { simple: 0, instant: 3, medium: 5, high: 8 },
     study: { simple: 0, instant: 2, medium: 4, high: 6 },
     transcription: { simple: 0, instant: 5, medium: 7, high: 10 },
     file_light: { simple: 0, instant: 2, medium: 3, high: 5 },
@@ -1835,7 +1836,7 @@ function AiModePicker({
 }: {
   value: AiMode;
   onChange: (mode: AiMode) => void;
-  action: "ask" | "study" | "transcription" | "file_light" | "file_heavy";
+  action: "ask" | "ask_web" | "study" | "transcription" | "file_light" | "file_heavy";
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -2015,6 +2016,8 @@ function BottomAskBar({
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
+  const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
+  const [publicWeb, setPublicWeb] = useState(false);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [aiMode, setAiMode] = useState<AiMode>("simple");
@@ -2022,6 +2025,10 @@ function BottomAskBar({
   const [composerHeight, setComposerHeight] = useState(118);
   const dragRef = useRef<{ y: number; bottom: number } | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
+
+  useEffect(() => {
+    if (aiMode === "simple" && publicWeb) setPublicWeb(false);
+  }, [aiMode, publicWeb]);
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem("rb-composer-bottom") || "16");
@@ -2124,6 +2131,7 @@ function BottomAskBar({
     setOpen(true);
     setAnswer("");
     setSources([]);
+    setWebSources([]);
 
     if (aiMode === "simple") {
       const local = answerLocally(question.trim());
@@ -2139,7 +2147,7 @@ function BottomAskBar({
         "Content-Type": "application/json",
         Authorization: "Bearer " + session.access_token,
       },
-      body: JSON.stringify({ question, scopeNodeId, aiMode }),
+      body: JSON.stringify({ question, scopeNodeId, aiMode, publicWeb }),
     });
 
     const data = await response.json();
@@ -2152,6 +2160,7 @@ function BottomAskBar({
 
     setAnswer(data.answer || "");
     setSources(data.sources || []);
+    setWebSources(data.webSources || []);
   }
 
   return (
@@ -2160,16 +2169,21 @@ function BottomAskBar({
         <div className="aiAnswer" style={{ bottom: composerBottom + composerHeight + 12 }}>
           <div className="aiAnswerHead">
             <div>
-              <small title={scopeName}>{aiMode === "simple" ? "Simple · Local" : aiMode[0].toUpperCase() + aiMode.slice(1) + " · Gemini 3.6"} · {scopeName}</small>
+              <small title={scopeName}>{aiMode === "simple" ? "Simple · Local" : aiMode[0].toUpperCase() + aiMode.slice(1) + " · Gemini 3.6"}{publicWeb ? " · Public Web" : ""} · {scopeName}</small>
               <strong>{question}</strong>
             </div>
             <button onClick={() => setOpen(false)}>×</button>
           </div>
           <div className="aiAnswerBody">{busy ? (aiMode === "simple" ? "Mencari secara Local..." : "Mencari di Database...") : answer || "..."}</div>
-          {!!sources.length && (
+          {(!!sources.length || !!webSources.length) && (
             <div className="aiSources">
               {sources.map((source) => (
-                <span key={source.id}>{source.title}</span>
+                <span key={source.id}>Database · {source.title}</span>
+              ))}
+              {webSources.map((source) => (
+                <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
+                  Web · {source.title}
+                </a>
               ))}
             </div>
           )}
@@ -2181,8 +2195,19 @@ function BottomAskBar({
           <span />
         </button>
         <div className="askTopRow">
-          <div className="askScope">AI · {scopeName}</div>
-          <AiModePicker value={aiMode} onChange={setAiMode} action="ask" compact />
+          <div className="askScope" title={scopeName}>AI · {scopeName}</div>
+          <div className="askControls">
+            <button
+              type="button"
+              className={publicWeb ? "webToggle active" : "webToggle"}
+              disabled={aiMode === "simple"}
+              onClick={() => setPublicWeb((current) => !current)}
+              title={aiMode === "simple" ? "Public Web membutuhkan Gemini 3.6" : "Izinkan Gemini 3.6 memakai Google Search"}
+            >
+              🌐 {publicWeb ? "Web ON" : "Web OFF"}
+            </button>
+            <AiModePicker value={aiMode} onChange={setAiMode} action={publicWeb ? "ask_web" : "ask"} compact />
+          </div>
         </div>
         <textarea
           rows={1}
