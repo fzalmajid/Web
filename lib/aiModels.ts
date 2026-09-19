@@ -19,6 +19,9 @@ export type AiModelId =
   | "anthropic:claude-opus-5"
   | "anthropic:claude-sonnet-5"
   | "anthropic:claude-haiku-4-5-20251001"
+  | `gemini-${string}`
+  | `openai:${string}`
+  | `anthropic:${string}`
   | `local-openai:${string}`;
 
 export type AiEffort =
@@ -182,7 +185,7 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
     id: "gemini-2.5-flash",
     provider: "gemini",
     label: "Gemini 2.5 Flash",
-    subtitle: "Free Tier · Web gratis tersedia",
+    subtitle: "Search grounding didukung · quota provider berlaku",
     contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_25,
     defaultEffort: "medium",
@@ -193,7 +196,7 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
     id: "gemini-2.5-flash-lite",
     provider: "gemini",
     label: "Gemini 2.5 Flash-Lite",
-    subtitle: "Paling hemat · Web gratis tersedia",
+    subtitle: "Paling hemat · Search grounding didukung",
     contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_25_LITE,
     defaultEffort: "none",
@@ -292,23 +295,29 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
 export function modelCapability(model: AiModelId): AiModelCapability {
   if (model.startsWith("local-openai:")) {
     const localModel = model.slice("local-openai:".length) || "Local model";
-    return {
-      id: model,
-      provider: "local-openai",
-      label: localModel,
-      subtitle: "Perangkat user · OpenAI-compatible",
-      contexts: ["chat"],
-      efforts: [],
-      defaultEffort: "none",
-      freeTier: true,
-      freeWeb: false,
-    };
+    return { id:model, provider:"local-openai", label:localModel, subtitle:"Perangkat user · OpenAI-compatible", contexts:["chat"], efforts:[], defaultEffort:"none", freeTier:true, freeWeb:false };
   }
-  return AI_MODEL_CATALOG.find((item) => item.id === model) || AI_MODEL_CATALOG[0];
+  const known = AI_MODEL_CATALOG.find((item) => item.id === model);
+  if (known) return known;
+  if (model.startsWith("openai:")) {
+    const id=model.slice("openai:".length);
+    return { id:model, provider:"openai", label:id, subtitle:"OpenAI · tersedia di account user", contexts:["chat"], efforts:[], defaultEffort:"none", freeTier:false, freeWeb:false };
+  }
+  if (model.startsWith("anthropic:")) {
+    const id=model.slice("anthropic:".length);
+    return { id:model, provider:"anthropic", label:id, subtitle:"Claude · tersedia di account user", contexts:["chat"], efforts:[], defaultEffort:"none", freeTier:false, freeWeb:false };
+  }
+  if (model.startsWith("gemini-")) {
+    return { id:model, provider:"gemini", label:model.replace(/^gemini-/,"Gemini ").replaceAll("-"," "), subtitle:"Gemini · tersedia di provider aktif", contexts:["chat"], efforts:[], defaultEffort:"none", freeTier:true, freeWeb:false };
+  }
+  return AI_MODEL_CATALOG[0];
 }
 
 export function modelProvider(model: AiModelId): AiProvider {
   if (model.startsWith("local-openai:")) return "local-openai";
+  if (model.startsWith("openai:")) return "openai";
+  if (model.startsWith("anthropic:")) return "anthropic";
+  if (model.startsWith("gemini-")) return "gemini";
   return modelCapability(model).provider;
 }
 
@@ -321,10 +330,11 @@ export function providerModelId(model: AiModelId) {
 
 export function normalizeAiModel(value: unknown, context: AiContext = "general"): AiModelId {
   const candidate = String(value || "") as AiModelId;
-  if (context === "chat" && candidate.startsWith("local-openai:")) return candidate;
-  const found = AI_MODEL_CATALOG.find(
-    (item) => item.id === candidate && item.contexts.includes(context)
-  );
+  if (
+    context === "chat" &&
+    (candidate.startsWith("local-openai:") || candidate.startsWith("openai:") || candidate.startsWith("anthropic:") || candidate.startsWith("gemini-"))
+  ) return candidate;
+  const found = AI_MODEL_CATALOG.find((item) => item.id === candidate && item.contexts.includes(context));
   return found?.id || "local";
 }
 

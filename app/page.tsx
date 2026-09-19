@@ -3626,24 +3626,23 @@ function AiModePicker({
   const localAiConfig = getSessionLocalAiConfig();
   const localModels = chatAction && localAiConfig.endpoint
     ? localAiConfig.models.map((model) => ({
-        id: localAiModelId(model),
-        provider: "local-openai" as const,
-        label: model,
-        subtitle:
-          localAiConfig.kind === "lmstudio"
-            ? "LM Studio · perangkat user"
-            : localAiConfig.kind === "ollama"
-              ? "Ollama · perangkat user"
-              : "OpenAI-compatible · perangkat/user endpoint",
-        contexts: ["chat" as const],
-        efforts: [],
-        defaultEffort: "none" as const,
-        freeTier: true,
-        freeWeb: false,
-      }))
-    : [];
+        id: localAiModelId(model), provider: "local-openai" as const, label: model,
+        subtitle: localAiConfig.kind === "lmstudio" ? "LM Studio · perangkat user" : localAiConfig.kind === "ollama" ? "Ollama · perangkat user" : "OpenAI-compatible · perangkat/user endpoint",
+        contexts: ["chat" as const], efforts: [], defaultEffort: "none" as const, freeTier: true, freeWeb: false,
+      })) : [];
 
-  const visibleModels = [...AI_MODEL_CATALOG, ...localModels].filter((item) => {
+  const knownIds = new Set(AI_MODEL_CATALOG.map((item) => item.id));
+  const dynamicGeminiModels = chatAction ? geminiIds.filter((id) => !knownIds.has(id as AiModelId)).filter((id) => /^gemini-/i.test(id) && !/embedding|image|tts|live|transcribe/i.test(id)).map((id) => ({
+    id:id as AiModelId, provider:"gemini" as const, label:id.replace(/^gemini-/,"Gemini ").replaceAll("-"," "), subtitle:"Gemini · tersedia pada provider aktif", contexts:["chat" as const], efforts:[], defaultEffort:"none" as const, freeTier:true, freeWeb:false
+  })) : [];
+  const dynamicOpenAIModels = chatAction && openAIConnected ? openAIIds.filter((id) => !AI_MODEL_CATALOG.some((item) => providerModelId(item.id)===id)).filter((id) => /^(gpt-|o\d|chatgpt-)/i.test(id) && !/audio|realtime|transcribe|image|embedding|tts|search-preview/i.test(id)).map((id) => ({
+    id:("openai:"+id) as AiModelId, provider:"openai" as const, label:id, subtitle:"OpenAI · tersedia di account/API user", contexts:["chat" as const], efforts:[], defaultEffort:"none" as const, freeTier:false, freeWeb:false
+  })) : [];
+  const dynamicAnthropicModels = chatAction && anthropicConnected ? anthropicIds.filter((id) => !AI_MODEL_CATALOG.some((item) => providerModelId(item.id)===id)).filter((id) => /^claude-/i.test(id)).map((id) => ({
+    id:("anthropic:"+id) as AiModelId, provider:"anthropic" as const, label:id, subtitle:"Claude · tersedia di account/API user", contexts:["chat" as const], efforts:[], defaultEffort:"none" as const, freeTier:false, freeWeb:false
+  })) : [];
+
+  const visibleModels = [...AI_MODEL_CATALOG, ...dynamicGeminiModels, ...dynamicOpenAIModels, ...dynamicAnthropicModels, ...localModels].filter((item) => {
     if (!item.contexts.includes(context) || (!allowLocal && item.id === "local")) return false;
     if (item.provider === "gemini") {
       return !geminiIds.length || geminiIds.includes(providerModelId(item.id));
@@ -3661,6 +3660,13 @@ function AiModePicker({
     visibleModels.find((item) => item.id !== "local") ||
     visibleModels[0];
   const selectedEffort = selected?.efforts.find((item) => item.value === value.effort);
+
+  function modelRouteLabel(item: (typeof visibleModels)[number]) {
+    if (item.provider === "gemini") return getSessionGoogleGeminiAuth().accessToken || getSessionGeminiKey() ? "Quota project/user" : "Shared";
+    if (item.provider === "openai" || item.provider === "anthropic") return "Quota user";
+    if (item.provider === "local-openai") return "Perangkat user";
+    return "";
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -3740,7 +3746,7 @@ function AiModePicker({
                   <strong>{item.label}</strong>
                   {value.model === item.id && <b>✓</b>}
                 </span>
-                <small>{item.subtitle}</small>
+                <small>{item.subtitle}{modelRouteLabel(item) ? " · " + modelRouteLabel(item) : ""}</small>
               </button>
             ))}
           </div>

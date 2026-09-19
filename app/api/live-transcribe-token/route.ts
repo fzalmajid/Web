@@ -69,38 +69,22 @@ export async function POST(req: NextRequest) {
     const expireTime = new Date(Date.now() + 20 * 60 * 1000).toISOString();
     const newSessionExpireTime = new Date(Date.now() + 60 * 1000).toISOString();
 
-    let provider = geminiAuth.provider;
-    let attempt = await createLiveToken(
-      geminiAuth.accessToken
-        ? {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + geminiAuth.accessToken,
-            "x-goog-user-project": geminiAuth.projectId || "",
-          }
-        : {
-            "Content-Type": "application/json",
-            "x-goog-api-key": key || "",
-          },
-      expireTime,
-      newSessionExpireTime
-    );
-
-    // If a user's own Gemini project does not expose Live Transcribe, keep the
-    // recording experience seamless by falling back to the shared provider.
     const sharedKey = String(process.env.GEMINI_API_KEY || "").trim();
-    if ((!attempt.response.ok || !attempt.data?.name) && ownGemini && sharedKey) {
+    let provider = geminiAuth.provider;
+    let attempt;
+    if (geminiAuth.accessToken && sharedKey) {
       const sharedPreflight = await checkAiCredits(supabase, "transcription", aiMode);
-      if (sharedPreflight.allowed) {
-        attempt = await createLiveToken(
-          {
-            "Content-Type": "application/json",
-            "x-goog-api-key": sharedKey,
-          },
-          expireTime,
-          newSessionExpireTime
-        );
-        if (attempt.response.ok && attempt.data?.name) provider = "shared-api-key";
-      }
+      if (!sharedPreflight.allowed) return NextResponse.json(aiQuotaError(sharedPreflight), { status:429 });
+      attempt = await createLiveToken({ "Content-Type":"application/json", "x-goog-api-key":sharedKey }, expireTime, newSessionExpireTime);
+      provider = "shared-api-key";
+    } else {
+      attempt = await createLiveToken(
+        geminiAuth.accessToken
+          ? { "Content-Type":"application/json", Authorization:"Bearer " + geminiAuth.accessToken, "x-goog-user-project":geminiAuth.projectId || "" }
+          : { "Content-Type":"application/json", "x-goog-api-key":key || "" },
+        expireTime,
+        newSessionExpireTime
+      );
     }
 
     if (!attempt.response.ok || !attempt.data?.name) {

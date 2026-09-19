@@ -264,13 +264,16 @@ export async function POST(req: NextRequest) {
 
     const audioBytes = Buffer.from(await blob.arrayBuffer());
 
-    const preflight = ownGemini ? null : await checkAiCredits(supabase, "transcription", aiMode);
-    if (preflight && !preflight.allowed) {
-      return NextResponse.json(aiQuotaError(preflight), { status: 429 });
-    }
+    const sharedKey = String(process.env.GEMINI_API_KEY || "").trim();
+    const audioAuth = geminiAuth.accessToken && sharedKey
+      ? { ownGemini:false, provider:"shared-api-key" as const, apiKey:sharedKey }
+      : geminiAuth;
+    const rawUsesShared = audioAuth.provider === "shared-api-key";
+    const preflight = rawUsesShared ? await checkAiCredits(supabase, "transcription", aiMode) : null;
+    if (preflight && !preflight.allowed) return NextResponse.json(aiQuotaError(preflight), { status: 429 });
 
-    const rawResult = await transcribeGeminiAudio(audioBytes, mimeType, geminiAuth);
-    await recordAiTokenUsage(supabase, rawResult.usage, rawResult.model, geminiAuth.provider);
+    const rawResult = await transcribeGeminiAudio(audioBytes, mimeType, audioAuth);
+    await recordAiTokenUsage(supabase, rawResult.usage, rawResult.model, audioAuth.provider);
     const rawTranscript = rawResult.text;
 
     const knowledge = await getScopeKnowledge(supabase, contextNodeId, 40);
@@ -342,7 +345,7 @@ export async function POST(req: NextRequest) {
 
     if (updateError) throw updateError;
 
-    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "transcription", aiMode);
+    const aiUsage = rawUsesShared ? await finalizeAiCredits(supabase, "transcription", aiMode) : null;
 
     return NextResponse.json({
       rawTranscript,
@@ -352,7 +355,7 @@ export async function POST(req: NextRequest) {
       aiUsage,
       transcriptionModel: rawResult.model,
       structuringModel: structuredResult.model,
-      provider: geminiAuth.provider,
+      provider: { transcription: audioAuth.provider, structuring: geminiAuth.provider },
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);

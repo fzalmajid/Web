@@ -218,41 +218,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
-    async function generate(targetPrompt: string, withWeb: boolean) {
-      if (selectedProvider === "openai") {
-        return openaiGenerateDetailed({
-          apiKey: openAIKey,
-          model: selectedProviderModel,
-          prompt: targetPrompt,
-          system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
-          effort: aiSelection.effort,
-          web: withWeb,
-        });
-      }
-
-      if (selectedProvider === "anthropic") {
-        return anthropicGenerateDetailed({
-          apiKey: anthropicKey,
-          model: selectedProviderModel,
-          prompt: targetPrompt,
-          system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
-          effort: aiSelection.effort,
-          web: withWeb,
-        });
-      }
-
-      return geminiGenerateDetailed(
-        [{ text: targetPrompt }],
-        "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
-        {
-          googleSearch: withWeb,
-          models: modelPlanForSelection(aiSelection.model, aiMode, withWeb ? "web" : "standard"),
-          effort: aiSelection.effort,
-          apiKey: geminiAuth.apiKey,
-          accessToken: geminiAuth.accessToken,
-          projectId: geminiAuth.projectId,
-        }
-      );
+    async function generate(targetPrompt: string, withWeb: boolean, forceSharedGemini = false) {
+      if (selectedProvider === "openai") return openaiGenerateDetailed({ apiKey: openAIKey, model: selectedProviderModel, prompt: targetPrompt, system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.", effort: aiSelection.effort, web: withWeb });
+      if (selectedProvider === "anthropic") return anthropicGenerateDetailed({ apiKey: anthropicKey, model: selectedProviderModel, prompt: targetPrompt, system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.", effort: aiSelection.effort, web: withWeb });
+      const sharedKey = String(process.env.GEMINI_API_KEY || "").trim();
+      return geminiGenerateDetailed([{ text: targetPrompt }], "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.", {
+        googleSearch: withWeb,
+        models: modelPlanForSelection(aiSelection.model, aiMode, withWeb ? "web" : "standard"),
+        effort: aiSelection.effort,
+        apiKey: forceSharedGemini ? sharedKey : geminiAuth.apiKey,
+        accessToken: forceSharedGemini ? undefined : geminiAuth.accessToken,
+        projectId: forceSharedGemini ? undefined : geminiAuth.projectId,
+      });
     }
 
     function usageProvider() {
@@ -286,6 +263,21 @@ export async function POST(req: NextRequest) {
           (error instanceof ExternalAiError && error.statusCode === 400));
 
       if (!webSpecificFailure) throw error;
+
+      if (selectedProvider === "gemini" && geminiAuth.ownGemini) {
+        const sharedKey = String(process.env.GEMINI_API_KEY || "").trim();
+        if (sharedKey) {
+          const sharedPreflight = await checkAiCredits(supabase, "ask_web", aiMode);
+          if (sharedPreflight.allowed) {
+            try {
+              const sharedResult = await generate(prompt, true, true);
+              await recordAiTokenUsage(supabase, sharedResult.usage, sharedResult.model, "shared-api-key");
+              const aiUsage = await finalizeAiCredits(supabase, "ask_web", aiMode);
+              return NextResponse.json({ answer:sharedResult.text, sources:databaseSources, webSources:sharedResult.webSources, grounded:!useAi, publicWeb:true, selectedSources, webFallback:false, providerFallback:"shared-api-key", warning:"Web memakai provider bersama karena Search Grounding pada project Google user tidak tersedia.", model:sharedResult.model, aiUsage, provider:"shared-api-key" });
+            } catch {}
+          }
+        }
+      }
 
       if (!fallbackSources.length) {
         return NextResponse.json(
