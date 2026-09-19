@@ -1517,6 +1517,12 @@ function StudyPage({
                 <p><RichText text={path.overview} /></p>
               </div>
             )}
+            {path.focus_instruction && (
+              <div>
+                <small>FOKUS BELAJAR</small>
+                <p><RichText text={path.focus_instruction} /></p>
+              </div>
+            )}
           </section>
 
           <div className="studyTimeline">
