@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerate, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 
@@ -74,7 +74,7 @@ ${requested}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdow
   "quizzes":[{"question":"...","choices":["A","B","C","D"],"correct_answer":"...","explanation":"..."}]
 }
 
-Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE.`,
+Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
     }], "Jangan gunakan pengetahuan di luar database yang diberikan.");
 
     const parsed = JSON.parse(cleanJsonText(raw));
