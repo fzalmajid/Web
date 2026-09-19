@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
       "Anda adalah mesin transkripsi. Jangan menjawab selain transkrip audio.",
       { models: geminiModelsForMode(aiMode, "audio"), apiKey: userGeminiKey }
     );
-    await recordAiTokenUsage(supabase, rawResult.usage, rawResult.model);
+    await recordAiTokenUsage(supabase, rawResult.usage, rawResult.model, ownGemini ? "user-api-key" : "shared-api-key");
     const rawTranscript = rawResult.text;
 
     const knowledge = await getScopeKnowledge(supabase, contextNodeId, 40);
@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
       "Anda menyunting transkrip secara konservatif. Database yang diberikan adalah satu-satunya sumber untuk koreksi istilah faktual.",
       { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
     );
-    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model);
+    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model, ownGemini ? "user-api-key" : "shared-api-key");
     const structuredRaw = structuredResult.text;
 
     let structuredTranscript = rawTranscript;
