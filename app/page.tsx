@@ -110,11 +110,11 @@ type StudyUnit = {
   completed_at: string | null;
 };
 
-const aiModes: Array<{ value: AiMode; label: string; provider: "Local" | "Gemini"; hint: string }> = [
-  { value: "simple", label: "Simple", provider: "Local", hint: "Diproses di perangkat, tanpa Gemini" },
-  { value: "instant", label: "Instant", provider: "Gemini", hint: "Cepat & hemat · Gemini 3.6" },
-  { value: "medium", label: "Medium", provider: "Gemini", hint: "Lebih teliti · Gemini 3.6" },
-  { value: "high", label: "High", provider: "Gemini", hint: "Paling mendalam · Gemini 3.6" },
+const aiModes: Array<{ value: AiMode; label: string; provider: "Local" | "Gemini"; hint: string; model: string }> = [
+  { value: "simple", label: "Simple", provider: "Local", hint: "Browser · tanpa Gemini API", model: "Browser" },
+  { value: "instant", label: "Instant", provider: "Gemini", hint: "Cepat · Free-first", model: "Gemini 2.5 Flash-Lite" },
+  { value: "medium", label: "Medium", provider: "Gemini", hint: "Lebih teliti · Free-first", model: "Gemini 2.5 Flash" },
+  { value: "high", label: "High", provider: "Gemini", hint: "Paling mendalam · fallback otomatis", model: "Gemini 3.6 Flash" },
 ];
 
 const nodeEmojis = ["📚","🧠","📝","🎓","💊","🧪","🔬","📖","🎙️","🗂️","✨","🌱","💡","📌","✅","⭐","🧬","🧫","⚗️","🏥","💉","🩺","🧴","🧾","📂","📁","📊","📈","📉","🧩","❓","❗","🧮","🧭","🗒️","📒","📓","📔","📕","📗","📘","📙","🎧","🎤","🎥","🖼️","🧑‍⚕️","👩‍🔬","👨‍🔬","🧑‍🏫","🏆","🎯","⏱️","🔖","🧷","🪄","🌟","🔥","💬","🗃️","🧱","🔎","🧷"];
@@ -3103,14 +3103,14 @@ function AiModePicker({
       >
         <span>
           <strong>{selected.label}</strong>
-          <small>{selected.provider === "Gemini" ? "Gemini 3.6 · usage aktual" : "Local · tanpa API"}</small>
+          <small>{selected.provider === "Gemini" ? selected.model + " · usage aktual" : "Browser · tanpa API"}</small>
         </span>
         <b>⌄</b>
       </button>
 
       {open && (
         <div className="aiModePopover">
-          <div className="aiModeSectionLabel">LOCAL</div>
+          <div className="aiModeSectionLabel">BROWSER / TANPA API</div>
           {allowSimple && aiModes.filter((item) => item.provider === "Local").map((item) => (
             <button type="button" key={item.value} className={value === item.value ? "aiModeOption active" : "aiModeOption"} onClick={() => choose(item.value)}>
               <span className="modeCheck">{value === item.value ? "✓" : ""}</span>
@@ -3118,12 +3118,12 @@ function AiModePicker({
                 <strong>{item.label}</strong>
                 <small>{item.hint}</small>
               </span>
-              <span className="modeMeta">Local · tanpa API</span>
+              <span className="modeMeta">Browser · tanpa API</span>
             </button>
           ))}
 
           {allowSimple && <div className="aiModeDivider" />}
-          <div className="aiModeSectionLabel">GEMINI 3.6</div>
+          <div className="aiModeSectionLabel">GEMINI MODELS</div>
           {aiModes.filter((item) => item.provider === "Gemini").map((item) => (
             <button type="button" key={item.value} className={value === item.value ? "aiModeOption active" : "aiModeOption"} onClick={() => choose(item.value)}>
               <span className="modeCheck">{value === item.value ? "✓" : ""}</span>
@@ -3131,7 +3131,7 @@ function AiModePicker({
                 <strong>{item.label}</strong>
                 <small>{item.hint}</small>
               </span>
-              <span className="modeMeta">Gemini 3.6 · usage aktual</span>
+              <span className="modeMeta">{item.model}</span>
             </button>
           ))}
         </div>
