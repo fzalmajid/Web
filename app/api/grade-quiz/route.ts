@@ -3,6 +3,7 @@ import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
+import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -18,8 +19,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const aiMode = normalizeAiMode(body.aiMode);
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
-    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
-    const ownGemini = Boolean(userGeminiKey);
+    const geminiAuth = geminiUserAuthFromHeaders(req.headers);
+    const ownGemini = geminiAuth.ownGemini;
     const items = Array.isArray(body.answers)
       ? body.answers
           .map((item: any) => ({
@@ -141,9 +142,11 @@ Aturan:
     }], "Anda adalah penilai kuis yang ketat dan hanya boleh memakai database yang diberikan.", {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
-      apiKey: userGeminiKey,
+      apiKey: geminiAuth.apiKey,
+      accessToken: geminiAuth.accessToken,
+      projectId: geminiAuth.projectId,
     });
-    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, ownGemini ? "user-api-key" : "shared-api-key");
+    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, geminiAuth.provider);
     const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
@@ -165,7 +168,7 @@ Aturan:
       results,
       aiUsage,
       model: geminiResult.model,
-      provider: ownGemini ? "user-api-key" : "shared-api-key",
+      provider: geminiAuth.provider,
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
