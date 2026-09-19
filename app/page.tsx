@@ -5,7 +5,7 @@ import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
-type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz";
+type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study";
 type AiMode = "simple" | "instant" | "medium" | "high";
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
@@ -80,6 +80,34 @@ type Quiz = {
   quiz_type: "mcq" | "essay";
   grading_mode: "fixed" | "ai";
 };
+type StudyPath = {
+  id: string;
+  user_id: string;
+  node_id: string;
+  source_node_ids: string[];
+  ai_mode: "instant" | "medium" | "high";
+  title: string;
+  overview: string;
+  status: "processing" | "ready" | "error";
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+type StudyUnit = {
+  id: string;
+  user_id: string;
+  study_path_id: string;
+  position: number;
+  unit_level: "chapter" | "subchapter";
+  title: string;
+  teaching_text: string;
+  recall_question: string;
+  recall_choices: string[];
+  recall_correct_answer: string;
+  recall_explanation: string;
+  is_unlocked: boolean;
+  completed_at: string | null;
+};
 
 const aiModes: Array<{ value: AiMode; label: string; provider: "Local" | "Gemini"; hint: string }> = [
   { value: "simple", label: "Simple", provider: "Local", hint: "Diproses di perangkat, tanpa Gemini" },
@@ -118,6 +146,7 @@ const labels: Record<NodeType, string> = {
   recording: "Rekaman",
   flashcards: "Flashcard",
   quiz: "Kuis",
+  study: "Study",
 };
 
 export default function Home() {
@@ -387,6 +416,18 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           />
         )}
 
+        {current?.node_type === "study" && (
+          <StudyPage
+            session={session}
+            user={user}
+            node={current}
+            nodes={nodes}
+            entries={entries}
+            onOpen={setCurrentId}
+            onChange={refresh}
+          />
+        )}
+
         {(current?.node_type === "flashcards" || current?.node_type === "quiz") && (
           <PracticePage
             session={session}
@@ -502,7 +543,7 @@ function AddSheet({
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
-  const [kind, setKind] = useState<"folder" | "database" | "recording" | "flashcards" | "quiz">("folder");
+  const [kind, setKind] = useState<"folder" | "database" | "recording" | "flashcards" | "quiz" | "study">("folder");
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("");
   const [cardColor, setCardColor] = useState("default");
@@ -512,6 +553,7 @@ function AddSheet({
     { value: "folder", label: "Materi / Submateri", hint: "Contoh: Farmasi, Penjaminan Mutu, Pertemuan 1" },
     { value: "database", label: "Database", hint: "Teks modul, DOCX, PDF, audio/video sumber" },
     { value: "recording", label: "Rekaman", hint: "Rekam suara + transkrip langsung dan versi tertata" },
+    { value: "study", label: "Study", hint: "Pilih beberapa Database lalu belajar bertahap dengan recall quiz" },
     { value: "flashcards", label: "Flashcard", hint: "Latihan kartu dari database di halaman ini" },
     { value: "quiz", label: "Kuis", hint: "Soal dari database di halaman ini" },
   ] as const;
@@ -627,7 +669,7 @@ function DatabasePage({
   const [fileStatus, setFileStatus] = useState("");
   const [aiMode, setAiMode] = useState<AiMode>("simple");
 
-  const localEntries = entries.filter((item) => item.node_id === node.id);
+  const localEntries = entries.filter((item) => item.node_id === node.id && !item.source_file_id);
   const localFiles = files.filter((item) => item.node_id === node.id);
 
   async function saveText(e: FormEvent) {
@@ -693,7 +735,8 @@ function DatabasePage({
       return alert(error.message);
     }
 
-    setFileStatus("Membaca file dan menyusun isi...");
+    onChange();
+    setFileStatus("Sedang diproses...");
 
     if (aiMode === "simple") {
       const localMime = inferMime(selectedFile);
@@ -870,7 +913,7 @@ function DatabasePage({
           <article className="dataCard" key={file.id}>
             <div className="dataHead">
               <div>
-                <small>{file.processing_status} · {formatBytes(file.size_bytes)}</small>
+                <small>{file.processing_status === "processing" ? "Sedang diproses..." : file.processing_status === "ready" ? "Ready" : "Gagal diproses"} · {formatBytes(file.size_bytes)}</small>
                 <h3>{file.file_name}</h3>
               </div>
               <button className="dangerSmall" onClick={() => removeFile(file)}>Hapus file</button>
@@ -2328,6 +2371,7 @@ function iconFor(type: NodeType) {
   if (type === "recording") return "REC";
   if (type === "flashcards") return "FC";
   if (type === "quiz") return "Q";
+  if (type === "study") return "ST";
   return "M";
 }
 
