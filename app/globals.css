@@ -1543,3 +1543,56 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
 @media(max-width:620px){
   .quizKindTabs.fourKinds{grid-template-columns:1fr}
 }
+
+
+/* Full Database shortcut inside Study */
+.quickDatabaseShortcut{
+  display:grid;
+  gap:16px;
+  padding:16px;
+  border:1px solid var(--line);
+  border-radius:20px;
+  background:var(--card);
+}
+.quickDatabaseHead{
+  display:flex;
+  justify-content:space-between;
+  gap:16px;
+  align-items:flex-start;
+}
+.quickDatabaseHead h2{margin:3px 0 5px}
+.quickDatabaseName{
+  display:grid;
+  gap:7px;
+  font-size:.82rem;
+  font-weight:800;
+}
+.quickDatabaseName input:disabled{
+  opacity:.8;
+  cursor:not-allowed;
+}
+.quickDatabaseGrid{
+  margin-top:0;
+}
+.quickDatabaseCreated{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  padding:11px 12px;
+  border:1px solid #cfe5d7;
+  border-radius:14px;
+  background:#f1f8f4;
+  font-size:.78rem;
+}
+:root[data-theme="dark"] .quickDatabaseCreated{
+  background:#183026;
+  border-color:#315744;
+}
+@media(max-width:720px){
+  .quickDatabaseHead,
+  .quickDatabaseCreated{
+    flex-direction:column;
+    align-items:stretch;
+  }
+}
