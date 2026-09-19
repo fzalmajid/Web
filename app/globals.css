@@ -1511,3 +1511,35 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   .studySetupTools>.aiModeSelect .aiModeTrigger{width:100%}
   .studyUnit.active{padding:16px}
 }
+
+
+/* Rich text + four quiz modes */
+.richText{
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+.richText strong{font-weight:850}
+.richText em{font-style:italic}
+.quizKindTabs.fourKinds{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+}
+.quizKindTabs.fourKinds button{
+  min-height:42px;
+  text-align:left;
+}
+.aiChoiceDot{
+  width:24px!important;
+  height:24px!important;
+  border-radius:7px!important;
+  display:grid!important;
+  place-items:center!important;
+  background:var(--ink)!important;
+  color:var(--card)!important;
+  font-size:.55rem!important;
+  letter-spacing:.03em;
+}
+@media(max-width:620px){
+  .quizKindTabs.fourKinds{grid-template-columns:1fr}
+}
