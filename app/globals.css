@@ -1006,3 +1006,110 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     max-width:76vw;
   }
 }
+
+
+/* Theme switcher */
+.themePicker{position:relative}
+.themeTrigger{
+  border:1px solid var(--line);
+  background:var(--card);
+  color:var(--ink);
+  border-radius:12px;
+  padding:7px 9px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.themeTrigger small{font-size:.7rem;color:var(--muted)}
+.themeMenu{
+  position:absolute;
+  right:0;
+  top:calc(100% + 8px);
+  z-index:140;
+  width:180px;
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:6px;
+  box-shadow:var(--shadow);
+}
+.themeMenu button{
+  width:100%;
+  border:0;
+  background:transparent;
+  color:var(--ink);
+  border-radius:10px;
+  padding:9px 10px;
+  display:grid;
+  grid-template-columns:22px 1fr auto;
+  gap:7px;
+  align-items:center;
+  text-align:left;
+}
+.themeMenu button:hover,.themeMenu button.active{background:var(--soft)}
+
+:root[data-theme="dark"]{
+  --bg:#0f1513;
+  --card:#161e1b;
+  --ink:#edf4f1;
+  --muted:#9aa8a3;
+  --line:#2a3531;
+  --soft:#202a26;
+  --accent:#de7d9c;
+  --accent-strong:#f09ab4;
+  --danger:#ff8585;
+  --shadow:0 18px 45px rgba(0,0,0,.28);
+}
+:root[data-theme="dark"] body{background:var(--bg);color:var(--ink)}
+:root[data-theme="dark"] .authCard,
+:root[data-theme="dark"] .ghost,
+:root[data-theme="dark"] .backBtn,
+:root[data-theme="dark"] .nodeCard,
+:root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .recordPanel,
+:root[data-theme="dark"] .dataCard,
+:root[data-theme="dark"] .flash,
+:root[data-theme="dark"] .choice,
+:root[data-theme="dark"] .addSheet,
+:root[data-theme="dark"] .aiAnswer,
+:root[data-theme="dark"] .aiAnswerHead,
+:root[data-theme="dark"] .bottomAsk,
+:root[data-theme="dark"] .aiModePopover,
+:root[data-theme="dark"] .aiModeTrigger,
+:root[data-theme="dark"] .colorOption,
+:root[data-theme="dark"] .emojiChoice,
+:root[data-theme="dark"] .customPreview{
+  background:var(--card);
+  color:var(--ink);
+}
+:root[data-theme="dark"] .topbar{background:rgba(15,21,19,.94)}
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] .gptComposer textarea,
+:root[data-theme="dark"] .dataText,
+:root[data-theme="dark"] .liveTranscript,
+:root[data-theme="dark"] .recordStatus,
+:root[data-theme="dark"] .processingBox,
+:root[data-theme="dark"] .notice{
+  background:#111916;
+  color:var(--ink);
+  border-color:var(--line);
+}
+:root[data-theme="dark"] .dataText.raw{background:#101613;color:#b8c4c0}
+:root[data-theme="dark"] .nodeOpen:hover,
+:root[data-theme="dark"] .aiModeOption:hover,
+:root[data-theme="dark"] .aiModeOption.active,
+:root[data-theme="dark"] .themeMenu button:hover,
+:root[data-theme="dark"] .themeMenu button.active{background:var(--soft)!important}
+:root[data-theme="dark"] .typeChoice{background:var(--card);color:var(--ink)}
+:root[data-theme="dark"] .typeChoice.active{background:#2a2025}
+:root[data-theme="dark"] .primary{color:#fff}
+:root[data-theme="dark"] .stopBtn{background:#2a1919}
+:root[data-theme="dark"] .dangerSmall{background:#2a1919}
+:root[data-theme="dark"] .aiCreditPill{background:#18261f;color:#a9d4bd;border-color:#294535}
+:root[data-theme="dark"] .savedBadge{background:#18261f;color:#a9d4bd}
+:root[data-theme="dark"] .corrections{background:#2a2619;border-color:#51472a}
+@media(max-width:720px){
+  .themeTrigger small{display:none}
+}
