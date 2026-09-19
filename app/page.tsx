@@ -19,6 +19,8 @@ import {
   type AiSelection,
 } from "@/lib/aiModels";
 
+const AUTH_REDIRECT_URL = "https://web-fzalmajid.vercel.app";
+
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study";
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
@@ -495,11 +497,7 @@ function Auth() {
   const [busy, setBusy] = useState(false);
 
   function signupPasswordError(value: string) {
-    if (value.length < 12) return "Password baru minimal 12 karakter.";
-    if (!/[a-z]/.test(value)) return "Password baru harus memiliki huruf kecil.";
-    if (!/[A-Z]/.test(value)) return "Password baru harus memiliki huruf besar.";
-    if (!/[0-9]/.test(value)) return "Password baru harus memiliki angka.";
-    if (!/[^A-Za-z0-9]/.test(value)) return "Password baru harus memiliki simbol.";
+    if (value.length < 6) return "Password minimal 6 karakter.";
     return "";
   }
 
@@ -539,12 +537,12 @@ function Auth() {
         : await supabase.auth.signUp({
             email,
             password,
-            options: { emailRedirectTo: window.location.origin },
+            options: { emailRedirectTo: AUTH_REDIRECT_URL },
           });
 
     if (result.error) setMessage(result.error.message);
     else if (mode === "signup" && !result.data.session) {
-      setMessage("Akun dibuat. Cek email untuk konfirmasi jika diminta.");
+      setMessage("Akun dibuat. Klik link verifikasi di email; akun akan langsung terverifikasi dan kembali ke Ruang Belajar.");
     }
 
     setBusy(false);
@@ -568,13 +566,13 @@ function Auth() {
             <input
               type="password"
               required
-              minLength={mode === "signup" ? 12 : 6}
+              minLength={6}
               autoComplete={mode === "signup" ? "new-password" : "current-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
             {mode === "signup" && (
-              <small className="muted">Minimal 12 karakter + huruf besar, huruf kecil, angka, simbol, dan tidak boleh termasuk password yang pernah bocor.</small>
+              <small className="muted">Minimal 6 karakter. Password yang pernah bocor tidak dapat digunakan.</small>
             )}
           </label>
           <button className="primary" disabled={busy}>
