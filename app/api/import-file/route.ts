@@ -4,7 +4,7 @@ import JSZip from "jszip";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, checkAiCredits, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -240,7 +240,7 @@ Aturan:
       .eq("id", sourceFileId);
     if (updateError) throw updateError;
 
-    const aiUsage = await consumeAiCredits(supabase, guardAction, aiMode);
+    const aiUsage = await finalizeAiCredits(supabase, guardAction, aiMode);
 
     return NextResponse.json({
       entryId: entry.id,
