@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, geminiModelsForMode, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
+import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -19,6 +20,7 @@ export async function POST(req: NextRequest) {
     const targetNodeId = String(body.targetNodeId || sourceNodeId || "");
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
+    const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
     const ownGemini = Boolean(userGeminiKey);
 
@@ -78,7 +80,8 @@ ${requested}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdow
 
 Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
     }], "Jangan gunakan pengetahuan di luar database yang diberikan.", {
-      models: geminiModelsForMode(aiMode, "standard"),
+      models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
+      effort: aiSelection.effort,
       apiKey: userGeminiKey,
     });
     await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, ownGemini ? "user-api-key" : "shared-api-key");
