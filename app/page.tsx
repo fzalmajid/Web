@@ -1637,14 +1637,31 @@ function RecordingPage({
   const startedRef = useRef(0);
   const elapsedRef = useRef(0);
   const recordingRef = useRef(false);
+
   const speechRef = useRef<any>(null);
   const speechFinalRef = useRef("");
+  const liveTextRef = useRef("");
+
+  const liveWsRef = useRef<WebSocket | null>(null);
+  const liveReadyRef = useRef(false);
+  const liveStoppingRef = useRef(false);
+  const liveFinalRef = useRef("");
+  const liveInterimRef = useRef("");
+  const liveLastFinalRef = useRef("");
+  const liveUsageRef = useRef<any>(null);
+
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const audioGainRef = useRef<GainNode | null>(null);
+  const browserFallbackStartedRef = useRef(false);
 
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [liveText, setLiveText] = useState("");
   const [liveSupported, setLiveSupported] = useState(true);
+  const [liveEngine, setLiveEngine] = useState("Belum aktif");
   const [status, setStatus] = useState("Siap merekam");
   const [result, setResult] = useState<{
     recordingId: string;
@@ -1676,16 +1693,49 @@ function RecordingPage({
     return () => clearInterval(timer);
   }, [recording]);
 
-  function startLiveSpeech() {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  useEffect(() => {
+    return () => {
+      recordingRef.current = false;
+      try { speechRef.current?.stop(); } catch {}
+      stopGeminiLive(false);
+      try {
+        if (recRef.current?.state && recRef.current.state !== "inactive") recRef.current.stop();
+      } catch {}
+    };
+  }, []);
+
+  function setLiveTranscript(value: string) {
+    const next = String(value || "").trim();
+    liveTextRef.current = next;
+    setLiveText(next);
+  }
+
+  function resetLiveTranscript() {
+    speechFinalRef.current = "";
+    liveFinalRef.current = "";
+    liveInterimRef.current = "";
+    liveLastFinalRef.current = "";
+    liveUsageRef.current = null;
+    liveReadyRef.current = false;
+    browserFallbackStartedRef.current = false;
+    setLiveTranscript("");
+  }
+
+  function startBrowserSpeech(asFallback = false) {
+    if (browserFallbackStartedRef.current && asFallback) return;
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
     if (!SpeechRecognition) {
       setLiveSupported(false);
-      return;
+      if (asFallback) setLiveEngine("Tidak tersedia");
+      return false;
     }
 
+    browserFallbackStartedRef.current = true;
     setLiveSupported(true);
-    speechFinalRef.current = "";
-    setLiveText("");
+    setLiveEngine(asFallback ? "Browser fallback · tanpa Gemini" : "Browser · tanpa Gemini");
 
     const recognition = new SpeechRecognition();
     recognition.lang = "id-ID";
@@ -1695,54 +1745,309 @@ function RecordingPage({
     recognition.onresult = (event: any) => {
       let interim = "";
       for (let index = event.resultIndex; index < event.results.length; index++) {
-        const text = String(event.results[index][0]?.transcript || "");
+        const text = String(event.results[index][0]?.transcript || "").trim();
+        if (!text) continue;
         if (event.results[index].isFinal) {
-          speechFinalRef.current += text + " ";
+          speechFinalRef.current = (speechFinalRef.current + " " + text).trim();
         } else {
-          interim += text;
+          interim = (interim + " " + text).trim();
         }
       }
-      setLiveText((speechFinalRef.current + interim).trim());
+      setLiveTranscript((speechFinalRef.current + " " + interim).trim());
+    };
+
+    recognition.onerror = (event: any) => {
+      const code = String(event?.error || "");
+      if (["not-allowed", "service-not-allowed", "audio-capture"].includes(code)) {
+        setLiveSupported(false);
+        setLiveEngine("Browser live tidak tersedia");
+      }
     };
 
     recognition.onend = () => {
-      if (recordingRef.current) {
-        try {
-          recognition.start();
-        } catch {}
+      if (recordingRef.current && speechRef.current === recognition) {
+        window.setTimeout(() => {
+          if (!recordingRef.current) return;
+          try {
+            recognition.start();
+          } catch {}
+        }, 250);
       }
     };
 
     speechRef.current = recognition;
     try {
       recognition.start();
+      return true;
     } catch {
       setLiveSupported(false);
+      setLiveEngine("Browser live tidak tersedia");
+      return false;
     }
+  }
+
+  function stopBrowserSpeech() {
+    try {
+      speechRef.current?.stop();
+    } catch {}
+    speechRef.current = null;
+  }
+
+  function pcm16Base64(input: Float32Array, sourceRate: number) {
+    const targetRate = 16000;
+    const ratio = Math.max(1, sourceRate / targetRate);
+    const targetLength = Math.max(1, Math.floor(input.length / ratio));
+    const buffer = new ArrayBuffer(targetLength * 2);
+    const view = new DataView(buffer);
+
+    for (let i = 0; i < targetLength; i++) {
+      const start = Math.floor(i * ratio);
+      const end = Math.min(input.length, Math.floor((i + 1) * ratio));
+      let sum = 0;
+      let count = 0;
+      for (let j = start; j < end; j++) {
+        sum += input[j];
+        count++;
+      }
+      const sample = Math.max(-1, Math.min(1, count ? sum / count : input[start] || 0));
+      view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    }
+
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+    }
+    return btoa(binary);
+  }
+
+  function startAudioPump(stream: MediaStream) {
+    const AudioContextCtor =
+      window.AudioContext || (window as any).webkitAudioContext;
+
+    if (!AudioContextCtor) throw new Error("Web Audio tidak tersedia.");
+
+    const context: AudioContext = new AudioContextCtor();
+    const source = context.createMediaStreamSource(stream);
+    const processor = context.createScriptProcessor(4096, 1, 1);
+    const gain = context.createGain();
+    gain.gain.value = 0;
+
+    source.connect(processor);
+    processor.connect(gain);
+    gain.connect(context.destination);
+
+    processor.onaudioprocess = (event) => {
+      const ws = liveWsRef.current;
+      if (!recordingRef.current || !liveReadyRef.current || !ws || ws.readyState !== WebSocket.OPEN) return;
+      try {
+        const pcm = pcm16Base64(event.inputBuffer.getChannelData(0), context.sampleRate);
+        ws.send(JSON.stringify({
+          realtimeInput: {
+            audio: {
+              data: pcm,
+              mimeType: "audio/pcm;rate=16000",
+            },
+          },
+        }));
+      } catch {}
+    };
+
+    audioContextRef.current = context;
+    audioSourceRef.current = source;
+    audioProcessorRef.current = processor;
+    audioGainRef.current = gain;
+  }
+
+  function stopAudioPump() {
+    try { audioProcessorRef.current?.disconnect(); } catch {}
+    try { audioSourceRef.current?.disconnect(); } catch {}
+    try { audioGainRef.current?.disconnect(); } catch {}
+    const context = audioContextRef.current;
+    if (context && context.state !== "closed") {
+      void context.close().catch(() => {});
+    }
+    audioProcessorRef.current = null;
+    audioSourceRef.current = null;
+    audioGainRef.current = null;
+    audioContextRef.current = null;
+  }
+
+  async function recordLiveUsage() {
+    const usage = liveUsageRef.current;
+    if (!usage) return;
+    const input = Number(usage.promptTokenCount || 0);
+    const output = Number(usage.responseTokenCount || 0);
+    const thoughts = Number(usage.thoughtsTokenCount || 0);
+    const total = Number(usage.totalTokenCount || input + output + thoughts);
+    if (!total && !input && !output && !thoughts) return;
+
+    await supabase.rpc("record_ai_model_usage", {
+      model_name: "gemini-3.5-transcribe-live",
+      input_tokens: input,
+      output_tokens: output,
+      thoughts_tokens: thoughts,
+      total_tokens: total,
+    }).then(({ error }) => {
+      if (error) console.warn("[LIVE_USAGE_RECORD_FAILED]", error.message);
+    });
+  }
+
+  async function startGeminiLiveSpeech(stream: MediaStream) {
+    liveStoppingRef.current = false;
+    setLiveEngine("Gemini 3.5 Transcribe Live · menghubungkan...");
+
+    const response = await fetch("/api/live-transcribe-token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({ aiMode }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.token) {
+      throw new Error(data.error || "Live Transcribe tidak tersedia.");
+    }
+
+    const ws = new WebSocket(
+      "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=" +
+        encodeURIComponent(data.token)
+    );
+    liveWsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        setup: {
+          model: "models/gemini-3.5-transcribe-live",
+          generationConfig: {
+            responseModalities: ["TEXT"],
+          },
+          inputAudioTranscription: {
+            languageCodes: ["id-ID"],
+            mode: "VERBATIM",
+          },
+        },
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(String(event.data || "{}"));
+
+        if (message.setupComplete) {
+          liveReadyRef.current = true;
+          setLiveEngine("Gemini 3.5 Transcribe Live");
+          startAudioPump(stream);
+        }
+
+        const server = message.serverContent;
+        const interimText = String(server?.interimInputTranscription?.text || "").trim();
+        const finalText = String(server?.inputTranscription?.text || "").trim();
+
+        if (finalText) {
+          if (finalText !== liveLastFinalRef.current) {
+            liveLastFinalRef.current = finalText;
+            liveFinalRef.current = (liveFinalRef.current + " " + finalText).trim();
+          }
+          liveInterimRef.current = "";
+          setLiveTranscript(liveFinalRef.current);
+        } else if (interimText) {
+          liveInterimRef.current = interimText;
+          setLiveTranscript((liveFinalRef.current + " " + interimText).trim());
+        }
+
+        if (message.usageMetadata) {
+          liveUsageRef.current = message.usageMetadata;
+        }
+      } catch {}
+    };
+
+    ws.onerror = () => {
+      if (!recordingRef.current || liveStoppingRef.current) return;
+      setLiveEngine("Gemini Live gagal · Browser fallback");
+      stopAudioPump();
+      startBrowserSpeech(true);
+    };
+
+    ws.onclose = () => {
+      liveReadyRef.current = false;
+      stopAudioPump();
+      if (recordingRef.current && !liveStoppingRef.current) {
+        setLiveEngine("Gemini Live terputus · Browser fallback");
+        startBrowserSpeech(true);
+      }
+    };
+  }
+
+  function stopGeminiLive(recordUsage = true) {
+    liveStoppingRef.current = true;
+    const ws = liveWsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+      } catch {}
+    }
+    stopAudioPump();
+
+    window.setTimeout(() => {
+      if (recordUsage) void recordLiveUsage();
+      try { ws?.close(); } catch {}
+      if (liveWsRef.current === ws) liveWsRef.current = null;
+      liveReadyRef.current = false;
+    }, 900);
   }
 
   async function start() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const preferred =
-        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "";
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Browser ini tidak menyediakan akses mikrofon.");
+      }
+      if (typeof MediaRecorder === "undefined") {
+        throw new Error("Browser ini tidak mendukung perekaman audio.");
+      }
 
-      const recorder = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      const preferredTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+      ];
+      const preferred = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      const recorder = preferred
+        ? new MediaRecorder(stream, { mimeType: preferred })
+        : new MediaRecorder(stream);
+
       chunksRef.current = [];
       recRef.current = recorder;
       setResult(null);
-      setLiveText("");
-      speechFinalRef.current = "";
+      resetLiveTranscript();
 
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunksRef.current.push(event.data);
       };
 
+      recorder.onerror = (event: any) => {
+        setStatus("Perekaman mengalami error, tetapi audio yang sudah terkumpul akan dipertahankan.");
+        console.warn("[MEDIA_RECORDER_ERROR]", event?.error?.message || event?.error || "unknown");
+      };
+
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        if (!blob.size) {
+          setBusy(false);
+          setStatus("Rekaman kosong. Periksa izin mikrofon lalu coba lagi.");
+          return;
+        }
         await processRecording(blob);
       };
 
@@ -1752,34 +2057,68 @@ function RecordingPage({
       recordingRef.current = true;
       setRecording(true);
       setStatus("Sedang merekam...");
-      startLiveSpeech();
-      recorder.start(1000);
+      recorder.start(750);
+
+      if (aiMode === "simple") {
+        const started = startBrowserSpeech(false);
+        if (!started) {
+          setStatus("Sedang merekam. Transkrip browser tidak tersedia; audio tetap disimpan.");
+        }
+      } else {
+        void startGeminiLiveSpeech(stream).catch((error: any) => {
+          console.warn("[GEMINI_LIVE_START_FAILED]", error?.message || "unknown");
+          if (!recordingRef.current) return;
+          setStatus("Sedang merekam. Gemini Live tidak tersedia, memakai fallback browser.");
+          const started = startBrowserSpeech(true);
+          if (!started) setLiveEngine("Live transcript tidak tersedia · final transcript tetap dicoba setelah Stop");
+        });
+      }
     } catch (error: any) {
-      alert(error.message);
+      const message =
+        error?.name === "NotAllowedError"
+          ? "Izin mikrofon ditolak. Izinkan mikrofon untuk situs ini lalu coba lagi."
+          : error?.name === "NotFoundError"
+            ? "Mikrofon tidak ditemukan."
+            : error?.message || "Gagal memulai rekaman.";
+      setStatus(message);
+      alert(message);
     }
   }
 
   function stop() {
+    if (!recordingRef.current) return;
     recordingRef.current = false;
     setRecording(false);
-    setStatus("Rekaman berhenti. Menyiapkan versi tertata & terkonteks...");
+    setStatus(
+      aiMode === "simple"
+        ? "Rekaman berhenti. Menyimpan transkrip browser..."
+        : "Rekaman berhenti. Menyiapkan verbatim final & versi tertata..."
+    );
+    stopBrowserSpeech();
+    stopGeminiLive(aiMode !== "simple");
+
     try {
-      speechRef.current?.stop();
-    } catch {}
-    recRef.current?.stop();
+      if (recRef.current?.state && recRef.current.state !== "inactive") {
+        recRef.current.stop();
+      }
+    } catch (error: any) {
+      setStatus("Gagal menghentikan recorder: " + (error?.message || "unknown"));
+    }
   }
 
   async function processRecording(blob: Blob) {
     setBusy(true);
     const mimeType = normalizeAudioMime(blob.type);
-    const ext = mimeType === "audio/m4a" ? "m4a" : mimeType.split("/")[1] || "webm";
+    const subtype = mimeType.split("/")[1]?.split(";")[0] || "webm";
+    const ext = subtype === "mp4" || subtype === "m4a" ? "m4a" : subtype;
     const path = user.id + "/" + crypto.randomUUID() + "." + ext;
     const title = "Rekaman " + new Date().toLocaleString("id-ID");
+    const currentLiveTranscript = (liveTextRef.current || speechFinalRef.current || liveFinalRef.current).trim();
 
     const upload = await supabase.storage.from("recordings").upload(path, blob, { contentType: mimeType });
     if (upload.error) {
       setBusy(false);
-      setStatus("Gagal upload.");
+      setStatus("Gagal upload audio.");
       return alert(upload.error.message);
     }
 
@@ -1799,24 +2138,24 @@ function RecordingPage({
     if (error) {
       await supabase.storage.from("recordings").remove([path]);
       setBusy(false);
+      setStatus("Gagal menyimpan data rekaman.");
       return alert(error.message);
     }
 
     if (aiMode === "simple") {
-      const localTranscript = (liveText || speechFinalRef.current).trim();
-      if (!localTranscript) {
+      if (!currentLiveTranscript) {
         setBusy(false);
-        setStatus("Audio tersimpan. Transkrip Local tidak tersedia di browser ini.");
+        setStatus("Audio tersimpan. Browser tidak menghasilkan transkrip live.");
         onChange();
-        return alert("Mode Simple memakai transkrip Local. Browser ini belum menghasilkan transkrip live; pilih Instant, Medium, atau High untuk transkripsi Gemini.");
+        return;
       }
 
       await supabase
         .from("recordings")
         .update({
-          raw_transcript: localTranscript,
-          structured_transcript: localTranscript,
-          transcript: localTranscript,
+          raw_transcript: currentLiveTranscript,
+          structured_transcript: currentLiveTranscript,
+          transcript: currentLiveTranscript,
           corrections: [],
         })
         .eq("id", row.id);
@@ -1824,13 +2163,13 @@ function RecordingPage({
       setBusy(false);
       setResult({
         recordingId: row.id,
-        raw: localTranscript,
-        structured: localTranscript,
+        raw: currentLiveTranscript,
+        structured: currentLiveTranscript,
         summary: "",
         corrections: [],
         added: false,
       });
-      setStatus("Selesai dengan Simple · Local · 0 cr.");
+      setStatus("Selesai · Simple Browser · tanpa Gemini API.");
       onChange();
       return;
     }
@@ -1854,20 +2193,48 @@ function RecordingPage({
     setBusy(false);
 
     if (!response.ok) {
-      setStatus("Audio tersimpan, tetapi versi final belum berhasil.");
+      if (currentLiveTranscript) {
+        await supabase
+          .from("recordings")
+          .update({
+            raw_transcript: currentLiveTranscript,
+            structured_transcript: currentLiveTranscript,
+            transcript: currentLiveTranscript,
+            corrections: [],
+          })
+          .eq("id", row.id);
+
+        setResult({
+          recordingId: row.id,
+          raw: currentLiveTranscript,
+          structured: currentLiveTranscript,
+          summary: "",
+          corrections: [],
+          added: false,
+        });
+        setStatus("Audio tersimpan. Model final sedang tidak tersedia; hasil live dipertahankan.");
+        onChange();
+        return;
+      }
+
+      setStatus("Audio tersimpan, tetapi transkripsi final belum berhasil. Bisa dicoba lagi nanti.");
       onChange();
       return alert(data.error || "Transkripsi gagal.");
     }
 
     setResult({
       recordingId: row.id,
-      raw: data.rawTranscript || liveText,
-      structured: data.structuredTranscript || data.rawTranscript || liveText,
+      raw: data.rawTranscript || currentLiveTranscript,
+      structured: data.structuredTranscript || data.rawTranscript || currentLiveTranscript,
       summary: data.summary || "",
       corrections: data.corrections || [],
       added: false,
     });
-    setStatus("Selesai. Pilih Add to Database bila catatan ini ingin dimasukkan ke Database.");
+    setStatus(
+      "Selesai · transkrip " +
+        String(data.transcriptionModel || "Gemini") +
+        (data.structuringModel ? " · dirapikan " + data.structuringModel : "")
+    );
     onChange();
   }
 
@@ -1945,7 +2312,10 @@ function RecordingPage({
       <div className="toolHeader">
         <p className="eyebrow">REKAMAN & TRANSKRIP</p>
         <h1>{node.title}</h1>
-        <p className="muted">Transkrip langsung muncul selama bicara. Setelah Stop, Gemini membuat versi verbatim final dan versi tertata berdasarkan Database pada pertemuan ini.</p>
+        <p className="muted">
+          Simple memakai transkrip browser tanpa Gemini. Mode Gemini memakai Gemini 3.5 Transcribe Live untuk teks langsung,
+          lalu membuat verbatim final dan versi tertata setelah Stop. Jika salah satu layanan gagal, audio dan hasil live yang sudah ada tetap dipertahankan.
+        </p>
       </div>
 
       <article className="recordPanel">
@@ -1957,8 +2327,15 @@ function RecordingPage({
           </div>
         </div>
 
-        <AiModePicker value={aiMode} onChange={setAiMode} action="transcription" />
-      <div className="recordActions">
+        <div className="recordEngineInfo">
+          <div>
+            <small>MODE TRANSKRIP</small>
+            <strong>{aiMode === "simple" ? "Simple · Browser · tanpa API" : liveEngine}</strong>
+          </div>
+          <AiModePicker value={aiMode} onChange={setAiMode} action="transcription" />
+        </div>
+
+        <div className="recordActions">
           <button className="primary" disabled={recording || busy} onClick={start}>Mulai Rekam</button>
           <button className="stopBtn" disabled={!recording} onClick={stop}>Stop</button>
         </div>
@@ -1969,7 +2346,12 @@ function RecordingPage({
             {recording && <span>LIVE</span>}
           </div>
           <div className="dataText raw">
-            {liveText || (liveSupported ? "Mulai bicara setelah rekaman berjalan..." : "Browser ini tidak mendukung transkrip live. Transkrip final tetap dibuat setelah Stop.")}
+            {liveText ||
+              (recording
+                ? liveSupported
+                  ? "Mendengarkan..."
+                  : "Live transcript tidak tersedia. Audio tetap direkam dan final transcript akan dicoba setelah Stop."
+                : "Tekan Mulai Rekam untuk mulai.")}
           </div>
         </div>
 
@@ -1977,8 +2359,8 @@ function RecordingPage({
           <div className="processingBox">
             <div className="spinner" />
             <div>
-              <strong>Menyusun versi tertata & terkonteks...</strong>
-              <p>Transkrip langsung di atas tetap dipertahankan.</p>
+              <strong>Memproses rekaman...</strong>
+              <p>Audio sudah disimpan. Hasil live tidak dibuang bila model final gagal.</p>
             </div>
           </div>
         )}
