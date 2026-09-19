@@ -1,3 +1,6 @@
+export type AiContext = "general" | "transcription" | "chat";
+export type AiProvider = "local" | "gemini" | "openai" | "anthropic";
+
 export type AiModelId =
   | "local"
   | "gemini-3.8-flash"
@@ -5,11 +8,17 @@ export type AiModelId =
   | "gemini-3.6-flash"
   | "gemini-3.5-flash"
   | "gemini-3.5-flash-lite"
-  | "gemini-3.1-flash-lite"
   | "gemini-2.5-pro"
   | "gemini-2.5-flash"
   | "gemini-2.5-flash-lite"
-  | "gemini-3.5-transcribe";
+  | "gemini-3.5-transcribe"
+  | "openai:gpt-5.6-sol"
+  | "openai:gpt-5.6-terra"
+  | "openai:gpt-5.6-luna"
+  | "anthropic:claude-fable-5"
+  | "anthropic:claude-opus-5"
+  | "anthropic:claude-sonnet-5"
+  | "anthropic:claude-haiku-4-5-20251001";
 
 export type AiEffort =
   | "none"
@@ -17,6 +26,8 @@ export type AiEffort =
   | "low"
   | "medium"
   | "high"
+  | "xhigh"
+  | "max"
   | "off"
   | "dynamic";
 
@@ -29,9 +40,10 @@ export type AiLegacyMode = "simple" | "instant" | "medium" | "high";
 
 export type AiModelCapability = {
   id: AiModelId;
+  provider: AiProvider;
   label: string;
   subtitle: string;
-  contexts: Array<"general" | "transcription">;
+  contexts: AiContext[];
   efforts: Array<{ value: AiEffort; label: string; hint: string }>;
   defaultEffort: AiEffort;
   freeTier: boolean;
@@ -58,90 +70,119 @@ const LEVEL_25: AiModelCapability["efforts"] = [
 ];
 
 const LEVEL_25_LITE: AiModelCapability["efforts"] = [
-  { value: "none", label: "Default", hint: "Thinking default model (off)" },
+  { value: "none", label: "Default", hint: "Thinking default model" },
   { value: "low", label: "Low", hint: "Penalaran ringan" },
   { value: "medium", label: "Medium", hint: "Penalaran seimbang" },
   { value: "high", label: "High", hint: "Penalaran lebih dalam" },
 ];
 
+const LEVEL_OPENAI_56: AiModelCapability["efforts"] = [
+  { value: "none", label: "None", hint: "Tanpa reasoning tambahan" },
+  { value: "low", label: "Low", hint: "Cepat dan hemat" },
+  { value: "medium", label: "Medium", hint: "Seimbang" },
+  { value: "high", label: "High", hint: "Reasoning dalam" },
+  { value: "xhigh", label: "XHigh", hint: "Reasoning ekstra" },
+  { value: "max", label: "Max", hint: "Kapasitas reasoning maksimum" },
+];
+
+const LEVEL_CLAUDE_OPUS_5: AiModelCapability["efforts"] = [
+  { value: "low", label: "Low", hint: "Lebih cepat dan hemat" },
+  { value: "medium", label: "Medium", hint: "Reasoning sedang" },
+  { value: "high", label: "High", hint: "Default Claude Opus 5" },
+  { value: "xhigh", label: "XHigh", hint: "Reasoning ekstra" },
+  { value: "max", label: "Max", hint: "Reasoning maksimum" },
+];
+
+const LEVEL_CLAUDE_SONNET_5: AiModelCapability["efforts"] = [
+  { value: "low", label: "Low", hint: "Lebih cepat dan hemat" },
+  { value: "medium", label: "Medium", hint: "Reasoning sedang" },
+  { value: "high", label: "High", hint: "Default Claude Sonnet 5" },
+];
+
+const LEVEL_CLAUDE_FABLE_5: AiModelCapability["efforts"] = [
+  { value: "low", label: "Low", hint: "Lebih cepat dan hemat" },
+  { value: "medium", label: "Medium", hint: "Reasoning sedang" },
+  { value: "high", label: "High", hint: "Default Claude Fable 5" },
+  { value: "xhigh", label: "XHigh", hint: "Untuk tugas paling berat" },
+];
+
 export const AI_MODEL_CATALOG: AiModelCapability[] = [
   {
     id: "local",
+    provider: "local",
     label: "Local",
-    subtitle: "Tanpa Gemini · Database/browser",
-    contexts: ["general", "transcription"],
+    subtitle: "Tanpa API · Database/browser",
+    contexts: ["general", "transcription", "chat"],
     efforts: [],
     defaultEffort: "none",
     freeTier: true,
   },
   {
     id: "gemini-3.8-flash",
+    provider: "gemini",
     label: "Gemini 3.8 Flash",
     subtitle: "Terbaru · Flash paling cerdas",
-    contexts: ["general", "transcription"],
+    contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_3X_LMH,
     defaultEffort: "medium",
     freeTier: true,
   },
   {
     id: "gemini-3.7-flash",
+    provider: "gemini",
     label: "Gemini 3.7 Flash",
     subtitle: "Cepat · multi-step stabil",
-    contexts: ["general", "transcription"],
+    contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_3X_LMH,
     defaultEffort: "medium",
     freeTier: true,
   },
   {
     id: "gemini-3.6-flash",
+    provider: "gemini",
     label: "Gemini 3.6 Flash",
     subtitle: "Multimodal · reasoning fleksibel",
-    contexts: ["general", "transcription"],
+    contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_3X_ALL,
     defaultEffort: "medium",
     freeTier: true,
   },
   {
     id: "gemini-3.5-flash",
+    provider: "gemini",
     label: "Gemini 3.5 Flash",
     subtitle: "Flash stabil · fallback kuat",
-    contexts: ["general", "transcription"],
+    contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_3X_ALL,
     defaultEffort: "medium",
     freeTier: true,
   },
   {
     id: "gemini-3.5-flash-lite",
+    provider: "gemini",
     label: "Gemini 3.5 Flash-Lite",
     subtitle: "Hemat · volume tinggi",
-    contexts: ["general", "transcription"],
-    efforts: LEVEL_3X_ALL,
-    defaultEffort: "low",
-    freeTier: true,
-  },
-  {
-    id: "gemini-3.1-flash-lite",
-    label: "Gemini 3.1 Flash-Lite",
-    subtitle: "Ringan · fallback hemat",
-    contexts: ["general", "transcription"],
+    contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_3X_ALL,
     defaultEffort: "low",
     freeTier: true,
   },
   {
     id: "gemini-2.5-pro",
+    provider: "gemini",
     label: "Gemini 2.5 Pro",
     subtitle: "Reasoning Pro · tugas kompleks",
-    contexts: ["general", "transcription"],
+    contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_25,
     defaultEffort: "high",
     freeTier: true,
   },
   {
     id: "gemini-2.5-flash",
+    provider: "gemini",
     label: "Gemini 2.5 Flash",
     subtitle: "Free Tier · Web gratis tersedia",
-    contexts: ["general", "transcription"],
+    contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_25,
     defaultEffort: "medium",
     freeTier: true,
@@ -149,9 +190,10 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
   },
   {
     id: "gemini-2.5-flash-lite",
+    provider: "gemini",
     label: "Gemini 2.5 Flash-Lite",
     subtitle: "Paling hemat · Web gratis tersedia",
-    contexts: ["general", "transcription"],
+    contexts: ["general", "transcription", "chat"],
     efforts: LEVEL_25_LITE,
     defaultEffort: "none",
     freeTier: true,
@@ -159,6 +201,7 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
   },
   {
     id: "gemini-3.5-transcribe",
+    provider: "gemini",
     label: "Gemini 3.5 Transcribe",
     subtitle: "Khusus speech-to-text · tanpa level",
     contexts: ["transcription"],
@@ -166,13 +209,100 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
     defaultEffort: "none",
     freeTier: true,
   },
+  {
+    id: "openai:gpt-5.6-sol",
+    provider: "openai",
+    label: "GPT-5.6 Sol",
+    subtitle: "OpenAI · kemampuan tertinggi",
+    contexts: ["chat"],
+    efforts: LEVEL_OPENAI_56,
+    defaultEffort: "medium",
+    freeTier: false,
+    freeWeb: false,
+  },
+  {
+    id: "openai:gpt-5.6-terra",
+    provider: "openai",
+    label: "GPT-5.6 Terra",
+    subtitle: "OpenAI · seimbang",
+    contexts: ["chat"],
+    efforts: LEVEL_OPENAI_56,
+    defaultEffort: "medium",
+    freeTier: false,
+    freeWeb: false,
+  },
+  {
+    id: "openai:gpt-5.6-luna",
+    provider: "openai",
+    label: "GPT-5.6 Luna",
+    subtitle: "OpenAI · hemat dan cepat",
+    contexts: ["chat"],
+    efforts: LEVEL_OPENAI_56,
+    defaultEffort: "low",
+    freeTier: false,
+    freeWeb: false,
+  },
+  {
+    id: "anthropic:claude-fable-5",
+    provider: "anthropic",
+    label: "Claude Fable 5",
+    subtitle: "Anthropic · kemampuan tertinggi",
+    contexts: ["chat"],
+    efforts: LEVEL_CLAUDE_FABLE_5,
+    defaultEffort: "high",
+    freeTier: false,
+    freeWeb: false,
+  },
+  {
+    id: "anthropic:claude-opus-5",
+    provider: "anthropic",
+    label: "Claude Opus 5",
+    subtitle: "Anthropic · reasoning mendalam",
+    contexts: ["chat"],
+    efforts: LEVEL_CLAUDE_OPUS_5,
+    defaultEffort: "high",
+    freeTier: false,
+    freeWeb: false,
+  },
+  {
+    id: "anthropic:claude-sonnet-5",
+    provider: "anthropic",
+    label: "Claude Sonnet 5",
+    subtitle: "Anthropic · seimbang",
+    contexts: ["chat"],
+    efforts: LEVEL_CLAUDE_SONNET_5,
+    defaultEffort: "high",
+    freeTier: false,
+    freeWeb: false,
+  },
+  {
+    id: "anthropic:claude-haiku-4-5-20251001",
+    provider: "anthropic",
+    label: "Claude Haiku 4.5",
+    subtitle: "Anthropic · cepat",
+    contexts: ["chat"],
+    efforts: [],
+    defaultEffort: "none",
+    freeTier: false,
+    freeWeb: false,
+  },
 ];
 
 export function modelCapability(model: AiModelId) {
   return AI_MODEL_CATALOG.find((item) => item.id === model) || AI_MODEL_CATALOG[0];
 }
 
-export function normalizeAiModel(value: unknown, context: "general" | "transcription" = "general"): AiModelId {
+export function modelProvider(model: AiModelId): AiProvider {
+  return modelCapability(model).provider;
+}
+
+export function providerModelId(model: AiModelId) {
+  if (model.startsWith("openai:")) return model.slice("openai:".length);
+  if (model.startsWith("anthropic:")) return model.slice("anthropic:".length);
+  return model;
+}
+
+export function normalizeAiModel(value: unknown, context: AiContext = "general"): AiModelId {
   const candidate = String(value || "") as AiModelId;
   const found = AI_MODEL_CATALOG.find(
     (item) => item.id === candidate && item.contexts.includes(context)
@@ -189,10 +319,7 @@ export function normalizeAiEffort(model: AiModelId, value: unknown): AiEffort {
     : capability.defaultEffort;
 }
 
-export function defaultSelection(
-  model: AiModelId,
-  context: "general" | "transcription" = "general"
-): AiSelection {
+export function defaultSelection(model: AiModelId, context: AiContext = "general"): AiSelection {
   const normalized = normalizeAiModel(model, context);
   return {
     model: normalized,
@@ -202,26 +329,25 @@ export function defaultSelection(
 
 export function selectionFromLegacyMode(
   mode: AiLegacyMode,
-  context: "general" | "transcription" = "general"
+  context: AiContext = "general"
 ): AiSelection {
   if (mode === "simple") return defaultSelection("local", context);
   if (context === "transcription") return defaultSelection("gemini-3.5-transcribe", context);
   if (mode === "high") return { model: "gemini-3.8-flash", effort: "high" };
   if (mode === "medium") return { model: "gemini-3.8-flash", effort: "medium" };
-  return { model: "gemini-2.5-flash-lite", effort: "off" };
+  return { model: "gemini-2.5-flash-lite", effort: "none" };
 }
 
 export function legacyModeForSelection(selection: AiSelection): AiLegacyMode {
   if (selection.model === "local") return "simple";
-  if (selection.effort === "high") return "high";
+  if (selection.effort === "high" || selection.effort === "xhigh" || selection.effort === "max") return "high";
   if (selection.effort === "medium" || selection.effort === "dynamic") return "medium";
   return "instant";
 }
 
 export function thinkingConfigForModel(model: string, effort: AiEffort) {
-  if (model === "gemini-3.5-transcribe" || model.includes("-live")) {
-    return undefined;
-  }
+  if (!model.startsWith("gemini-")) return undefined;
+  if (model === "gemini-3.5-transcribe" || model.includes("-live")) return undefined;
 
   if (model.startsWith("gemini-3")) {
     const noMinimal = model === "gemini-3.8-flash" || model === "gemini-3.7-flash";
@@ -235,14 +361,8 @@ export function thinkingConfigForModel(model: string, effort: AiEffort) {
 
   if (model.startsWith("gemini-2.5")) {
     if (effort === "none" && model === "gemini-2.5-flash-lite") return undefined;
-    const normalized =
-      effort === "high" ? "high" :
-      effort === "medium" ? "medium" :
-      "low";
-    const budget =
-      normalized === "low" ? 1024 :
-      normalized === "medium" ? 8192 :
-      24576;
+    const normalized = effort === "high" ? "high" : effort === "medium" ? "medium" : "low";
+    const budget = normalized === "low" ? 1024 : normalized === "medium" ? 8192 : 24576;
     return { thinkingBudget: budget };
   }
 
@@ -251,7 +371,7 @@ export function thinkingConfigForModel(model: string, effort: AiEffort) {
 
 export function selectionFromHeaders(
   headers: Headers,
-  context: "general" | "transcription",
+  context: AiContext,
   legacyMode: AiLegacyMode
 ): AiSelection {
   const rawModel = String(headers.get("x-rb-ai-model") || "").trim();
@@ -281,6 +401,7 @@ export function modelPlanForSelection(
   task: "standard" | "web" | "audio" = "standard"
 ) {
   if (selectedModel === "local") return [];
+  if (modelProvider(selectedModel) !== "gemini") return [providerModelId(selectedModel)];
 
   if (selectedModel === "gemini-3.5-transcribe") {
     return task === "audio"
@@ -288,13 +409,8 @@ export function modelPlanForSelection(
       : ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
   }
 
-  // Search is intentionally free-first: 2.5 Flash/Lite currently have free Search grounding.
   if (task === "web") {
-    return Array.from(new Set([
-      selectedModel,
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
-    ]));
+    return Array.from(new Set([selectedModel, "gemini-2.5-flash", "gemini-2.5-flash-lite"]));
   }
 
   if (task === "audio") {
@@ -312,7 +428,7 @@ export function modelPlanForSelection(
       ? ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
       : legacyMode === "medium"
         ? ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
-        : ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash"];
+        : ["gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash"];
 
   return Array.from(new Set([selectedModel, ...fallback]));
 }
