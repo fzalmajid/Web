@@ -155,6 +155,11 @@ export async function POST(req: NextRequest) {
       aiUsage,
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Transkripsi gagal." }, { status: 500 });
+    const status = Number(error?.statusCode || 500);
+    console.error("[API_TRANSCRIBE_ERROR]", { name: error?.name, code: error?.code, status });
+    return NextResponse.json(
+      { error: error?.message || "Transkripsi gagal." },
+      { status: status >= 400 && status < 600 ? status : 500 }
+    );
   }
 }
