@@ -128,18 +128,6 @@ const nodeColors = [
   { value: "slate", label: "Slate" },
 ];
 
-function aiCost(action: "ask" | "ask_web" | "study" | "transcription" | "file_light" | "file_heavy", mode: AiMode) {
-  const table = {
-    ask: { simple: 0, instant: 1, medium: 2, high: 4 },
-    ask_web: { simple: 0, instant: 3, medium: 5, high: 8 },
-    study: { simple: 0, instant: 2, medium: 4, high: 6 },
-    transcription: { simple: 0, instant: 5, medium: 7, high: 10 },
-    file_light: { simple: 0, instant: 2, medium: 3, high: 5 },
-    file_heavy: { simple: 0, instant: 5, medium: 7, high: 10 },
-  } as const;
-  return table[action][mode];
-}
-
 const labels: Record<NodeType, string> = {
   material: "Materi",
   submaterial: "Materi",
@@ -2699,6 +2687,7 @@ function AiModePicker({
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  void action;
   const visibleModes = allowSimple ? aiModes : aiModes.filter((item) => item.provider === "Gemini");
   const selected = visibleModes.find((item) => item.value === value) || visibleModes[0];
 
@@ -2732,7 +2721,7 @@ function AiModePicker({
       >
         <span>
           <strong>{selected.label}</strong>
-          <small>{selected.provider === "Gemini" ? "Gemini 3.6" : "Local"} · {aiCost(action, selected.value)} cr</small>
+          <small>{selected.provider === "Gemini" ? "Gemini 3.6 · usage aktual" : "Local · tanpa API"}</small>
         </span>
         <b>⌄</b>
       </button>
@@ -2747,7 +2736,7 @@ function AiModePicker({
                 <strong>{item.label}</strong>
                 <small>{item.hint}</small>
               </span>
-              <span className="modeMeta">Local · 0 cr</span>
+              <span className="modeMeta">Local · tanpa API</span>
             </button>
           ))}
 
@@ -2760,7 +2749,7 @@ function AiModePicker({
                 <strong>{item.label}</strong>
                 <small>{item.hint}</small>
               </span>
-              <span className="modeMeta">Gemini 3.6 · {aiCost(action, item.value)} cr</span>
+              <span className="modeMeta">Gemini 3.6 · usage aktual</span>
             </button>
           ))}
         </div>
