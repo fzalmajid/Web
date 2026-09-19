@@ -136,7 +136,9 @@ const nodeColors = [
   { value: "slate", label: "Slate" },
 ];
 
-const GOOGLE_OAUTH_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID || "";
+const GOOGLE_OAUTH_CLIENT_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID ||
+  "42957287889-qgsdslbqcipbuatleep800hjb8na9s25.apps.googleusercontent.com";
 
 function getSessionGeminiKey() {
   if (typeof window === "undefined") return "";
