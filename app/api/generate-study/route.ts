@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
+import { aiQuotaError, consumeAiCredits } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -43,6 +44,12 @@ export async function POST(req: NextRequest) {
     }
 
     const context = buildKnowledgeContext(sources, 30000);
+
+    const aiUsage = await consumeAiCredits(supabase, "study");
+    if (!aiUsage.allowed) {
+      return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
+    }
+
     const requested = mode === "flashcards"
       ? "Buat flashcards saja. quizzes harus berupa array kosong."
       : mode === "quiz"
@@ -115,7 +122,7 @@ Maksimal 5 flashcard dan 3 soal. Semua pertanyaan, jawaban, dan penjelasan wajib
       if (error) throw error;
     }
 
-    return NextResponse.json({ flashcards: flashcards.length, quizzes: quizzes.length });
+    return NextResponse.json({ flashcards: flashcards.length, quizzes: quizzes.length, aiUsage });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Gagal membuat latihan." }, { status: 500 });
   }
