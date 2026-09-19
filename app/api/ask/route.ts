@@ -31,29 +31,35 @@ function isWebSearchQuotaError(error: unknown) {
   );
 }
 
+type KnowledgeMode = "database" | "hybrid" | "web";
+
 export async function POST(req: NextRequest) {
   try {
     const token = bearer(req);
     if (!token) return NextResponse.json({ error: "Belum login." }, { status: 401 });
 
-    const {
-      question,
-      scopeNodeId = null,
-      aiMode: rawAiMode = "instant",
-      publicWeb = false,
-    } = await req.json();
-    const aiMode = normalizeAiMode(rawAiMode);
+    const body = await req.json();
+    const question = body.question;
+    const scopeNodeId = body.scopeNodeId ?? null;
+    const aiMode = normalizeAiMode(body.aiMode ?? "instant");
+    const knowledgeMode: KnowledgeMode =
+      body.knowledgeMode === "hybrid" || body.knowledgeMode === "web"
+        ? body.knowledgeMode
+        : body.publicWeb
+          ? "web"
+          : "database";
 
     if (!question || typeof question !== "string" || question.trim().length < 3) {
       return NextResponse.json({ error: "Pertanyaan terlalu pendek." }, { status: 400 });
     }
 
-    if (aiMode === "simple") {
+    if (aiMode === "simple" && knowledgeMode !== "database") {
       return NextResponse.json(
         {
-          error: publicWeb
-            ? "Public Web membutuhkan Gemini 3.6. Pilih Instant, Medium, atau High."
-            : "Mode Simple diproses secara Local di perangkat dan tidak memanggil Gemini.",
+          error:
+            knowledgeMode === "web"
+              ? "Web + Database membutuhkan Gemini. Pilih Instant, Medium, atau High."
+              : "AI + Database membutuhkan Gemini. Pilih Instant, Medium, atau High.",
         },
         { status: 400 }
       );
@@ -73,13 +79,15 @@ export async function POST(req: NextRequest) {
       data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
     }
 
-    if (!data.length && !publicWeb) {
+    if (!data.length && knowledgeMode === "database") {
       return NextResponse.json({
         answer: "Materi ini belum tersedia di database.",
         sources: [],
         webSources: [],
         grounded: true,
         publicWeb: false,
+        knowledgeMode: "database",
+        model: "Local Database",
       });
     }
 
@@ -102,22 +110,47 @@ ${aiModeInstruction(aiMode)}
 - Jawab dengan jelas dan terstruktur.
 ${WHATSAPP_FORMAT_INSTRUCTION}`;
 
+    const hybridPrompt = `PERTANYAAN:
+${question.trim()}
+
+DATABASE PRIBADI:
+${context}
+
+Mode AI + Database AKTIF.
+- DATABASE PRIBADI adalah referensi utama.
+- Jika Database cukup, utamakan isi Database.
+- Jika Database tidak cukup, Anda BOLEH melengkapi dari pengetahuan internal model.
+- Jangan melakukan browsing internet atau mengklaim informasi sebagai informasi terbaru.
+- Fakta penting yang tidak berasal dari Database harus ditandai dengan jelas sebagai "Pengetahuan AI".
+- Jika ada konflik antara Database dan pengetahuan internal model, jelaskan perbedaannya dan jangan diam-diam mengganti isi Database.
+${aiModeInstruction(aiMode)}
+- Jawab dengan jelas dan terstruktur.
+${WHATSAPP_FORMAT_INSTRUCTION}`;
+
     const webPrompt = `PERTANYAAN:
 ${question.trim()}
 
 DATABASE PRIBADI:
 ${context}
 
-Mode Public Web AKTIF.
+Mode Web + Database AKTIF.
 - Gunakan DATABASE PRIBADI sebagai konteks utama bila relevan.
-- Anda boleh memakai Google Search untuk melengkapi atau memverifikasi informasi publik.
-- Bedakan dengan jelas bila informasi berasal dari web publik.
+- Gunakan Google Search untuk informasi publik yang perlu dilengkapi atau diverifikasi.
+- Anda juga boleh memakai pengetahuan internal model sebagai penghubung penjelasan.
+- Bedakan dengan jelas informasi yang berasal dari Web bila relevan.
 - Jangan mengarang sumber.
 ${aiModeInstruction(aiMode)}
 - Jawab dengan jelas dan terstruktur.
 ${WHATSAPP_FORMAT_INSTRUCTION}`;
 
-    if (publicWeb) {
+    const sources = data.map((m) => ({
+      id: m.id,
+      node_id: m.node_id,
+      title: m.title,
+      category: m.category,
+    }));
+
+    if (knowledgeMode === "web") {
       const preflight = await checkAiCredits(supabase, "ask_web", aiMode);
       if (!preflight.allowed) {
         return NextResponse.json(aiQuotaError(preflight), { status: 429 });
@@ -126,7 +159,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       try {
         const result = await geminiGenerateDetailed(
           [{ text: webPrompt }],
-          "Anda adalah tutor Ruang Belajar. Database pribadi tetap prioritas, tetapi Google Search boleh dipakai karena pengguna secara eksplisit mengaktifkan Public Web.",
+          "Anda adalah tutor Ruang Belajar. Database pribadi tetap prioritas dan Google Search boleh dipakai karena pengguna memilih Web + Database.",
           { googleSearch: true, models: geminiModelsForMode(aiMode, "web") }
         );
 
@@ -135,39 +168,21 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
 
         return NextResponse.json({
           answer: result.text,
-          sources: data.map((m) => ({
-            id: m.id,
-            node_id: m.node_id,
-            title: m.title,
-            category: m.category,
-          })),
+          sources,
           webSources: result.webSources,
           grounded: true,
           publicWeb: true,
+          knowledgeMode: "web",
           webFallback: false,
+          model: result.model,
           aiUsage,
         });
       } catch (error) {
         if (!isWebSearchQuotaError(error)) throw error;
 
-        // Google Search Grounding can have a separate quota from normal Gemini.
-        // Do not charge ask_web credits when the grounding request itself failed.
-        if (!data.length) {
-          return NextResponse.json(
-            {
-              error:
-                "Public Web belum tersedia pada quota Google Search Grounding project ini. Gemini biasa masih bisa dipakai, tetapi untuk browsing web perlu quota/billing Search Grounding.",
-              webSearchUnavailable: true,
-              chargedCredits: 0,
-            },
-            { status: 503 }
-          );
-        }
-
-        // Graceful fallback: answer from the private Database only, then charge normal ask credits.
         const fallbackResult = await geminiGenerateDetailed(
-          [{ text: databasePrompt }],
-          "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal.",
+          [{ text: hybridPrompt }],
+          "Anda adalah tutor Ruang Belajar. Gunakan Database sebagai konteks utama dan pengetahuan internal model sebagai pelengkap. Jangan browsing internet.",
           { models: geminiModelsForMode(aiMode, "standard") }
         );
 
@@ -176,48 +191,47 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
 
         return NextResponse.json({
           answer: fallbackResult.text,
-          sources: data.map((m) => ({
-            id: m.id,
-            node_id: m.node_id,
-            title: m.title,
-            category: m.category,
-          })),
+          sources,
           webSources: [],
-          grounded: true,
+          grounded: false,
           publicWeb: false,
+          knowledgeMode: "hybrid",
           webFallback: true,
           warning:
-            "Public Web tidak dipakai karena quota Google Search Grounding tidak tersedia/tercapai. Jawaban ini dibuat dari Database saja dan hanya memakai credit Gemini biasa.",
+            "Google Search tidak tersedia untuk request ini. Sistem otomatis beralih ke AI + Database tanpa browsing.",
+          model: fallbackResult.model,
           aiUsage,
         });
       }
     }
 
-    const preflight = await checkAiCredits(supabase, "ask", aiMode);
+    const action = "ask";
+    const preflight = await checkAiCredits(supabase, action, aiMode);
     if (!preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
+    const useHybrid = knowledgeMode === "hybrid";
     const result = await geminiGenerateDetailed(
-      [{ text: databasePrompt }],
-      "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal.",
+      [{ text: useHybrid ? hybridPrompt : databasePrompt }],
+      useHybrid
+        ? "Anda adalah tutor Ruang Belajar. Database adalah referensi utama; pengetahuan internal model boleh dipakai sebagai pelengkap dan harus dibedakan."
+        : "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal.",
       { models: geminiModelsForMode(aiMode, "standard") }
     );
+
     await recordAiTokenUsage(supabase, result.usage, result.model);
-    const aiUsage = await finalizeAiCredits(supabase, "ask", aiMode);
+    const aiUsage = await finalizeAiCredits(supabase, action, aiMode);
 
     return NextResponse.json({
       answer: result.text,
-      sources: data.map((m) => ({
-        id: m.id,
-        node_id: m.node_id,
-        title: m.title,
-        category: m.category,
-      })),
+      sources,
       webSources: [],
-      grounded: true,
+      grounded: knowledgeMode === "database",
       publicWeb: false,
+      knowledgeMode,
       webFallback: false,
+      model: result.model,
       aiUsage,
     });
   } catch (error: any) {
