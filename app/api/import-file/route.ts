@@ -85,6 +85,8 @@ export async function POST(req: NextRequest) {
     const fileName = String(body.fileName || "File");
     const mimeType = normalizeMime(String(body.mimeType || "application/octet-stream"));
     const aiMode = normalizeAiMode(body.aiMode);
+    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
+    const ownGemini = Boolean(userGeminiKey);
 
     if (aiMode === "simple") {
       return NextResponse.json({ error: "Mode Simple diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
@@ -120,8 +122,8 @@ export async function POST(req: NextRequest) {
       mimeType === "application/pdf" ||
       mimeType.startsWith("image/");
     const guardAction = heavyFile ? "file_heavy" : "file_light";
-    const preflight = await checkAiCredits(supabase, guardAction, aiMode);
-    if (!preflight.allowed) {
+    const preflight = ownGemini ? null : await checkAiCredits(supabase, guardAction, aiMode);
+    if (preflight && !preflight.allowed) {
       await supabase
         .from("source_files")
         .update({
@@ -152,7 +154,10 @@ export async function POST(req: NextRequest) {
           { inlineData: { mimeType, data: base64 } },
         ],
         undefined,
-        { models: geminiModelsForMode(aiMode, isMediaMime(mimeType) ? "audio" : "standard") }
+        {
+          models: geminiModelsForMode(aiMode, isMediaMime(mimeType) ? "audio" : "standard"),
+          apiKey: userGeminiKey,
+        }
       );
       await recordAiTokenUsage(supabase, extractionResult.usage, extractionResult.model);
       rawText = extractionResult.text;
@@ -187,7 +192,7 @@ Aturan:
 - Jika database tidak membantu, susun/rangkum berdasarkan SUMBER MENTAH saja.\n- ${aiModeInstruction(aiMode)}\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
       }],
       "Anda mengolah sumber belajar secara konservatif. Jangan mengarang fakta.",
-      { models: geminiModelsForMode(aiMode, "standard") }
+      { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
     );
     await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model);
     const structuredRaw = structuredResult.text;
@@ -245,7 +250,7 @@ Aturan:
       .eq("id", sourceFileId);
     if (updateError) throw updateError;
 
-    const aiUsage = await finalizeAiCredits(supabase, guardAction, aiMode);
+    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, guardAction, aiMode);
 
     return NextResponse.json({
       entryId: entry.id,
@@ -254,6 +259,8 @@ Aturan:
       summary,
       corrections,
       aiUsage,
+      structuringModel: structuredResult.model,
+      provider: ownGemini ? "user-api-key" : "shared-api-key",
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
