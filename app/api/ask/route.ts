@@ -32,7 +32,92 @@ function isWebSearchQuotaError(error: unknown) {
   );
 }
 
-type KnowledgeMode = "database" | "hybrid" | "web";
+type SourceKind = "ai" | "database" | "web";
+
+function normalizeSources(body: any): SourceKind[] {
+  if (Array.isArray(body?.sources)) {
+    const valid = body.sources
+      .map((value: unknown) => String(value).toLowerCase())
+      .filter((value: string): value is SourceKind =>
+        value === "ai" || value === "database" || value === "web"
+      );
+    return Array.from(new Set(valid));
+  }
+
+  // Backward compatibility with older clients.
+  if (body?.knowledgeMode === "web" || body?.publicWeb) return ["database", "web"];
+  if (body?.knowledgeMode === "hybrid") return ["ai", "database"];
+  return ["database"];
+}
+
+function buildPrompt({
+  question,
+  context,
+  useAi,
+  useDatabase,
+  useWeb,
+  aiMode,
+}: {
+  question: string;
+  context: string;
+  useAi: boolean;
+  useDatabase: boolean;
+  useWeb: boolean;
+  aiMode: ReturnType<typeof normalizeAiMode>;
+}) {
+  const sections = [
+    "PERTANYAAN:",
+    question.trim(),
+  ];
+
+  if (useDatabase) {
+    sections.push("", "DATABASE PRIBADI:", context);
+  }
+
+  const rules = [
+    "SUMBER YANG DIPILIH USER:",
+    "- AI: " + (useAi ? "AKTIF" : "TIDAK"),
+    "- Database: " + (useDatabase ? "AKTIF" : "TIDAK"),
+    "- Web: " + (useWeb ? "AKTIF" : "TIDAK"),
+    "",
+    "Aturan:",
+  ];
+
+  if (useDatabase) {
+    rules.push("- Gunakan Database pribadi sebagai sumber sesuai kebutuhan.");
+  } else {
+    rules.push("- Jangan mengklaim memakai Database pribadi karena sumber Database tidak dipilih.");
+  }
+
+  if (useAi) {
+    rules.push("- Anda boleh memakai pengetahuan internal model.");
+  } else {
+    rules.push("- Jangan memakai pengetahuan internal model sebagai sumber fakta yang berdiri sendiri.");
+  }
+
+  if (useWeb) {
+    rules.push("- Gunakan Google Search untuk informasi publik dan sumber web yang relevan.");
+    rules.push("- Jangan mengarang sumber atau URL.");
+  } else {
+    rules.push("- Jangan browsing internet.");
+  }
+
+  if (useDatabase && !useAi && !useWeb) {
+    rules.push('- Jawab hanya dari Database. Jika tidak cukup, jawab persis: "Materi ini belum tersedia di database."');
+  }
+
+  if (useDatabase && useAi) {
+    rules.push('- Bila fakta penting berasal dari pengetahuan internal model, tandai sebagai "Pengetahuan AI" bila perlu agar tidak tercampur dengan Database.');
+  }
+
+  rules.push(
+    aiModeInstruction(aiMode),
+    "- Jawab dengan jelas dan terstruktur.",
+    WHATSAPP_FORMAT_INSTRUCTION
+  );
+
+  return sections.concat([""], rules).flat().join("\n");
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,25 +131,22 @@ export async function POST(req: NextRequest) {
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const geminiAuth = geminiUserAuthFromHeaders(req.headers);
     const ownGemini = geminiAuth.ownGemini;
-    const knowledgeMode: KnowledgeMode =
-      body.knowledgeMode === "hybrid" || body.knowledgeMode === "web"
-        ? body.knowledgeMode
-        : body.publicWeb
-          ? "web"
-          : "database";
+    const selectedSources = normalizeSources(body);
 
     if (!question || typeof question !== "string" || question.trim().length < 3) {
       return NextResponse.json({ error: "Pertanyaan terlalu pendek." }, { status: 400 });
     }
+    if (!selectedSources.length) {
+      return NextResponse.json({ error: "Pilih minimal satu sumber: AI, Database, atau Web." }, { status: 400 });
+    }
 
-    if (aiMode === "simple" && knowledgeMode !== "database") {
+    const useAi = selectedSources.includes("ai");
+    const useDatabase = selectedSources.includes("database");
+    const useWeb = selectedSources.includes("web");
+
+    if (aiMode === "simple" && (useAi || useWeb)) {
       return NextResponse.json(
-        {
-          error:
-            knowledgeMode === "web"
-              ? "Web + Database membutuhkan Gemini. Pilih salah satu model Gemini."
-              : "AI + Database membutuhkan Gemini. Pilih salah satu model Gemini.",
-        },
+        { error: "Local hanya dapat memakai Database. Pilih model Gemini untuk sumber AI atau Web." },
         { status: 400 }
       );
     }
@@ -77,189 +159,137 @@ export async function POST(req: NextRequest) {
 
     const searchLimit = aiMode === "high" ? 16 : aiMode === "medium" ? 12 : 8;
     const fallbackLimit = aiMode === "high" ? 40 : aiMode === "medium" ? 28 : 20;
-    let data = await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
+    let data: any[] = [];
 
-    if (!data.length) {
-      data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
-    }
+    if (useDatabase) {
+      data = await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
+      if (!data.length) data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
 
-    if (!data.length && knowledgeMode === "database") {
-      return NextResponse.json({
-        answer: "Materi ini belum tersedia di database.",
-        sources: [],
-        webSources: [],
-        grounded: true,
-        publicWeb: false,
-        knowledgeMode: "database",
-        model: "Local Database",
-      });
+      if (!data.length && !useAi && !useWeb) {
+        return NextResponse.json({
+          answer: "Materi ini belum tersedia di database.",
+          sources: [],
+          webSources: [],
+          grounded: true,
+          publicWeb: false,
+          selectedSources,
+          model: "Local Database",
+        });
+      }
     }
 
     const contextLimit = aiMode === "high" ? 42000 : aiMode === "medium" ? 32000 : 22000;
     const context = data.length
       ? buildKnowledgeContext(data, contextLimit)
-      : "(Database pribadi pada scope ini kosong.)";
+      : "(Database pribadi kosong atau tidak dipilih.)";
 
-    const databasePrompt = `PERTANYAAN:
-${question.trim()}
+    const sources = useDatabase
+      ? data.map((m) => ({
+          id: m.id,
+          node_id: m.node_id,
+          title: m.title,
+          category: m.category,
+        }))
+      : [];
 
-DATABASE:
-${context}
+    const prompt = buildPrompt({
+      question,
+      context,
+      useAi,
+      useDatabase,
+      useWeb,
+      aiMode,
+    });
 
-Jawab hanya berdasarkan DATABASE di atas.
-${aiModeInstruction(aiMode)}
-- Jika database tidak cukup untuk menjawab pertanyaan, jawab persis: "Materi ini belum tersedia di database."
-- Jangan gunakan pengetahuan umum atau internet.
-- Bila ada istilah yang berbeda, utamakan istilah yang benar-benar tertulis/terdefinisi di database.
-- Jawab dengan jelas dan terstruktur.
-${WHATSAPP_FORMAT_INSTRUCTION}`;
-
-    const hybridPrompt = `PERTANYAAN:
-${question.trim()}
-
-DATABASE PRIBADI:
-${context}
-
-Mode AI + Database AKTIF.
-- DATABASE PRIBADI adalah referensi utama.
-- Jika Database cukup, utamakan isi Database.
-- Jika Database tidak cukup, Anda BOLEH melengkapi dari pengetahuan internal model.
-- Jangan melakukan browsing internet atau mengklaim informasi sebagai informasi terbaru.
-- Fakta penting yang tidak berasal dari Database harus ditandai dengan jelas sebagai "Pengetahuan AI".
-- Jika ada konflik antara Database dan pengetahuan internal model, jelaskan perbedaannya dan jangan diam-diam mengganti isi Database.
-${aiModeInstruction(aiMode)}
-- Jawab dengan jelas dan terstruktur.
-${WHATSAPP_FORMAT_INSTRUCTION}`;
-
-    const webPrompt = `PERTANYAAN:
-${question.trim()}
-
-DATABASE PRIBADI:
-${context}
-
-Mode Web + Database AKTIF.
-- Gunakan DATABASE PRIBADI sebagai konteks utama bila relevan.
-- Gunakan Google Search untuk informasi publik yang perlu dilengkapi atau diverifikasi.
-- Anda juga boleh memakai pengetahuan internal model sebagai penghubung penjelasan.
-- Bedakan dengan jelas informasi yang berasal dari Web bila relevan.
-- Jangan mengarang sumber.
-${aiModeInstruction(aiMode)}
-- Jawab dengan jelas dan terstruktur.
-${WHATSAPP_FORMAT_INSTRUCTION}`;
-
-    const sources = data.map((m) => ({
-      id: m.id,
-      node_id: m.node_id,
-      title: m.title,
-      category: m.category,
-    }));
-
-    if (knowledgeMode === "web") {
-      const preflight = ownGemini ? null : await checkAiCredits(supabase, "ask_web", aiMode);
-      if (preflight && !preflight.allowed) {
-        return NextResponse.json(aiQuotaError(preflight), { status: 429 });
-      }
-
-      try {
-        const result = await geminiGenerateDetailed(
-          [{ text: webPrompt }],
-          "Anda adalah tutor Ruang Belajar. Database pribadi tetap prioritas dan Google Search boleh dipakai karena pengguna memilih Web + Database.",
-          {
-            googleSearch: true,
-            models: modelPlanForSelection(aiSelection.model, aiMode, "web"),
-            effort: aiSelection.effort,
-            apiKey: geminiAuth.apiKey,
-      accessToken: geminiAuth.accessToken,
-      projectId: geminiAuth.projectId,
-          }
-        );
-
-        await recordAiTokenUsage(supabase, result.usage, result.model, geminiAuth.provider);
-        const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "ask_web", aiMode);
-
-        return NextResponse.json({
-          answer: result.text,
-          sources,
-          webSources: result.webSources,
-          grounded: true,
-          publicWeb: true,
-          knowledgeMode: "web",
-          webFallback: false,
-          model: result.model,
-          aiUsage,
-          provider: geminiAuth.provider,
-        });
-      } catch (error) {
-        if (!isWebSearchQuotaError(error)) throw error;
-
-        const fallbackResult = await geminiGenerateDetailed(
-          [{ text: hybridPrompt }],
-          "Anda adalah tutor Ruang Belajar. Gunakan Database sebagai konteks utama dan pengetahuan internal model sebagai pelengkap. Jangan browsing internet.",
-          {
-            models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
-            effort: aiSelection.effort,
-            apiKey: geminiAuth.apiKey,
-      accessToken: geminiAuth.accessToken,
-      projectId: geminiAuth.projectId,
-          }
-        );
-
-        await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model, geminiAuth.provider);
-        const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "ask", aiMode);
-
-        return NextResponse.json({
-          answer: fallbackResult.text,
-          sources,
-          webSources: [],
-          grounded: false,
-          publicWeb: false,
-          knowledgeMode: "hybrid",
-          webFallback: true,
-          warning:
-            "Google Search tidak tersedia untuk request ini. Sistem otomatis beralih ke AI + Database tanpa browsing.",
-          model: fallbackResult.model,
-          aiUsage,
-          provider: geminiAuth.provider,
-        });
-      }
-    }
-
-    const action = "ask";
+    const action = useWeb ? "ask_web" : "ask";
     const preflight = ownGemini ? null : await checkAiCredits(supabase, action, aiMode);
     if (preflight && !preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
-    const useHybrid = knowledgeMode === "hybrid";
-    const result = await geminiGenerateDetailed(
-      [{ text: useHybrid ? hybridPrompt : databasePrompt }],
-      useHybrid
-        ? "Anda adalah tutor Ruang Belajar. Database adalah referensi utama; pengetahuan internal model boleh dipakai sebagai pelengkap dan harus dibedakan."
-        : "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal.",
-      {
-            models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
-            effort: aiSelection.effort,
-            apiKey: geminiAuth.apiKey,
-      accessToken: geminiAuth.accessToken,
-      projectId: geminiAuth.projectId,
-          }
-    );
+    try {
+      const result = await geminiGenerateDetailed(
+        [{ text: prompt }],
+        "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
+        {
+          googleSearch: useWeb,
+          models: modelPlanForSelection(aiSelection.model, aiMode, useWeb ? "web" : "standard"),
+          effort: aiSelection.effort,
+          apiKey: geminiAuth.apiKey,
+          accessToken: geminiAuth.accessToken,
+          projectId: geminiAuth.projectId,
+        }
+      );
 
-    await recordAiTokenUsage(supabase, result.usage, result.model, geminiAuth.provider);
-    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, action, aiMode);
+      await recordAiTokenUsage(supabase, result.usage, result.model, geminiAuth.provider);
+      const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, action, aiMode);
 
-    return NextResponse.json({
-      answer: result.text,
-      sources,
-      webSources: [],
-      grounded: knowledgeMode === "database",
-      publicWeb: false,
-      knowledgeMode,
-      webFallback: false,
-      model: result.model,
-      aiUsage,
-      provider: geminiAuth.provider,
-    });
+      return NextResponse.json({
+        answer: result.text,
+        sources,
+        webSources: result.webSources,
+        grounded: !useAi,
+        publicWeb: useWeb,
+        selectedSources,
+        webFallback: false,
+        model: result.model,
+        aiUsage,
+        provider: geminiAuth.provider,
+      });
+    } catch (error) {
+      if (!useWeb || !isWebSearchQuotaError(error)) throw error;
+
+      const fallbackSources = selectedSources.filter((source) => source !== "web");
+      if (!fallbackSources.length) {
+        return NextResponse.json(
+          {
+            error:
+              "Web sedang tidak tersedia pada provider ini. Aktifkan AI atau Database sebagai sumber tambahan, atau pilih Gemini 2.5 Flash/Flash-Lite.",
+            webSearchUnavailable: true,
+          },
+          { status: 503 }
+        );
+      }
+
+      const fallbackPrompt = buildPrompt({
+        question,
+        context,
+        useAi: fallbackSources.includes("ai"),
+        useDatabase: fallbackSources.includes("database"),
+        useWeb: false,
+        aiMode,
+      });
+
+      const fallbackResult = await geminiGenerateDetailed(
+        [{ text: fallbackPrompt }],
+        "Anda adalah tutor Ruang Belajar. Web gagal dipakai; jawab hanya dari sumber lain yang memang dipilih user.",
+        {
+          models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
+          effort: aiSelection.effort,
+          apiKey: geminiAuth.apiKey,
+          accessToken: geminiAuth.accessToken,
+          projectId: geminiAuth.projectId,
+        }
+      );
+
+      await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model, geminiAuth.provider);
+      const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "ask", aiMode);
+
+      return NextResponse.json({
+        answer: fallbackResult.text,
+        sources: fallbackSources.includes("database") ? sources : [],
+        webSources: [],
+        grounded: !fallbackSources.includes("ai"),
+        publicWeb: false,
+        selectedSources: fallbackSources,
+        webFallback: true,
+        warning:
+          "Web sedang tidak tersedia. Sistem melanjutkan hanya dengan sumber lain yang sudah kamu pilih.",
+        model: fallbackResult.model,
+        aiUsage,
+        provider: geminiAuth.provider,
+      });
+    }
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
     console.error("[API_ASK_ERROR]", { name: error?.name, code: error?.code, status });
