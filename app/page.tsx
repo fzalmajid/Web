@@ -81,9 +81,9 @@ type Quiz = {
 
 const aiModes: Array<{ value: AiMode; label: string; provider: "Local" | "Gemini"; hint: string }> = [
   { value: "simple", label: "Simple", provider: "Local", hint: "Diproses di perangkat, tanpa Gemini" },
-  { value: "instant", label: "Instant", provider: "Gemini", hint: "Cepat & hemat" },
-  { value: "medium", label: "Medium", provider: "Gemini", hint: "Lebih teliti" },
-  { value: "high", label: "High", provider: "Gemini", hint: "Paling mendalam" },
+  { value: "instant", label: "Instant", provider: "Gemini", hint: "Cepat & hemat · Gemini 3.6" },
+  { value: "medium", label: "Medium", provider: "Gemini", hint: "Lebih teliti · Gemini 3.6" },
+  { value: "high", label: "High", provider: "Gemini", hint: "Paling mendalam · Gemini 3.6" },
 ];
 
 const nodeEmojis = ["📚","🧠","📝","🎓","💊","🧪","🔬","📖","🎙️","🗂️","✨","🌱","💡","📌","✅","⭐"];
@@ -268,6 +268,10 @@ function Workspace({ session, user }: { session: Session; user: User }) {
     return result;
   }, [current, nodes]);
 
+  const aiScopeName = !current
+    ? "Seluruh Database"
+    : path.map((item) => item.title).join(" · ");
+
   function goBack() {
     if (!current) return;
     setCurrentId(current.parent_id);
@@ -375,7 +379,7 @@ function Workspace({ session, user }: { session: Session; user: User }) {
       <BottomAskBar
         session={session}
         scopeNodeId={aiScopeId}
-        scopeName={current ? current.title : "Seluruh Database"}
+        scopeName={aiScopeName}
         entries={entries}
         nodes={nodes}
       />
@@ -1541,7 +1545,7 @@ function AiModePicker({
       >
         <span>
           <strong>{selected.label}</strong>
-          <small>{selected.provider} · {aiCost(action, selected.value)} cr</small>
+          <small>{selected.provider === "Gemini" ? "Gemini 3.6" : "Local"} · {aiCost(action, selected.value)} cr</small>
         </span>
         <b>⌄</b>
       </button>
@@ -1561,7 +1565,7 @@ function AiModePicker({
           ))}
 
           <div className="aiModeDivider" />
-          <div className="aiModeSectionLabel">GEMINI</div>
+          <div className="aiModeSectionLabel">GEMINI 3.6</div>
           {aiModes.filter((item) => item.provider === "Gemini").map((item) => (
             <button type="button" key={item.value} className={value === item.value ? "aiModeOption active" : "aiModeOption"} onClick={() => choose(item.value)}>
               <span className="modeCheck">{value === item.value ? "✓" : ""}</span>
@@ -1569,7 +1573,7 @@ function AiModePicker({
                 <strong>{item.label}</strong>
                 <small>{item.hint}</small>
               </span>
-              <span className="modeMeta">Gemini · {aiCost(action, item.value)} cr</span>
+              <span className="modeMeta">Gemini 3.6 · {aiCost(action, item.value)} cr</span>
             </button>
           ))}
         </div>
@@ -1688,11 +1692,27 @@ function BottomAskBar({
   const [open, setOpen] = useState(false);
   const [aiMode, setAiMode] = useState<AiMode>("simple");
   const [composerBottom, setComposerBottom] = useState(16);
+  const [composerHeight, setComposerHeight] = useState(118);
   const dragRef = useRef<{ y: number; bottom: number } | null>(null);
+  const composerRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem("rb-composer-bottom") || "16");
     if (Number.isFinite(saved)) setComposerBottom(Math.max(12, Math.min(saved, 320)));
+  }, []);
+
+  useEffect(() => {
+    const element = composerRef.current;
+    if (!element) return;
+    const update = () => setComposerHeight(element.getBoundingClientRect().height);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
   function startDrag(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -1810,10 +1830,10 @@ function BottomAskBar({
   return (
     <>
       {open && (
-        <div className="aiAnswer" style={{ bottom: composerBottom + 92 }}>
+        <div className="aiAnswer" style={{ bottom: composerBottom + composerHeight + 12 }}>
           <div className="aiAnswerHead">
             <div>
-              <small>{aiMode === "simple" ? "Simple · Local" : aiMode[0].toUpperCase() + aiMode.slice(1) + " · Gemini"} · {scopeName}</small>
+              <small title={scopeName}>{aiMode === "simple" ? "Simple · Local" : aiMode[0].toUpperCase() + aiMode.slice(1) + " · Gemini 3.6"} · {scopeName}</small>
               <strong>{question}</strong>
             </div>
             <button onClick={() => setOpen(false)}>×</button>
@@ -1829,7 +1849,7 @@ function BottomAskBar({
         </div>
       )}
 
-      <form className="bottomAsk gptComposer" style={{ bottom: composerBottom }} onSubmit={ask}>
+      <form ref={composerRef} className="bottomAsk gptComposer" style={{ bottom: composerBottom }} onSubmit={ask}>
         <button type="button" className="composerDragHandle" onPointerDown={startDrag} aria-label="Geser bar">
           <span />
         </button>
