@@ -2342,3 +2342,31 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     width:100%;
   }
 }
+
+
+.manualProjectConnect{
+  display:grid;
+  gap:7px;
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid var(--line);
+}
+.manualProjectConnect>small:first-child{
+  font-size:.66rem;
+  font-weight:900;
+  letter-spacing:.06em;
+  color:var(--muted);
+}
+.manualProjectRow{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+}
+.manualProjectRow input{
+  min-width:0;
+}
+@media(max-width:520px){
+  .manualProjectRow{
+    grid-template-columns:1fr;
+  }
+}

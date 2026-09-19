@@ -3933,6 +3933,7 @@ function GeminiAccountConnection({ session }: { session: Session }) {
   const [provider, setProvider] = useState<"none" | "google" | "api-key">("none");
   const [projectId, setProjectId] = useState("");
   const [projects, setProjects] = useState<GoogleProject[]>([]);
+  const [manualProjectId, setManualProjectId] = useState("");
   const [keyInput, setKeyInput] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -4015,13 +4016,24 @@ function GeminiAccountConnection({ session }: { session: Session }) {
         body: "{}",
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Project Google Cloud belum dapat dibaca.");
 
       const nextProjects = Array.isArray(data.projects) ? data.projects : [];
       setProjects(nextProjects);
+
+      if (!response.ok) {
+        if (data.manualProjectAllowed) {
+          setMessage(
+            (data.error || "Daftar project Google tidak dapat dibaca otomatis.") +
+              " Masukkan Project ID Google Cloud di bawah."
+          );
+          return;
+        }
+        throw new Error(data.error || "Project Google Cloud belum dapat dibaca.");
+      }
+
       if (!nextProjects.length) {
         setMessage(
-          "Akun Google terhubung, tetapi tidak ada project Google Cloud aktif yang bisa dipakai. Buat/pilih project di Google Cloud atau AI Studio."
+          "Akun Google terhubung. Google tidak mengembalikan daftar project aktif. Masukkan Project ID Google Cloud di bawah."
         );
       } else {
         setMessage("Akun Google terhubung. Pilih project yang akan memakai quota Gemini milik user.");
@@ -4210,6 +4222,30 @@ function GeminiAccountConnection({ session }: { session: Session }) {
                 ))}
               </div>
             )}
+
+            <div className="manualProjectConnect">
+              <small>ATAU MASUKKAN PROJECT ID</small>
+              <div className="manualProjectRow">
+                <input
+                  type="text"
+                  value={manualProjectId}
+                  onChange={(e) => setManualProjectId(e.target.value.trim())}
+                  placeholder="contoh: ruang-belajar-123456"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy || !manualProjectId}
+                  onClick={() => chooseGoogleProject(manualProjectId)}
+                >
+                  Pakai Project ID
+                </button>
+              </div>
+              <small className="muted">
+                Project ID adalah ID teks Google Cloud, bukan nama project atau nomor project.
+              </small>
+            </div>
 
             <details className="advancedGeminiConnect">
               <summary>Advanced · API key manual</summary>
