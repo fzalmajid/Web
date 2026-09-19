@@ -766,6 +766,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             node={current}
             entries={entries}
             files={files}
+            recordings={recordings}
             onChange={refresh}
           />
         )}
@@ -812,6 +813,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         scopeName={aiScopeName}
         entries={entries}
         nodes={nodes}
+        onChange={refresh}
       />
 
       {settingsOpen && (
@@ -981,7 +983,7 @@ function AddSheet({
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
-  const [kind, setKind] = useState<"folder" | "database" | "recording" | "flashcards" | "quiz" | "study">("folder");
+  const [kind, setKind] = useState<"folder" | "database" | "flashcards" | "quiz" | "study">("folder");
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("");
   const [cardColor, setCardColor] = useState("default");
@@ -989,8 +991,7 @@ function AddSheet({
 
   const options = [
     { value: "folder", label: "Materi / Submateri", hint: "Contoh: Farmasi, Penjaminan Mutu, Pertemuan 1" },
-    { value: "database", label: "Database", hint: "Teks modul, DOCX, PDF, audio/video sumber" },
-    { value: "recording", label: "Rekaman", hint: "Rekam suara + transkrip langsung dan versi tertata" },
+    { value: "database", label: "Database", hint: "Teks, file, rekaman audio, transkrip, gambar, dan video" },
     ...(parent ? [{ value: "study" as const, label: "Study", hint: "Pilih beberapa Database lalu belajar bertahap dengan recall quiz" }] : []),
     { value: "flashcards", label: "Flashcard", hint: "Latihan kartu dari database di halaman ini" },
     { value: "quiz", label: "Kuis", hint: "Soal dari database di halaman ini" },
@@ -1091,6 +1092,7 @@ function DatabasePage({
   node,
   entries,
   files,
+  recordings,
   onChange,
 }: {
   session: Session;
@@ -1098,6 +1100,7 @@ function DatabasePage({
   node: StudyNode;
   entries: KnowledgeEntry[];
   files: SourceFile[];
+  recordings: Recording[];
   onChange: () => void;
 }) {
   const [content, setContent] = useState("");
@@ -1108,7 +1111,11 @@ function DatabasePage({
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
   const aiMode = legacyModeForSelection(aiSelection);
 
-  const localEntries = entries.filter((item) => item.node_id === node.id && !item.source_file_id);
+  const localRecordings = recordings.filter((item) => item.node_id === node.id);
+  const recordingEntryIds = new Set(localRecordings.map((item) => item.knowledge_entry_id).filter(Boolean));
+  const localEntries = entries.filter(
+    (item) => item.node_id === node.id && !item.source_file_id && !recordingEntryIds.has(item.id)
+  );
   const localFiles = files.filter((item) => item.node_id === node.id);
 
   async function saveText(e: FormEvent) {
@@ -1280,6 +1287,17 @@ function DatabasePage({
     else onChange();
   }
 
+  async function removeDatabaseRecording(item: Recording) {
+    if (!confirm("Hapus rekaman audio dan transkripnya dari Database?")) return;
+    await supabase.storage.from("recordings").remove([item.file_path]);
+    if (item.knowledge_entry_id) {
+      await supabase.from("knowledge_entries").delete().eq("id", item.knowledge_entry_id);
+    }
+    const { error } = await supabase.from("recordings").delete().eq("id", item.id);
+    if (error) alert(error.message);
+    else onChange();
+  }
+
   return (
     <section className="toolPage">
       <div className="toolHeader">
@@ -1295,15 +1313,23 @@ function DatabasePage({
           <form className="stack" onSubmit={saveText}>
             <textarea
               required
-              rows={14}
+              rows={10}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Paste teks materi di sini..."
+              placeholder="Paste atau ketik teks materi di sini..."
             />
             <button className="primary" disabled={busy || !content.trim()}>
-              {busy ? "Menyimpan..." : "Tambahkan ke Database"}
+              {busy ? "Menyimpan..." : "Tambahkan teks"}
             </button>
           </form>
+
+          <div className="databaseRecorderDivider" />
+          <DatabaseAudioRecorder
+            session={session}
+            user={user}
+            node={node}
+            onChange={onChange}
+          />
         </article>
 
         <article className="panel">
@@ -1330,7 +1356,7 @@ function DatabasePage({
 
       <section className="databaseList">
         <h2>Isi Database</h2>
-        {!localEntries.length && !localFiles.length && <p className="muted">Belum ada isi.</p>}
+        {!localEntries.length && !localFiles.length && !localRecordings.length && <p className="muted">Belum ada isi.</p>}
 
         {localEntries.map((entry) => (
           <article className="dataCard" key={entry.id}>
@@ -1346,29 +1372,19 @@ function DatabasePage({
         ))}
 
         {localFiles.map((file) => (
-          <article className="dataCard" key={file.id}>
-            <div className="dataHead">
-              <div>
-                <small>{file.processing_status === "processing" ? "Sedang diproses..." : file.processing_status === "ready" ? "Ready" : "Gagal diproses"} · {formatBytes(file.size_bytes)}</small>
-                <h3>{file.file_name}</h3>
-              </div>
-              <button className="dangerSmall" onClick={() => removeFile(file)}>Hapus file</button>
-            </div>
+          <DatabaseFileCard
+            key={file.id}
+            file={file}
+            onDelete={() => removeFile(file)}
+          />
+        ))}
 
-            {file.structured_text && (
-              <details>
-                <summary>Versi tertata</summary>
-                <div className="dataText"><RichText text={file.structured_text} /></div>
-              </details>
-            )}
-            {file.raw_text && (
-              <details>
-                <summary>Sumber mentah / verbatim</summary>
-                <div className="dataText raw"><RichText text={file.raw_text} /></div>
-              </details>
-            )}
-            {!!file.corrections?.length && <CorrectionList corrections={file.corrections} />}
-          </article>
+        {localRecordings.map((item) => (
+          <DatabaseStoredRecording
+            key={item.id}
+            item={item}
+            onDelete={() => removeDatabaseRecording(item)}
+          />
         ))}
       </section>
     </section>
