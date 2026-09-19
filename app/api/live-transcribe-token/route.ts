@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     const geminiAuth = geminiUserAuthFromHeaders(req.headers);
     const ownGemini = geminiAuth.ownGemini;
     if (aiMode === "simple") {
-      return NextResponse.json({ error: "Mode Simple memakai transkrip browser." }, { status: 400 });
+      return NextResponse.json({ error: "Local memakai transkrip browser." }, { status: 400 });
     }
 
     const preflight = ownGemini ? null : await checkAiCredits(supabase, "transcription", aiMode);
