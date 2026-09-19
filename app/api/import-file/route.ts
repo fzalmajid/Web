@@ -3,7 +3,7 @@ import * as mammoth from "mammoth";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiQuotaError, consumeAiCredits } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
     const nodeId = String(body.nodeId || "");
     const fileName = String(body.fileName || "File");
     const mimeType = normalizeMime(String(body.mimeType || "application/octet-stream"));
+    const aiMode = normalizeAiMode(body.aiMode);
 
     if (!sourceFileId || !filePath || !nodeId) {
       return NextResponse.json({ error: "Data file tidak lengkap." }, { status: 400 });
@@ -78,7 +79,8 @@ export async function POST(req: NextRequest) {
       mimeType.startsWith("image/");
     const aiUsage = await consumeAiCredits(
       supabase,
-      heavyFile ? "file_heavy" : "file_light"
+      heavyFile ? "file_heavy" : "file_light",
+      aiMode
     );
     if (!aiUsage.allowed) {
       await supabase
@@ -135,7 +137,7 @@ Aturan:
 - Jangan menambah fakta yang tidak ada di SUMBER MENTAH.
 - DATABASE REFERENSI hanya boleh dipakai untuk menyelesaikan istilah/nama/singkatan yang keliru atau ambigu.
 - Koreksi hanya dilakukan jika database benar-benar mendukungnya; semua koreksi harus dicatat.
-- Jika database tidak membantu, susun/rangkum berdasarkan SUMBER MENTAH saja.`,
+- Jika database tidak membantu, susun/rangkum berdasarkan SUMBER MENTAH saja.\n- ${aiModeInstruction(aiMode)}`,
       }],
       "Anda mengolah sumber belajar secara konservatif. Jangan mengarang fakta."
     );
