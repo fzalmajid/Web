@@ -3726,17 +3726,157 @@ function BottomAskBar({
 }
 
 function GeminiAccountConnection({ session }: { session: Session }) {
+  type GoogleProject = { projectId: string; name: string; projectNumber: string };
+
   const [open, setOpen] = useState(false);
-  const [connected, setConnected] = useState(false);
+  const [provider, setProvider] = useState<"none" | "google" | "api-key">("none");
+  const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<GoogleProject[]>([]);
   const [keyInput, setKeyInput] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
+  function syncConnectionState() {
+    const google = getSessionGoogleGeminiAuth();
+    if (google.accessToken && google.projectId) {
+      setProvider("google");
+      setProjectId(google.projectId);
+      return;
+    }
+    if (getSessionGeminiKey()) {
+      setProvider("api-key");
+      setProjectId("");
+      return;
+    }
+    setProvider("none");
+    setProjectId("");
+  }
+
   useEffect(() => {
-    setConnected(Boolean(getSessionGeminiKey()));
+    syncConnectionState();
   }, []);
 
-  async function connect() {
+  async function requestGoogleToken() {
+    if (!GOOGLE_OAUTH_CLIENT_ID) {
+      throw new Error(
+        "Google connector belum dikonfigurasi admin. NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID perlu dipasang di Vercel. Untuk sementara API key manual tetap bisa dipakai."
+      );
+    }
+
+    await loadGoogleIdentityScript();
+    const google = (window as any).google;
+    if (!google?.accounts?.oauth2?.initTokenClient) {
+      throw new Error("Google Identity Services tidak tersedia.");
+    }
+
+    return await new Promise<{ access_token: string; expires_in: number }>((resolve, reject) => {
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_OAUTH_CLIENT_ID,
+        scope:
+          "https://www.googleapis.com/auth/cloud-platform " +
+          "https://www.googleapis.com/auth/generative-language.retriever",
+        include_granted_scopes: true,
+        callback: (response: any) => {
+          if (response?.error || !response?.access_token) {
+            reject(new Error(response?.error_description || "Izin Google tidak diberikan."));
+            return;
+          }
+          resolve({
+            access_token: String(response.access_token),
+            expires_in: Number(response.expires_in || 3600),
+          });
+        },
+        error_callback: () => reject(new Error("Jendela izin Google ditutup atau gagal dibuka.")),
+      });
+
+      client.requestAccessToken({ prompt: "consent" });
+    });
+  }
+
+  async function connectGoogle() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const token = await requestGoogleToken();
+      window.sessionStorage.setItem("rb-google-gemini-token", token.access_token);
+      window.sessionStorage.setItem(
+        "rb-google-gemini-exp",
+        String(Date.now() + Math.max(60, token.expires_in) * 1000)
+      );
+
+      const response = await fetch("/api/google-projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + session.access_token,
+          "X-RB-Google-Access-Token": token.access_token,
+        },
+        body: "{}",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Project Google Cloud belum dapat dibaca.");
+
+      const nextProjects = Array.isArray(data.projects) ? data.projects : [];
+      setProjects(nextProjects);
+      if (!nextProjects.length) {
+        setMessage(
+          "Akun Google terhubung, tetapi tidak ada project Google Cloud aktif yang bisa dipakai. Buat/pilih project di Google Cloud atau AI Studio."
+        );
+      } else {
+        setMessage("Akun Google terhubung. Pilih project yang akan memakai quota Gemini milik user.");
+      }
+    } catch (error: any) {
+      setMessage(error?.message || "Gagal menghubungkan Google.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function chooseGoogleProject(nextProjectId: string) {
+    const googleAuth = getSessionGoogleGeminiAuth();
+    if (!googleAuth.accessToken) {
+      setMessage("Izin Google sudah kedaluwarsa. Hubungkan Google lagi.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    const response = await fetch("/api/check-google-gemini", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+        "X-RB-Google-Access-Token": googleAuth.accessToken,
+        "X-RB-Google-Project": nextProjectId,
+      },
+      body: "{}",
+    });
+    const data = await response.json();
+    setBusy(false);
+
+    if (!response.ok || data.valid === false) {
+      setMessage(data.error || "Project belum dapat memakai Gemini API.");
+      return;
+    }
+
+    window.sessionStorage.setItem("rb-google-gemini-project", nextProjectId);
+    window.sessionStorage.removeItem("rb-user-gemini-key");
+    setProvider("google");
+    setProjectId(nextProjectId);
+
+    const modelInfo =
+      Array.isArray(data.recommendedAvailable) && data.recommendedAvailable.length
+        ? " Model tersedia: " + data.recommendedAvailable.join(", ") + "."
+        : "";
+    setMessage(
+      "Terhubung. Request berikutnya memakai quota Google Cloud project " +
+        nextProjectId +
+        "." +
+        modelInfo
+    );
+  }
+
+  async function connectApiKey() {
     const candidate = keyInput.trim() || getSessionGeminiKey();
     if (!candidate) {
       setMessage("Tempel Gemini API key dari Google AI Studio.");
@@ -3745,7 +3885,6 @@ function GeminiAccountConnection({ session }: { session: Session }) {
 
     setBusy(true);
     setMessage("");
-
     const response = await fetch("/api/check-gemini-key", {
       method: "POST",
       headers: {
@@ -3764,27 +3903,41 @@ function GeminiAccountConnection({ session }: { session: Session }) {
     }
 
     window.sessionStorage.setItem("rb-user-gemini-key", candidate);
-    setConnected(true);
+    window.sessionStorage.removeItem("rb-google-gemini-token");
+    window.sessionStorage.removeItem("rb-google-gemini-project");
+    window.sessionStorage.removeItem("rb-google-gemini-exp");
+    setProvider("api-key");
+    setProjectId("");
     setKeyInput("");
-    const modelInfo = Array.isArray(data.recommendedAvailable) && data.recommendedAvailable.length
-      ? " Model tersedia: " + data.recommendedAvailable.join(", ") + "."
-      : "";
-    setMessage("Terhubung. Request AI berikutnya memakai quota project API key ini." + modelInfo);
+    setMessage("API key user aktif untuk sesi browser ini.");
   }
 
   function disconnect() {
     window.sessionStorage.removeItem("rb-user-gemini-key");
-    setConnected(false);
+    window.sessionStorage.removeItem("rb-google-gemini-token");
+    window.sessionStorage.removeItem("rb-google-gemini-project");
+    window.sessionStorage.removeItem("rb-google-gemini-exp");
+    setProjects([]);
     setKeyInput("");
-    setMessage("Koneksi API key sesi ini sudah diputus.");
+    setProvider("none");
+    setProjectId("");
+    setMessage("Gemini akun sendiri sudah diputus. Aplikasi kembali memakai provider bersama.");
   }
+
+  const connected = provider !== "none";
+  const providerLabel =
+    provider === "google"
+      ? "Google · " + projectId
+      : provider === "api-key"
+        ? "API key manual"
+        : "Belum terhubung";
 
   return (
     <>
       <button
         className={connected ? "geminiConnect connected" : "geminiConnect"}
         onClick={() => setOpen(true)}
-        title={connected ? "Gemini API key user aktif untuk sesi ini" : "Gunakan Gemini API key milik sendiri"}
+        title={connected ? "Gemini sendiri aktif · " + providerLabel : "Hubungkan Gemini milik user"}
       >
         {connected ? "Gemini sendiri ✓" : "Gemini sendiri"}
       </button>
@@ -3794,45 +3947,87 @@ function GeminiAccountConnection({ session }: { session: Session }) {
           <section className="addSheet geminiConnectSheet" onMouseDown={(e) => e.stopPropagation()}>
             <div className="sheetHead">
               <div>
-                <p className="eyebrow">GEMINI AKUN SENDIRI</p>
-                <h2>Gunakan API project milik user</h2>
+                <p className="eyebrow">GEMINI SENDIRI</p>
+                <h2>Hubungkan Google</h2>
               </div>
               <button className="closeBtn" onClick={() => setOpen(false)}>×</button>
             </div>
 
+            <div className="geminiConnectionStatus">
+              <small>STATUS</small>
+              <strong>{providerLabel}</strong>
+              <span>
+                Token OAuth/API key disimpan hanya untuk sesi browser ini, bukan di Database Ruang Belajar.
+              </span>
+            </div>
+
             <div className="notice">
-              Google AI Pro/Gemini Pro di aplikasi Gemini tidak otomatis menjadi quota API. Koneksi ini memakai Gemini API key dari project Google AI Studio milik user.
+              Google AI Pro di aplikasi Gemini dan quota Gemini API adalah layanan berbeda. Connector ini membuat Ruang Belajar memakai
+              quota <strong>Google Cloud / Gemini API project milik user</strong>, bukan quota project pusat Ruang Belajar.
             </div>
 
-            <label className="geminiKeyField">
-              Gemini API key
-              <input
-                type="password"
-                autoComplete="off"
-                value={keyInput}
-                onChange={(e) => setKeyInput(e.target.value)}
-                placeholder={connected ? "Key sudah aktif · tempel key lain untuk mengganti" : "Tempel API key dari Google AI Studio"}
-              />
-              <small className="muted">
-                Disimpan hanya di sessionStorage browser ini. Tidak disimpan ke Supabase atau Database Ruang Belajar.
-              </small>
-            </label>
-
-            <div className="geminiConnectActions">
-              <button className="primary" disabled={busy || (!keyInput.trim() && !connected)} onClick={connect}>
-                {busy ? "Memeriksa..." : connected && !keyInput.trim() ? "Cek koneksi" : "Hubungkan"}
+            <div className="googleConnectPrimary">
+              <button className="primary" disabled={busy} onClick={connectGoogle}>
+                {busy ? "Menghubungkan..." : provider === "google" ? "Hubungkan ulang Google" : "Hubungkan akun Google"}
               </button>
-              {connected && <button className="ghost" onClick={disconnect}>Putuskan</button>}
-              <a
-                className="textBtn"
-                href="https://aistudio.google.com/apikey"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Buka Google AI Studio API Keys
-              </a>
+              {!GOOGLE_OAUTH_CLIENT_ID && (
+                <small className="muted">
+                  Admin belum memasang NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID, jadi tombol Google belum bisa membuka consent.
+                </small>
+              )}
             </div>
 
+            {!!projects.length && (
+              <div className="googleProjectList">
+                <small>PILIH PROJECT GOOGLE CLOUD</small>
+                {projects.map((project) => (
+                  <button
+                    type="button"
+                    key={project.projectId}
+                    className={projectId === project.projectId ? "googleProject active" : "googleProject"}
+                    disabled={busy}
+                    onClick={() => chooseGoogleProject(project.projectId)}
+                  >
+                    <span>
+                      <strong>{project.name}</strong>
+                      <small>{project.projectId}</small>
+                    </span>
+                    {projectId === project.projectId && <b>✓</b>}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <details className="advancedGeminiConnect">
+              <summary>Advanced · API key manual</summary>
+              <label className="geminiKeyField">
+                Gemini API key
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={keyInput}
+                  onChange={(e) => setKeyInput(e.target.value)}
+                  placeholder={provider === "api-key" ? "API key sesi ini aktif" : "Tempel API key Google AI Studio"}
+                />
+                <small className="muted">
+                  Fallback manual. Key hanya disimpan di sessionStorage browser dan tidak disimpan ke Supabase.
+                </small>
+              </label>
+              <div className="geminiConnectActions">
+                <button
+                  className="ghost"
+                  disabled={busy || (!keyInput.trim() && provider !== "api-key")}
+                  onClick={connectApiKey}
+                >
+                  {busy ? "Memeriksa..." : "Pakai API key"}
+                </button>
+                <a className="textBtn" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
+                  Google AI Studio
+                </a>
+              </div>
+            </details>
+
+            {connected && <button className="ghost" onClick={disconnect}>Putuskan koneksi Gemini sendiri</button>}
             {message && <div className="notice">{message}</div>}
           </section>
         </div>
