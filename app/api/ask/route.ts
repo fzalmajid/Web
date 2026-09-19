@@ -165,7 +165,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
           { googleSearch: true, models: geminiModelsForMode(aiMode, "web"), apiKey: userGeminiKey }
         );
 
-        await recordAiTokenUsage(supabase, result.usage, result.model);
+        await recordAiTokenUsage(supabase, result.usage, result.model, ownGemini ? "user-api-key" : "shared-api-key");
         const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "ask_web", aiMode);
 
         return NextResponse.json({
@@ -189,7 +189,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
           { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
         );
 
-        await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model);
+        await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model, ownGemini ? "user-api-key" : "shared-api-key");
         const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "ask", aiMode);
 
         return NextResponse.json({
@@ -224,7 +224,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
     );
 
-    await recordAiTokenUsage(supabase, result.usage, result.model);
+    await recordAiTokenUsage(supabase, result.usage, result.model, ownGemini ? "user-api-key" : "shared-api-key");
     const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, action, aiMode);
 
     return NextResponse.json({
