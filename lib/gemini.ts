@@ -48,6 +48,13 @@ export class GeminiUnavailableError extends GeminiApiError {
   }
 }
 
+export class GeminiModelUnavailableError extends GeminiApiError {
+  constructor(message = "Model Gemini ini tidak tersedia pada project tersebut.") {
+    super(message, 404, "GEMINI_MODEL_UNAVAILABLE");
+    this.name = "GeminiModelUnavailableError";
+  }
+}
+
 export function geminiModelsForMode(
   mode: string,
   task: GeminiTask = "standard"
@@ -83,7 +90,11 @@ function normalizeProviderError(
     response.status === 503 ||
     response.status === 504 ||
     /high demand|overloaded|temporarily unavailable|try again later/i.test(providerMessage);
+  const modelUnavailable =
+    response.status === 404 ||
+    /model.*not found|model.*not available|not supported.*model|unsupported model/i.test(providerMessage);
 
+  if (modelUnavailable) return new GeminiModelUnavailableError();
   if (quotaLike && googleSearch) return new GeminiWebSearchQuotaError();
   if (quotaLike) return new GeminiQuotaError();
   if (busyLike) return new GeminiUnavailableError();
@@ -171,6 +182,7 @@ export async function geminiGenerateDetailed(
         index < models.length - 1 &&
         (error.code === "GEMINI_QUOTA" ||
           error.code === "GEMINI_UNAVAILABLE" ||
+          error.code === "GEMINI_MODEL_UNAVAILABLE" ||
           error.code === "WEB_SEARCH_QUOTA")
       ) {
         continue;
