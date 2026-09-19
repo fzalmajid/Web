@@ -88,6 +88,7 @@ type StudyPath = {
   ai_mode: "instant" | "medium" | "high";
   title: string;
   overview: string;
+  focus_instruction: string;
   status: "processing" | "ready" | "error";
   error_message: string | null;
   created_at: string;
@@ -963,6 +964,7 @@ function StudyPage({
   const [building, setBuilding] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [studyInstruction, setStudyInstruction] = useState("");
   const [aiMode, setAiMode] = useState<AiMode>("instant");
   const [recallAnswers, setRecallAnswers] = useState<Record<string, string>>({});
   const [recallFeedback, setRecallFeedback] = useState<Record<string, "correct" | "wrong">>({});
@@ -1007,12 +1009,14 @@ function StudyPage({
     if (!nextPath) {
       setUnits([]);
       setSelectedSources([]);
+      setStudyInstruction("");
       setSetupOpen(true);
       setLoading(false);
       return;
     }
 
     setSelectedSources(nextPath.source_node_ids || []);
+    setStudyInstruction(nextPath.focus_instruction || "");
     setAiMode(nextPath.ai_mode || "instant");
 
     const { data: unitData, error: unitError } = await supabase
@@ -1053,6 +1057,7 @@ function StudyPage({
       body: JSON.stringify({
         studyNodeId: node.id,
         sourceNodeIds: selectedSources,
+        studyInstruction: studyInstruction.trim(),
         aiMode,
       }),
     });
@@ -1384,6 +1389,19 @@ function StudyPage({
               <div className="emptyStudySource">Belum ada Database di cabang ini.</div>
             )}
           </div>
+
+          <label className="studyInstructionField">
+            Fokus belajar / instruksi khusus <span>opsional</span>
+            <textarea
+              rows={3}
+              value={studyInstruction}
+              onChange={(e) => setStudyInstruction(e.target.value)}
+              placeholder='Contoh: "Saya mau fokus mempelajari aspek CPOB 2024 saja." Kosongkan jika ingin mempelajari seluruh materi dari Database terpilih.'
+            />
+            <small className="muted">
+              Jika diisi, Gemini 3.6 akan memakai instruksi ini saat memilih urutan bab/subbab dan merangkum materi.
+            </small>
+          </label>
 
           <div className="studySetupTools">
             <button className="ghost" onClick={() => setQuickDbOpen((current) => !current)}>
@@ -2540,17 +2558,6 @@ function PracticePage({
           {!!totalQuestions && (
             <div className="quizProgress">
               <span>{answeredTotal}/{totalQuestions} terjawab</span>
-              {!submitted ? (
-                <button
-                  className="primary"
-                  disabled={!allAnswered || grading}
-                  onClick={finishQuiz}
-                >
-                  {grading ? "Gemini 3.6 sedang menilai..." : "Selesai & lihat nilai"}
-                </button>
-              ) : (
-                <button className="ghost" onClick={resetQuizSession}>Ulangi kuis</button>
-              )}
             </div>
           )}
 
@@ -2628,6 +2635,34 @@ function PracticePage({
 
             {!totalQuestions && <p className="muted">Belum ada kuis.</p>}
           </div>
+
+          {!!totalQuestions && (
+            <div className="quizFinishBar">
+              {!submitted ? (
+                <>
+                  <div>
+                    <strong>{answeredTotal}/{totalQuestions} terjawab</strong>
+                    <span>{allAnswered ? "Semua soal sudah terjawab." : "Jawab semua soal sebelum melihat nilai."}</span>
+                  </div>
+                  <button
+                    className="primary"
+                    disabled={!allAnswered || grading}
+                    onClick={finishQuiz}
+                  >
+                    {grading ? "Gemini 3.6 sedang menilai..." : "Selesai & lihat nilai"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <strong>Nilai sudah dihitung</strong>
+                    <span>Kamu bisa mengulang kuis dari awal.</span>
+                  </div>
+                  <button className="ghost" onClick={resetQuizSession}>Ulangi kuis</button>
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
     </section>
