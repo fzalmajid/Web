@@ -682,7 +682,7 @@ function DatabasePage({
         setFileBusy(false);
         setFileStatus("Simple · Local belum mendukung format ini.");
         onChange();
-        return alert("Simple · Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, gambar, audio, atau video pilih Instant, Medium, atau High (Gemini).");
+        return alert("Simple · Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih Instant, Medium, atau High (Gemini).");
       }
 
       const rawText = (await selectedFile.text()).trim();
@@ -801,11 +801,11 @@ function DatabasePage({
 
         <article className="panel">
           <h2>Upload file</h2>
-          <p className="muted">PDF, DOCX, TXT/MD/CSV/JSON, gambar, audio, dan video. Audio/video akan ditranskrip dulu.</p>
+          <p className="muted">PDF, DOCX, PPTX, TXT/MD/CSV/JSON, gambar, audio, dan video. Audio/video akan ditranskrip dulu.</p>
           <form className="stack" onSubmit={uploadFile}>
             <input
               type="file"
-              accept=".pdf,.docx,.txt,.md,.csv,.json,.xml,.mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.webm,.mp4,.mov,.png,.jpg,.jpeg,.webp"
+              accept=".pdf,.docx,.pptx,.txt,.md,.csv,.json,.xml,.mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.webm,.mp4,.mov,.png,.jpg,.jpeg,.webp"
               onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
             />
             <AiModePicker
@@ -1934,6 +1934,7 @@ function inferMime(file: File) {
   const map: Record<string, string> = {
     pdf: "application/pdf",
     docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     txt: "text/plain",
     md: "text/markdown",
     csv: "text/csv",
