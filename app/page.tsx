@@ -3147,7 +3147,8 @@ function AiCreditBadge() {
       if (!active || !data) return;
       setRemaining(Number(data.remaining ?? 400));
       setLimit(Number(data.limit ?? 400));
-      setActiveAccounts(Number(data.actual_active_accounts ?? data.active_accounts ?? 1) || 1);
+      const activeCount = Number(data.actual_active_accounts ?? data.active_accounts ?? 0);
+      setActiveAccounts(Number.isFinite(activeCount) ? activeCount : 0);
       setPoolUsed(Number(data.pool_used ?? 0));
       setPoolTotal(Number(data.pool_total ?? 400));
     }
