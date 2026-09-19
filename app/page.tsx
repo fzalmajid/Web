@@ -195,6 +195,37 @@ function loadGoogleIdentityScript() {
   });
 }
 
+async function checkLeakedPassword(password: string) {
+  const bytes = new TextEncoder().encode(password);
+  const digest = await crypto.subtle.digest("SHA-1", bytes);
+  const sha1 = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+  const prefix = sha1.slice(0, 5);
+  const suffix = sha1.slice(5);
+
+  const response = await fetch("/api/password-range", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prefix }),
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Pemeriksaan keamanan password sedang tidak tersedia.");
+  }
+
+  const match = Array.isArray(data.suffixes)
+    ? data.suffixes.find((item: any) => String(item?.suffix || "").toUpperCase() === suffix)
+    : null;
+
+  return {
+    leaked: Boolean(match),
+    count: Number(match?.count || 0),
+  };
+}
+
 const labels: Record<NodeType, string> = {
   material: "Materi",
   submaterial: "Materi",
@@ -281,9 +312,25 @@ function Auth() {
         setMessage(policyError);
         return;
       }
-    }
 
-    setBusy(true);
+      setBusy(true);
+      try {
+        const leaked = await checkLeakedPassword(password);
+        if (leaked.leaked) {
+          setBusy(false);
+          setMessage(
+            "Password ini ditemukan dalam data kebocoran publik dan tidak boleh digunakan. Pilih password unik yang belum pernah dipakai di layanan lain."
+          );
+          return;
+        }
+      } catch (error: any) {
+        setBusy(false);
+        setMessage(error?.message || "Pemeriksaan keamanan password gagal. Coba lagi.");
+        return;
+      }
+    } else {
+      setBusy(true);
+    }
 
     const result =
       mode === "login"
@@ -326,7 +373,7 @@ function Auth() {
               onChange={(e) => setPassword(e.target.value)}
             />
             {mode === "signup" && (
-              <small className="muted">Minimal 12 karakter + huruf besar, huruf kecil, angka, dan simbol.</small>
+              <small className="muted">Minimal 12 karakter + huruf besar, huruf kecil, angka, simbol, dan tidak boleh termasuk password yang pernah bocor.</small>
             )}
           </label>
           <button className="primary" disabled={busy}>
