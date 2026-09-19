@@ -32,6 +32,41 @@ export function aiModeLabel(mode: AiMode) {
   return "Instant";
 }
 
+export function getAiCreditCost(action: AiAction, mode: AiMode) {
+  if (mode === "simple") return 0;
+  const table: Record<Exclude<AiAction, never>, Record<Exclude<AiMode, "simple">, number>> = {
+    ask: { instant: 1, medium: 2, high: 4 },
+    ask_web: { instant: 3, medium: 5, high: 8 },
+    study: { instant: 2, medium: 4, high: 6 },
+    transcription: { instant: 5, medium: 7, high: 10 },
+    file_light: { instant: 2, medium: 3, high: 5 },
+    file_heavy: { instant: 5, medium: 7, high: 10 },
+  };
+  return table[action][mode];
+}
+
+export async function checkAiCredits(
+  supabase: SupabaseClient,
+  action: AiAction,
+  mode: AiMode
+): Promise<AiUsage> {
+  const { data, error } = await supabase.rpc("get_ai_usage_today");
+  if (error) throw error;
+  const cost = getAiCreditCost(action, mode);
+  const used = Number(data?.used ?? 0);
+  const limit = Number(data?.limit ?? 40);
+  const remaining = Number(data?.remaining ?? Math.max(limit - used, 0));
+  return {
+    allowed: remaining >= cost,
+    mode,
+    cost,
+    used,
+    limit,
+    remaining,
+    reset_timezone: String(data?.reset_timezone ?? "Asia/Jakarta"),
+  };
+}
+
 export function aiModeInstruction(mode: AiMode) {
   if (mode === "high") {
     return "Mode High: teliti seluruh konteks yang relevan, hubungkan beberapa bagian database bila perlu, cek konsistensi istilah, dan berikan hasil paling lengkap namun tetap hanya berdasarkan sumber.";
