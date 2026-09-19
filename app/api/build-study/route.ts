@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, geminiModelsForMode, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -209,9 +209,10 @@ Aturan wajib:
 - recall_explanation singkat dan membantu mengingat konsep.
 - Jangan bocorkan materi unit-unit berikutnya di unit sebelumnya.\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
       }],
-      "Anda menyusun kurikulum belajar bertahap yang ketat pada sumber pengguna. Jangan mengarang fakta."
+      "Anda menyusun kurikulum belajar bertahap yang ketat pada sumber pengguna. Jangan mengarang fakta.",
+      { models: geminiModelsForMode(aiMode, "standard") }
     );
-    await recordAiTokenUsage(supabase, geminiResult.usage);
+    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model);
     const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
