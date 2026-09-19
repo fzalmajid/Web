@@ -131,9 +131,6 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
 
         await recordAiTokenUsage(supabase, result.usage);
         const aiUsage = await consumeAiCredits(supabase, "ask_web", aiMode);
-        if (!aiUsage.allowed) {
-          return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
-        }
 
         return NextResponse.json({
           answer: result.text,
@@ -174,9 +171,6 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
 
         await recordAiTokenUsage(supabase, fallbackResult.usage);
         const aiUsage = await consumeAiCredits(supabase, "ask", aiMode);
-        if (!aiUsage.allowed) {
-          return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
-        }
 
         return NextResponse.json({
           answer: fallbackResult.text,
@@ -197,9 +191,9 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       }
     }
 
-    const aiUsage = await consumeAiCredits(supabase, "ask", aiMode);
-    if (!aiUsage.allowed) {
-      return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
+    const preflight = await checkAiCredits(supabase, "ask", aiMode);
+    if (!preflight.allowed) {
+      return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
     const result = await geminiGenerateDetailed(
@@ -207,6 +201,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal."
     );
     await recordAiTokenUsage(supabase, result.usage);
+    const aiUsage = await consumeAiCredits(supabase, "ask", aiMode);
 
     return NextResponse.json({
       answer: result.text,
