@@ -52,18 +52,16 @@ const LEVEL_3X_LMH: AiModelCapability["efforts"] = [
 ];
 
 const LEVEL_25: AiModelCapability["efforts"] = [
-  { value: "off", label: "Off", hint: "Thinking budget 0" },
-  { value: "low", label: "Low", hint: "Thinking budget ringan" },
-  { value: "medium", label: "Medium", hint: "Thinking budget sedang" },
-  { value: "high", label: "High", hint: "Thinking budget tinggi" },
-  { value: "dynamic", label: "Dynamic", hint: "Model mengatur budget otomatis" },
+  { value: "low", label: "Low", hint: "Penalaran ringan" },
+  { value: "medium", label: "Medium", hint: "Penalaran seimbang" },
+  { value: "high", label: "High", hint: "Penalaran lebih dalam" },
 ];
 
-const LEVEL_25_PRO: AiModelCapability["efforts"] = [
-  { value: "low", label: "Low", hint: "Thinking budget ringan" },
-  { value: "medium", label: "Medium", hint: "Thinking budget sedang" },
-  { value: "high", label: "High", hint: "Thinking budget tinggi" },
-  { value: "dynamic", label: "Dynamic", hint: "Model mengatur budget otomatis" },
+const LEVEL_25_LITE: AiModelCapability["efforts"] = [
+  { value: "none", label: "Default", hint: "Thinking default model (off)" },
+  { value: "low", label: "Low", hint: "Penalaran ringan" },
+  { value: "medium", label: "Medium", hint: "Penalaran seimbang" },
+  { value: "high", label: "High", hint: "Penalaran lebih dalam" },
 ];
 
 export const AI_MODEL_CATALOG: AiModelCapability[] = [
@@ -135,8 +133,8 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
     label: "Gemini 2.5 Pro",
     subtitle: "Reasoning Pro · tugas kompleks",
     contexts: ["general", "transcription"],
-    efforts: LEVEL_25_PRO,
-    defaultEffort: "dynamic",
+    efforts: LEVEL_25,
+    defaultEffort: "high",
     freeTier: true,
   },
   {
@@ -145,7 +143,7 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
     subtitle: "Free Tier · Web gratis tersedia",
     contexts: ["general", "transcription"],
     efforts: LEVEL_25,
-    defaultEffort: "dynamic",
+    defaultEffort: "medium",
     freeTier: true,
     freeWeb: true,
   },
@@ -154,8 +152,8 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
     label: "Gemini 2.5 Flash-Lite",
     subtitle: "Paling hemat · Web gratis tersedia",
     contexts: ["general", "transcription"],
-    efforts: LEVEL_25,
-    defaultEffort: "off",
+    efforts: LEVEL_25_LITE,
+    defaultEffort: "none",
     freeTier: true,
     freeWeb: true,
   },
@@ -226,28 +224,26 @@ export function thinkingConfigForModel(model: string, effort: AiEffort) {
   }
 
   if (model.startsWith("gemini-3")) {
-    const level =
+    const noMinimal = model === "gemini-3.8-flash" || model === "gemini-3.7-flash";
+    const requested =
       effort === "minimal" || effort === "low" || effort === "medium" || effort === "high"
         ? effort
         : undefined;
+    const level = noMinimal && requested === "minimal" ? "low" : requested;
     return level ? { thinkingLevel: level } : undefined;
   }
 
   if (model.startsWith("gemini-2.5")) {
-    const isPro = model === "gemini-2.5-pro";
+    if (effort === "none" && model === "gemini-2.5-flash-lite") return undefined;
+    const normalized =
+      effort === "high" ? "high" :
+      effort === "medium" ? "medium" :
+      "low";
     const budget =
-      effort === "off" || effort === "minimal"
-        ? (isPro ? -1 : 0)
-        : effort === "low"
-          ? 1024
-          : effort === "medium"
-            ? 8192
-            : effort === "high"
-              ? 24576
-              : effort === "dynamic"
-                ? -1
-                : undefined;
-    return budget === undefined ? undefined : { thinkingBudget: budget };
+      normalized === "low" ? 1024 :
+      normalized === "medium" ? 8192 :
+      24576;
+    return { thinkingBudget: budget };
   }
 
   return undefined;
