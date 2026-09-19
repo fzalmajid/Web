@@ -1798,6 +1798,7 @@ function RecordingPage({
   const liveInterimRef = useRef("");
   const liveLastFinalRef = useRef("");
   const liveUsageRef = useRef<any>(null);
+  const liveProviderRef = useRef<"shared-api-key" | "user-api-key" | "user-google-oauth">("shared-api-key");
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -1867,6 +1868,7 @@ function RecordingPage({
     liveInterimRef.current = "";
     liveLastFinalRef.current = "";
     liveUsageRef.current = null;
+    liveProviderRef.current = "shared-api-key";
     liveReadyRef.current = false;
     browserFallbackStartedRef.current = false;
     setLiveTranscript("");
@@ -2041,7 +2043,7 @@ function RecordingPage({
     if (!total && !input && !output && !thoughts) return;
 
     await supabase.rpc("record_ai_model_usage", {
-      model_name: (getSessionGeminiKey() ? "user-api-key" : "shared-api-key") + "|gemini-3.5-transcribe-live",
+      model_name: liveProviderRef.current + "|gemini-3.5-transcribe-live",
       input_tokens: input,
       output_tokens: output,
       thoughts_tokens: thoughts,
@@ -2063,6 +2065,13 @@ function RecordingPage({
     const data = await response.json();
     if (!response.ok || !data.token) {
       throw new Error(data.error || "Live Transcribe tidak tersedia.");
+    }
+    if (
+      data.provider === "user-google-oauth" ||
+      data.provider === "user-api-key" ||
+      data.provider === "shared-api-key"
+    ) {
+      liveProviderRef.current = data.provider;
     }
 
     const ws = new WebSocket(
