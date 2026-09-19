@@ -2096,8 +2096,17 @@ function StoredRecording({
   );
 }
 
+function normalizeRichTextSource(text: string) {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
+    .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
+    .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
+    .replace(/__([^_\n]+)__/g, "_$1_");
+}
+
 function RichText({ text, className = "" }: { text: string; className?: string }) {
-  const value = String(text || "");
+  const value = normalizeRichTextSource(text);
   const parts: any[] = [];
   const pattern = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
   let last = 0;
@@ -2867,6 +2876,7 @@ function BottomAskBar({
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
+  const [warning, setWarning] = useState("");
   const [publicWeb, setPublicWeb] = useState(false);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
@@ -2982,6 +2992,7 @@ function BottomAskBar({
     setAnswer("");
     setSources([]);
     setWebSources([]);
+    setWarning("");
 
     if (aiMode === "simple") {
       const local = answerLocally(question.trim());
@@ -3004,6 +3015,10 @@ function BottomAskBar({
     setBusy(false);
 
     if (!response.ok) {
+      if (data.webSearchUnavailable) {
+        setWarning("Public Web tidak tersedia pada quota Google Search Grounding project ini. Credit Web tidak dipotong.");
+        setPublicWeb(false);
+      }
       setAnswer(data.error || "Terjadi kesalahan.");
       return;
     }
@@ -3011,6 +3026,8 @@ function BottomAskBar({
     setAnswer(data.answer || "");
     setSources(data.sources || []);
     setWebSources(data.webSources || []);
+    setWarning(data.warning || "");
+    if (data.webFallback) setPublicWeb(false);
   }
 
   return (
@@ -3024,6 +3041,7 @@ function BottomAskBar({
             </div>
             <button onClick={() => setOpen(false)}>×</button>
           </div>
+          {warning && <div className="aiWarning"><RichText text={warning} /></div>}
           <div className="aiAnswerBody">{busy ? (aiMode === "simple" ? "Mencari secara Local..." : "Mencari di Database...") : <RichText text={answer || "..."} />}</div>
           {(!!sources.length || !!webSources.length) && (
             <div className="aiSources">
