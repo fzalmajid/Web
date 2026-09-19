@@ -1392,6 +1392,468 @@ function DatabasePage({
 }
 
 
+async function downloadStorageObject(bucket: string, path: string, fileName: string) {
+  const { data, error } = await supabase.storage.from(bucket).download(path);
+  if (error || !data) {
+    alert(error?.message || "File tidak dapat didownload.");
+    return;
+  }
+
+  const url = URL.createObjectURL(data);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function DatabaseFileCard({
+  file,
+  onDelete,
+}: {
+  file: SourceFile;
+  onDelete: () => void;
+}) {
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const isImage = file.mime_type.startsWith("image/");
+  const isAudio = file.mime_type.startsWith("audio/");
+  const isVideo = file.mime_type.startsWith("video/");
+  const isPdf = file.mime_type === "application/pdf";
+  const canInlinePreview = isImage || isAudio || isVideo || isPdf;
+
+  async function preview() {
+    setPreviewBusy(true);
+    const { data, error } = await supabase.storage
+      .from("study-files")
+      .createSignedUrl(file.file_path, 60 * 60);
+    setPreviewBusy(false);
+
+    if (error || !data?.signedUrl) {
+      alert(error?.message || "File belum dapat dibuka.");
+      return;
+    }
+
+    if (canInlinePreview) {
+      setPreviewUrl((current) => current ? "" : data.signedUrl);
+    } else {
+      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    }
+  }
+
+  return (
+    <article className="dataCard mediaDataCard">
+      <div className="dataHead">
+        <div>
+          <small>
+            {file.processing_status === "processing"
+              ? "Sedang diproses..."
+              : file.processing_status === "ready"
+                ? "Ready"
+                : "Gagal diproses"}
+            {" · "}{formatBytes(file.size_bytes)}
+          </small>
+          <h3>{file.file_name}</h3>
+        </div>
+        <div className="mediaCardActions">
+          <button className="ghost" type="button" disabled={previewBusy} onClick={preview}>
+            {previewBusy ? "Membuka..." : previewUrl ? "Tutup" : canInlinePreview ? "Lihat / Putar" : "Buka"}
+          </button>
+          <button
+            className="ghost"
+            type="button"
+            onClick={() => downloadStorageObject("study-files", file.file_path, file.file_name)}
+          >
+            Download
+          </button>
+          <button className="dangerSmall" type="button" onClick={onDelete}>Hapus</button>
+        </div>
+      </div>
+
+      {previewUrl && isImage && (
+        <div className="databaseMediaPreview">
+          <img src={previewUrl} alt={file.file_name} />
+        </div>
+      )}
+      {previewUrl && isAudio && (
+        <div className="databaseMediaPreview">
+          <audio controls preload="metadata" src={previewUrl} />
+        </div>
+      )}
+      {previewUrl && isVideo && (
+        <div className="databaseMediaPreview">
+          <video controls preload="metadata" src={previewUrl} />
+        </div>
+      )}
+      {previewUrl && isPdf && (
+        <div className="databaseMediaPreview pdfPreview">
+          <iframe title={file.file_name} src={previewUrl} />
+        </div>
+      )}
+
+      {file.structured_text && (
+        <details>
+          <summary>Versi tertata</summary>
+          <div className="dataText"><RichText text={file.structured_text} /></div>
+        </details>
+      )}
+      {file.raw_text && (
+        <details>
+          <summary>Sumber mentah / verbatim</summary>
+          <div className="dataText raw"><RichText text={file.raw_text} /></div>
+        </details>
+      )}
+      {!!file.corrections?.length && <CorrectionList corrections={file.corrections} />}
+    </article>
+  );
+}
+
+function DatabaseStoredRecording({
+  item,
+  onDelete,
+}: {
+  item: Recording;
+  onDelete: () => void;
+}) {
+  const [audioUrl, setAudioUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function toggleAudio() {
+    if (audioUrl) {
+      setAudioUrl("");
+      return;
+    }
+
+    setBusy(true);
+    const { data, error } = await supabase.storage
+      .from("recordings")
+      .createSignedUrl(item.file_path, 60 * 60);
+    setBusy(false);
+
+    if (error || !data?.signedUrl) {
+      alert(error?.message || "Rekaman belum dapat dibuka.");
+      return;
+    }
+    setAudioUrl(data.signedUrl);
+  }
+
+  const ext = (item.mime_type || "audio/webm").split("/")[1]?.split(";")[0] || "webm";
+  const fileName = item.title.replace(/[^a-zA-Z0-9._-]+/g, "_") + "." + ext;
+
+  return (
+    <article className="dataCard mediaDataCard recordingInDatabase">
+      <div className="dataHead">
+        <div>
+          <small>Rekaman audio · {formatTime(item.duration_seconds || 0)}</small>
+          <h3>{item.title}</h3>
+        </div>
+        <div className="mediaCardActions">
+          <button className="ghost" type="button" disabled={busy} onClick={toggleAudio}>
+            {busy ? "Membuka..." : audioUrl ? "Tutup audio" : "Dengarkan"}
+          </button>
+          <button
+            className="ghost"
+            type="button"
+            onClick={() => downloadStorageObject("recordings", item.file_path, fileName)}
+          >
+            Download
+          </button>
+          <button className="dangerSmall" type="button" onClick={onDelete}>Hapus</button>
+        </div>
+      </div>
+
+      {audioUrl && (
+        <div className="databaseMediaPreview">
+          <audio controls autoPlay preload="metadata" src={audioUrl} />
+        </div>
+      )}
+
+      {(item.structured_transcript || item.transcript || item.raw_transcript) && (
+        <details open className="transcriptPanel">
+          <summary>Transkrip</summary>
+          <div className="dataText">
+            <RichText text={item.structured_transcript || item.transcript || item.raw_transcript || ""} />
+          </div>
+        </details>
+      )}
+      {item.raw_transcript && item.raw_transcript !== item.structured_transcript && (
+        <details className="transcriptPanel">
+          <summary>Raw Transcript / Verbatim</summary>
+          <div className="dataText raw"><RichText text={item.raw_transcript} /></div>
+        </details>
+      )}
+    </article>
+  );
+}
+
+function DatabaseAudioRecorder({
+  session,
+  user,
+  node,
+  onChange,
+}: {
+  session: Session;
+  user: User;
+  node: StudyNode;
+  onChange: () => void;
+}) {
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const speechRef = useRef<any>(null);
+  const transcriptRef = useRef("");
+  const startedRef = useRef(0);
+
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [liveText, setLiveText] = useState("");
+  const [status, setStatus] = useState("Rekam audio langsung ke Database.");
+
+  useEffect(() => {
+    return () => {
+      try { speechRef.current?.stop(); } catch {}
+      try {
+        if (recorderRef.current?.state && recorderRef.current.state !== "inactive") {
+          recorderRef.current.stop();
+        }
+      } catch {}
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  function startSpeechRecognition() {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return false;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "id-ID";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    transcriptRef.current = "";
+
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      for (let index = event.resultIndex; index < event.results.length; index++) {
+        const text = String(event.results[index][0]?.transcript || "").trim();
+        if (!text) continue;
+        if (event.results[index].isFinal) {
+          transcriptRef.current = (transcriptRef.current + " " + text).trim();
+        } else {
+          interim = (interim + " " + text).trim();
+        }
+      }
+      setLiveText((transcriptRef.current + " " + interim).trim());
+    };
+
+    recognition.onerror = () => {};
+    recognition.onend = () => {};
+    speechRef.current = recognition;
+    try {
+      recognition.start();
+      return true;
+    } catch {
+      speechRef.current = null;
+      return false;
+    }
+  }
+
+  async function start() {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        throw new Error("Browser ini belum mendukung perekaman audio.");
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      streamRef.current = stream;
+
+      const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+      const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      chunksRef.current = [];
+      transcriptRef.current = "";
+      setLiveText("");
+      recorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        await saveRecording(blob);
+      };
+
+      startedRef.current = Date.now();
+      recorder.start(700);
+      startSpeechRecognition();
+      setRecording(true);
+      setStatus("Sedang merekam...");
+    } catch (error: any) {
+      const message =
+        error?.name === "NotAllowedError"
+          ? "Izin mikrofon ditolak. Izinkan mikrofon untuk situs ini."
+          : error?.message || "Gagal memulai rekaman.";
+      setStatus(message);
+    }
+  }
+
+  function stop() {
+    if (!recording) return;
+    setRecording(false);
+    setStatus("Menyimpan rekaman...");
+    try { speechRef.current?.stop(); } catch {}
+    speechRef.current = null;
+    try {
+      if (recorderRef.current?.state && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
+      }
+    } catch {}
+  }
+
+  async function saveRecording(blob: Blob) {
+    if (!blob.size) {
+      setStatus("Rekaman kosong.");
+      return;
+    }
+
+    setBusy(true);
+    const mimeType = normalizeAudioMime(blob.type || "audio/webm");
+    const subtype = mimeType.split("/")[1]?.split(";")[0] || "webm";
+    const ext = subtype === "mp4" || subtype === "m4a" ? "m4a" : subtype;
+    const path = user.id + "/database/" + node.id + "/" + crypto.randomUUID() + "." + ext;
+    const title = "Rekaman - " + new Date().toLocaleString("id-ID");
+    const duration = Math.max(1, Math.round((Date.now() - startedRef.current) / 1000));
+
+    const upload = await supabase.storage.from("recordings").upload(path, blob, { contentType: mimeType });
+    if (upload.error) {
+      setBusy(false);
+      setStatus("Gagal upload rekaman.");
+      return alert(upload.error.message);
+    }
+
+    const { data: row, error: rowError } = await supabase
+      .from("recordings")
+      .insert({
+        user_id: user.id,
+        node_id: node.id,
+        title,
+        file_path: path,
+        mime_type: mimeType,
+        duration_seconds: duration,
+      })
+      .select("*")
+      .single();
+
+    if (rowError) {
+      await supabase.storage.from("recordings").remove([path]);
+      setBusy(false);
+      setStatus("Gagal menyimpan rekaman.");
+      return alert(rowError.message);
+    }
+
+    let raw = transcriptRef.current.trim() || liveText.trim();
+    let structured = raw;
+    let corrections: Correction[] = [];
+
+    if (!raw) {
+      const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: aiRequestHeaders(session, transcriptionSelection),
+        body: JSON.stringify({
+          recordingId: row.id,
+          filePath: path,
+          mimeType,
+          contextNodeId: node.id,
+          browserTranscript: "",
+          aiMode: legacyModeForSelection(transcriptionSelection),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        raw = String(data.rawTranscript || "").trim();
+        structured = String(data.structuredTranscript || raw).trim();
+        corrections = Array.isArray(data.corrections) ? data.corrections : [];
+      }
+    }
+
+    let knowledgeEntryId: string | null = null;
+    if (raw || structured) {
+      const { data: entry, error: entryError } = await supabase
+        .from("knowledge_entries")
+        .insert({
+          user_id: user.id,
+          node_id: node.id,
+          title,
+          category: "Rekaman audio",
+          content: structured || raw,
+          raw_content: raw || structured,
+          source_type: "transcript",
+        })
+        .select("id")
+        .single();
+
+      if (!entryError && entry?.id) knowledgeEntryId = entry.id;
+
+      await supabase
+        .from("recordings")
+        .update({
+          transcript: structured || raw,
+          raw_transcript: raw || structured,
+          structured_transcript: structured || raw,
+          corrections,
+          knowledge_entry_id: knowledgeEntryId,
+        })
+        .eq("id", row.id);
+    }
+
+    setBusy(false);
+    setLiveText("");
+    transcriptRef.current = "";
+    setStatus(
+      raw || structured
+        ? "Rekaman dan transkrip sudah masuk Database."
+        : "Audio sudah masuk Database. Transkrip belum tersedia; audio tetap bisa didengar ulang."
+    );
+    onChange();
+  }
+
+  return (
+    <div className="databaseAudioRecorder">
+      <div className="databaseRecorderHead">
+        <div>
+          <strong>Rekam audio</strong>
+          <small>{status}</small>
+        </div>
+        <span className={recording ? "recDot live" : "recDot"} />
+      </div>
+
+      {liveText && (
+        <div className="databaseLiveTranscript">
+          <small>Transkrip langsung</small>
+          <div className="dataText raw">{liveText}</div>
+        </div>
+      )}
+
+      <div className="recordActions compactRecordActions">
+        <button className="ghost" type="button" disabled={recording || busy} onClick={start}>
+          {busy ? "Menyimpan..." : "● Rekam audio"}
+        </button>
+        <button className="stopBtn" type="button" disabled={!recording} onClick={stop}>Stop</button>
+      </div>
+    </div>
+  );
+}
+
+
 function StudyPage({
   session,
   user,
