@@ -1890,7 +1890,7 @@ function RecordingPage({
     if (!total && !input && !output && !thoughts) return;
 
     await supabase.rpc("record_ai_model_usage", {
-      model_name: "gemini-3.5-transcribe-live",
+      model_name: (getSessionGeminiKey() ? "user-api-key" : "shared-api-key") + "|gemini-3.5-transcribe-live",
       input_tokens: input,
       output_tokens: output,
       thoughts_tokens: thoughts,
@@ -3722,7 +3722,18 @@ function AiCreditBadge() {
 
   const modelBreakdown = modelUsage.length
     ? modelUsage
-        .map((item) => item.model + ": " + formatTokenUsage(item.total_tokens) + " token / " + item.requests + " request")
+        .map((item) => {
+          const [provider, model] = item.model.includes("|")
+            ? item.model.split("|", 2)
+            : ["legacy", item.model];
+          const providerLabel =
+            provider === "user-api-key"
+              ? "API user"
+              : provider === "shared-api-key"
+                ? "Shared"
+                : "Legacy";
+          return providerLabel + " · " + model + ": " + formatTokenUsage(item.total_tokens) + " token / " + item.requests + " request";
+        })
         .join(" · ")
     : "Belum ada breakdown model pada request baru.";
 
