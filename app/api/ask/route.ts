@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { geminiGenerate } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge, searchScopeKnowledge } from "@/lib/knowledge";
-import { aiQuotaError, consumeAiCredits } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -14,7 +14,8 @@ export async function POST(req: NextRequest) {
     const token = bearer(req);
     if (!token) return NextResponse.json({ error: "Belum login." }, { status: 401 });
 
-    const { question, scopeNodeId = null } = await req.json();
+    const { question, scopeNodeId = null, aiMode: rawAiMode = "instant" } = await req.json();
+    const aiMode = normalizeAiMode(rawAiMode);
     if (!question || typeof question !== "string" || question.trim().length < 3) {
       return NextResponse.json({ error: "Pertanyaan terlalu pendek." }, { status: 400 });
     }
@@ -25,10 +26,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
     }
 
-    let data = await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, 8);
+    const searchLimit = aiMode === "high" ? 16 : aiMode === "medium" ? 12 : 8;
+    const fallbackLimit = aiMode === "high" ? 40 : aiMode === "medium" ? 28 : 20;
+    let data = await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
 
     if (!data.length) {
-      data = await getScopeKnowledge(supabase, scopeNodeId, 20);
+      data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
     }
 
     if (!data.length) {
@@ -39,9 +42,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const context = buildKnowledgeContext(data, 28000);
+    const contextLimit = aiMode === "high" ? 42000 : aiMode === "medium" ? 32000 : 22000;
+    const context = buildKnowledgeContext(data, contextLimit);
 
-    const aiUsage = await consumeAiCredits(supabase, "ask");
+    const aiUsage = await consumeAiCredits(supabase, "ask", aiMode);
     if (!aiUsage.allowed) {
       return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
     }
@@ -54,7 +58,7 @@ ${question.trim()}
 DATABASE:
 ${context}
 
-Jawab hanya berdasarkan DATABASE di atas.
+Jawab hanya berdasarkan DATABASE di atas.\n${aiModeInstruction(aiMode)}
 - Jika database tidak cukup untuk menjawab pertanyaan, jawab persis: "Materi ini belum tersedia di database."
 - Jangan gunakan pengetahuan umum atau internet.
 - Bila ada istilah yang berbeda, utamakan istilah yang benar-benar tertulis/terdefinisi di database.
