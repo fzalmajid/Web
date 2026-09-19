@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
-import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -143,13 +143,13 @@ ${bodyText}`;
 
     if (pathError) throw pathError;
 
-    const aiUsage = await consumeAiCredits(supabase, "study", aiMode);
-    if (!aiUsage.allowed) {
+    const preflight = await checkAiCredits(supabase, "study", aiMode);
+    if (!preflight.allowed) {
       await supabase
         .from("study_paths")
-        .update({ status: "error", error_message: aiQuotaError(aiUsage).error })
+        .update({ status: "error", error_message: aiQuotaError(preflight).error })
         .eq("id", pathRow.id);
-      return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
+      return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
     const unitRange =
@@ -274,6 +274,8 @@ Aturan wajib:
       })
       .eq("id", pathRow.id);
     if (readyError) throw readyError;
+
+    const aiUsage = await consumeAiCredits(supabase, "study", aiMode);
 
     return NextResponse.json({
       pathId: pathRow.id,
