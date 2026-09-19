@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { aiQuotaError, checkAiCredits, normalizeAiMode } from "@/lib/aiQuota";
+import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -20,8 +21,8 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const aiMode = normalizeAiMode(body.aiMode);
-    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
-    const ownGemini = Boolean(userGeminiKey);
+    const geminiAuth = geminiUserAuthFromHeaders(req.headers);
+    const ownGemini = geminiAuth.ownGemini;
     if (aiMode === "simple") {
       return NextResponse.json({ error: "Mode Simple memakai transkrip browser." }, { status: 400 });
     }
@@ -31,9 +32,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
-    const key = userGeminiKey || process.env.GEMINI_API_KEY;
-    if (!key) {
-      return NextResponse.json({ error: "Gemini API belum dikonfigurasi." }, { status: 500 });
+    const key = geminiAuth.apiKey || (!geminiAuth.accessToken ? process.env.GEMINI_API_KEY : undefined);
+    if (!key && !geminiAuth.accessToken) {
+      return NextResponse.json({ error: "Gemini belum dikonfigurasi." }, { status: 500 });
     }
 
     const expireTime = new Date(Date.now() + 20 * 60 * 1000).toISOString();
@@ -41,10 +42,16 @@ export async function POST(req: NextRequest) {
 
     const response = await fetch("https://generativelanguage.googleapis.com/v1beta/auth_tokens", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": key,
-      },
+      headers: geminiAuth.accessToken
+        ? {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + geminiAuth.accessToken,
+            "x-goog-user-project": geminiAuth.projectId || "",
+          }
+        : {
+            "Content-Type": "application/json",
+            "x-goog-api-key": key || "",
+          },
       body: JSON.stringify({
         uses: 1,
         expireTime,
@@ -83,7 +90,7 @@ export async function POST(req: NextRequest) {
       token: data.name,
       model: "gemini-3.5-transcribe-live",
       expiresAt: expireTime,
-      provider: ownGemini ? "user-api-key" : "shared-api-key",
+      provider: geminiAuth.provider,
     });
   } catch (error: any) {
     console.error("[LIVE_TRANSCRIBE_TOKEN_ERROR]", {
