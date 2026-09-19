@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
-import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
+import { selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import {
-  aiModeInstruction,
   aiQuotaError,
   checkAiCredits,
   finalizeAiCredits,
@@ -575,9 +572,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const recordingId = String(body.recordingId || "");
     const filePath = String(body.filePath || "");
-    const contextNodeId = body.contextNodeId ? String(body.contextNodeId) : null;
     const purpose = body.purpose === "question" ? "question" : "recording";
-    const languageHint = purpose === "question" ? "id-ID" : undefined;
+    const languageHint = "id-ID";
     const browserTranscript = String(body.browserTranscript || "").trim();
     const mimeType = normalizeMime(String(body.mimeType || "audio/webm"));
     const aiMode = normalizeAiMode(body.aiMode);
@@ -652,8 +648,6 @@ export async function POST(req: NextRequest) {
     let transcriptionModel = "";
     let transcriptionProvider = "browser-live";
     let transcriptionWarning = "";
-    let rawAuth: GeminiAuth | null = null;
-    let usedDedicatedTranscriber = false;
     let lastAudioError: any = null;
 
     for (const auth of authCandidates) {
@@ -664,8 +658,6 @@ export async function POST(req: NextRequest) {
         rawTranscript = result.text;
         transcriptionModel = result.model;
         transcriptionProvider = auth.provider;
-        rawAuth = auth;
-        usedDedicatedTranscriber = Boolean(result.dedicated);
         if (auth.provider === "shared-api-key") usedShared = true;
         await recordAiTokenUsage(supabase, result.usage, result.model, auth.provider);
         break;
@@ -682,7 +674,6 @@ export async function POST(req: NextRequest) {
     if (
       rawTranscript &&
       browserTranscript &&
-      !usedDedicatedTranscriber &&
       browserTranscriptShouldWin(rawTranscript, browserTranscript)
     ) {
       const rejectedModel = transcriptionModel;
@@ -715,145 +706,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (purpose === "question") {
-      const { error: updateError } = await supabase
-        .from("recordings")
-        .update({
-          raw_transcript: rawTranscript,
-          structured_transcript: rawTranscript,
-          transcript: rawTranscript,
-          corrections: [],
-        })
-        .eq("id", recordingId);
-
-      if (updateError) throw updateError;
-
-      const aiUsage = usedShared
-        ? await finalizeAiCredits(supabase, "transcription", aiMode)
-        : null;
-
-      return NextResponse.json({
-        rawTranscript,
-        structuredTranscript: rawTranscript,
-        summary: "",
-        corrections: [],
-        warning: transcriptionWarning,
-        aiUsage,
-        transcriptionModel,
-        structuringModel: "",
-        provider: {
-          transcription: transcriptionProvider,
-          structuring: "none",
-        },
-      });
-    }
-
-    const knowledge = await getScopeKnowledge(supabase, contextNodeId, 40);
-    const context = buildKnowledgeContext(knowledge, 26000);
-    const structuringPrompt =
-      "TRANSKRIP VERBATIM:\n" +
-      rawTranscript +
-      "\n\nDATABASE REFERENSI:\n" +
-      (context || "(tidak ada database yang relevan)") +
-      "\n\nKeluarkan JSON valid tanpa markdown dengan bentuk:\n" +
-      '{"structured_transcript":"...","summary":"...","corrections":[{"heard":"...","corrected":"...","basis":"..."}]}\n\n' +
-      "Aturan:\n" +
-      "1. TRANSKRIP VERBATIM adalah sumber utama dan tidak boleh kalah oleh Database.\n" +
-      "2. structured_transcript WAJIB mempertahankan kalimat, topik, maksud, dan hampir seluruh kata dari TRANSKRIP VERBATIM. Jangan paraphrase. Jangan mengganti isi dengan materi Database.\n" +
-      "3. Yang boleh diubah hanya tanda baca, paragraf, filler ringan, dan istilah/nama/akronim yang sangat mungkin salah dengar.\n" +
-      "4. Istilah hanya boleh dikoreksi bila DATABASE REFERENSI secara jelas mendukung koreksi yang sangat lokal.\n" +
-      '5. Contoh boleh: "CPOD" → "CPOB" bila konteks dan Database jelas. Contoh DILARANG: mengganti satu kalimat tentang lagu menjadi kalimat tentang topik Database.\n' +
-      "6. summary WAJIB merangkum TRANSKRIP VERBATIM saja. Database tidak boleh menambah topik/fakta ke summary.\n" +
-      "7. corrections hanya untuk potongan pendek yang benar-benar muncul di TRANSKRIP VERBATIM; jangan koreksi seluruh kalimat.\n" +
-      "8. basis harus singkat dan menyebut dasar dari Database.\n" +
-      "9. Bila ragu, pertahankan kata asli dari TRANSKRIP VERBATIM.\n" +
-      "10. " +
-      aiModeInstruction(aiMode) +
-      "\n8. " +
-      WHATSAPP_FORMAT_INSTRUCTION;
-
-    let structuredTranscript = rawTranscript;
-    let summary = "";
-    let corrections: Array<{ heard: string; corrected: string; basis: string }> = [];
-    let structuringModel = "";
-    let structuringProvider = "";
-    let structuringWarning = "";
-
-    const structureCandidates = uniqueAuthCandidates([
-      ...(geminiAuth.ownGemini ? [geminiAuth] : []),
-      ...(rawAuth ? [rawAuth] : []),
-      ...(sharedKey ? [sharedAuth] : []),
-    ]);
-
-    for (const auth of structureCandidates) {
-      if (auth.provider === "shared-api-key" && !(await ensureSharedQuota())) continue;
-
-      try {
-        const result = await geminiGenerateDetailed(
-          [{ text: structuringPrompt }],
-          "Anda menyunting transkrip secara sangat konservatif. Raw/verbatim selalu menang atas Database. Database hanya boleh membantu koreksi istilah lokal dan tidak boleh mengubah makna, topik, atau kalimat.",
-          {
-            models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
-            effort: aiSelection.effort,
-            apiKey: auth.apiKey,
-            accessToken: auth.accessToken,
-            projectId: auth.projectId,
-          }
-        );
-
-        await recordAiTokenUsage(supabase, result.usage, result.model, auth.provider);
-        if (auth.provider === "shared-api-key") usedShared = true;
-        structuringModel = result.model;
-        structuringProvider = auth.provider;
-
-        try {
-          const parsed = JSON.parse(cleanJsonText(result.text));
-          const candidate = String(parsed.structured_transcript || "").trim();
-          corrections = safeTranscriptCorrections(rawTranscript, parsed.corrections, context);
-          const minimallyCorrectedRaw = applyTranscriptCorrections(rawTranscript, corrections);
-
-          if (candidate && structuredCandidateIsFaithful(minimallyCorrectedRaw, candidate)) {
-            structuredTranscript = candidate;
-          } else {
-            structuredTranscript = minimallyCorrectedRaw;
-            if (candidate) {
-              structuringWarning =
-                "Versi tertata AI terlalu jauh dari raw transcript, jadi sistem mempertahankan raw dan hanya menerapkan koreksi istilah yang aman.";
-            }
-          }
-
-          summary = String(parsed.summary || "").trim();
-          if (summary && !structuredCandidateIsFaithful(rawTranscript, summary)) {
-            summary = "";
-          }
-        } catch {
-          structuredTranscript = rawTranscript;
-          corrections = [];
-          structuringWarning =
-            "Perapihan AI tidak lolos validasi, jadi raw transcript dipertahankan apa adanya.";
-        }
-        break;
-      } catch (error: any) {
-        console.warn("[TRANSCRIPT_STRUCTURE_FALLBACK]", {
-          provider: auth.provider,
-          status: Number(error?.statusCode || 500),
-          message: String(error?.message || "").slice(0, 220),
-        });
-      }
-    }
-
-    if (!structuringModel) {
-      structuringWarning =
-        "Transkrip verbatim berhasil, tetapi perapihan/koreksi berbasis Database belum dapat dijalankan. Transkrip mentah tetap disimpan.";
-    }
-
     const { error: updateError } = await supabase
       .from("recordings")
       .update({
         raw_transcript: rawTranscript,
-        structured_transcript: structuredTranscript,
-        transcript: structuredTranscript,
-        corrections,
+        structured_transcript: rawTranscript,
+        transcript: rawTranscript,
+        corrections: [],
       })
       .eq("id", recordingId);
 
@@ -865,17 +724,18 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       rawTranscript,
-      structuredTranscript,
-      summary,
-      corrections,
-      warning: [transcriptionWarning, structuringWarning].filter(Boolean).join(" "),
+      structuredTranscript: rawTranscript,
+      summary: "",
+      corrections: [],
+      warning: transcriptionWarning,
       aiUsage,
       transcriptionModel,
-      structuringModel,
+      structuringModel: "",
       provider: {
         transcription: transcriptionProvider,
-        structuring: structuringProvider || "none",
+        structuring: "none",
       },
+      mode: purpose === "question" ? "question-verbatim" : "recording-verbatim",
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
