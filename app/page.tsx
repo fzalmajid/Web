@@ -132,19 +132,67 @@ const nodeColors = [
   { value: "slate", label: "Slate" },
 ];
 
+const GOOGLE_OAUTH_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID || "";
+
 function getSessionGeminiKey() {
   if (typeof window === "undefined") return "";
   return String(window.sessionStorage.getItem("rb-user-gemini-key") || "").trim();
 }
 
+function getSessionGoogleGeminiAuth() {
+  if (typeof window === "undefined") return { accessToken: "", projectId: "" };
+  const accessToken = String(window.sessionStorage.getItem("rb-google-gemini-token") || "").trim();
+  const projectId = String(window.sessionStorage.getItem("rb-google-gemini-project") || "").trim();
+  const expiresAt = Number(window.sessionStorage.getItem("rb-google-gemini-exp") || "0");
+
+  if (accessToken && expiresAt && Date.now() >= expiresAt - 30_000) {
+    window.sessionStorage.removeItem("rb-google-gemini-token");
+    window.sessionStorage.removeItem("rb-google-gemini-exp");
+    return { accessToken: "", projectId };
+  }
+
+  return { accessToken, projectId };
+}
+
 function aiRequestHeaders(session: Session, selection?: AiSelection) {
-  const key = getSessionGeminiKey();
+  const googleAuth = getSessionGoogleGeminiAuth();
+  const key = googleAuth.accessToken && googleAuth.projectId ? "" : getSessionGeminiKey();
+
   return {
     "Content-Type": "application/json",
     Authorization: "Bearer " + session.access_token,
-    ...(key ? { "X-RB-Gemini-Key": key } : {}),
+    ...(googleAuth.accessToken && googleAuth.projectId
+      ? {
+          "X-RB-Google-Access-Token": googleAuth.accessToken,
+          "X-RB-Google-Project": googleAuth.projectId,
+        }
+      : key
+        ? { "X-RB-Gemini-Key": key }
+        : {}),
     ...(selection ? { "X-RB-AI-Model": selection.model, "X-RB-AI-Effort": selection.effort } : {}),
   };
+}
+
+function loadGoogleIdentityScript() {
+  return new Promise<void>((resolve, reject) => {
+    if ((window as any).google?.accounts?.oauth2) return resolve();
+
+    const existing = document.querySelector<HTMLScriptElement>('script[data-rb-google-oauth="1"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Google Identity Services gagal dimuat.")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.dataset.rbGoogleOauth = "1";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Google Identity Services gagal dimuat."));
+    document.head.appendChild(script);
+  });
 }
 
 const labels: Record<NodeType, string> = {
