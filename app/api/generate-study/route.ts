@@ -81,7 +81,7 @@ Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, ja
       models: geminiModelsForMode(aiMode, "standard"),
       apiKey: userGeminiKey,
     });
-    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model);
+    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, ownGemini ? "user-api-key" : "shared-api-key");
     const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
