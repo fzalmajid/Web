@@ -553,7 +553,7 @@ function AddSheet({
     { value: "folder", label: "Materi / Submateri", hint: "Contoh: Farmasi, Penjaminan Mutu, Pertemuan 1" },
     { value: "database", label: "Database", hint: "Teks modul, DOCX, PDF, audio/video sumber" },
     { value: "recording", label: "Rekaman", hint: "Rekam suara + transkrip langsung dan versi tertata" },
-    { value: "study", label: "Study", hint: "Pilih beberapa Database lalu belajar bertahap dengan recall quiz" },
+    ...(parent ? [{ value: "study" as const, label: "Study", hint: "Pilih beberapa Database lalu belajar bertahap dengan recall quiz" }] : []),
     { value: "flashcards", label: "Flashcard", hint: "Latihan kartu dari database di halaman ini" },
     { value: "quiz", label: "Kuis", hint: "Soal dari database di halaman ini" },
   ] as const;
@@ -2323,15 +2323,18 @@ function AiModePicker({
   onChange,
   action,
   compact = false,
+  allowSimple = true,
 }: {
   value: AiMode;
   onChange: (mode: AiMode) => void;
   action: "ask" | "ask_web" | "study" | "transcription" | "file_light" | "file_heavy";
   compact?: boolean;
+  allowSimple?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const selected = aiModes.find((item) => item.value === value) || aiModes[0];
+  const visibleModes = allowSimple ? aiModes : aiModes.filter((item) => item.provider === "Gemini");
+  const selected = visibleModes.find((item) => item.value === value) || visibleModes[0];
 
   useEffect(() => {
     if (!open) return;
@@ -2371,7 +2374,7 @@ function AiModePicker({
       {open && (
         <div className="aiModePopover">
           <div className="aiModeSectionLabel">LOCAL</div>
-          {aiModes.filter((item) => item.provider === "Local").map((item) => (
+          {allowSimple && aiModes.filter((item) => item.provider === "Local").map((item) => (
             <button type="button" key={item.value} className={value === item.value ? "aiModeOption active" : "aiModeOption"} onClick={() => choose(item.value)}>
               <span className="modeCheck">{value === item.value ? "✓" : ""}</span>
               <span className="modeCopy">
@@ -2382,7 +2385,7 @@ function AiModePicker({
             </button>
           ))}
 
-          <div className="aiModeDivider" />
+          {allowSimple && <div className="aiModeDivider" />}
           <div className="aiModeSectionLabel">GEMINI 3.6</div>
           {aiModes.filter((item) => item.provider === "Gemini").map((item) => (
             <button type="button" key={item.value} className={value === item.value ? "aiModeOption active" : "aiModeOption"} onClick={() => choose(item.value)}>
