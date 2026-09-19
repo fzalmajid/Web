@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, geminiModelsForMode, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
+import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
@@ -16,6 +17,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const aiMode = normalizeAiMode(body.aiMode);
+    const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
     const ownGemini = Boolean(userGeminiKey);
     const items = Array.isArray(body.answers)
@@ -137,7 +139,8 @@ Aturan:
 - basis harus singkat dan menyebut dasar dari database tanpa mengarang kutipan.
 - ${WHATSAPP_FORMAT_INSTRUCTION}`
     }], "Anda adalah penilai kuis yang ketat dan hanya boleh memakai database yang diberikan.", {
-      models: geminiModelsForMode(aiMode, "standard"),
+      models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
+      effort: aiSelection.effort,
       apiKey: userGeminiKey,
     });
     await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, ownGemini ? "user-api-key" : "shared-api-key");
