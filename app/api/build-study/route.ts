@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     }
     if (aiMode === "simple") {
       return NextResponse.json(
-        { error: "Penyusunan Study terarah membutuhkan mode Gemini. Pilih Instant, Medium, atau High." },
+        { error: "Penyusunan Study terarah membutuhkan model Gemini." },
         { status: 400 }
       );
     }
@@ -133,6 +133,8 @@ ${bodyText}`;
           node_id: studyNodeId,
           source_node_ids: sourceNodeIds,
           ai_mode: aiMode,
+          ai_model: aiSelection.model,
+          ai_effort: aiSelection.effort,
           title: studyNode.title,
           overview: "",
           focus_instruction: studyInstruction,
@@ -275,6 +277,8 @@ Aturan wajib:
       .update({
         source_node_ids: sourceNodeIds,
         ai_mode: aiMode,
+        ai_model: aiSelection.model,
+        ai_effort: aiSelection.effort,
         overview,
         focus_instruction: studyInstruction,
         status: "ready",
