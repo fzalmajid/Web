@@ -1,0 +1,192 @@
+import { NextRequest, NextResponse } from "next/server";
+import * as mammoth from "mammoth";
+import { createServerSupabase } from "@/lib/supabase";
+import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
+import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
+
+function bearer(req: NextRequest) {
+  const h = req.headers.get("authorization") || "";
+  return h.startsWith("Bearer ") ? h.slice(7) : "";
+}
+
+function normalizeMime(value: string) {
+  const mime = (value || "application/octet-stream").split(";")[0].trim().toLowerCase();
+  if (mime === "audio/mp4") return "audio/m4a";
+  return mime;
+}
+
+function isTextMime(mime: string) {
+  return mime.startsWith("text/") || ["application/json", "application/xml"].includes(mime);
+}
+
+function isMediaMime(mime: string) {
+  return mime.startsWith("audio/") || mime.startsWith("video/");
+}
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+export async function POST(req: NextRequest) {
+  const token = bearer(req);
+  if (!token) return NextResponse.json({ error: "Belum login." }, { status: 401 });
+
+  const supabase = createServerSupabase(token);
+  let sourceFileId = "";
+
+  try {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+      return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
+    }
+
+    const body = await req.json();
+    sourceFileId = String(body.sourceFileId || "");
+    const filePath = String(body.filePath || "");
+    const nodeId = String(body.nodeId || "");
+    const fileName = String(body.fileName || "File");
+    const mimeType = normalizeMime(String(body.mimeType || "application/octet-stream"));
+
+    if (!sourceFileId || !filePath || !nodeId) {
+      return NextResponse.json({ error: "Data file tidak lengkap." }, { status: 400 });
+    }
+
+    const { data: row, error: rowError } = await supabase
+      .from("source_files")
+      .select("id,node_id,file_path,file_name,mime_type")
+      .eq("id", sourceFileId)
+      .single();
+    if (rowError || !row || row.file_path !== filePath || row.node_id !== nodeId) {
+      return NextResponse.json({ error: "File tidak ditemukan." }, { status: 404 });
+    }
+
+    const { data: blob, error: downloadError } = await supabase.storage
+      .from("study-files")
+      .download(filePath);
+    if (downloadError || !blob) throw downloadError || new Error("File tidak dapat dibaca.");
+
+    if (blob.size > 50 * 1024 * 1024) {
+      throw new Error("File maksimal 50 MB untuk pemrosesan ini.");
+    }
+
+    const buffer = Buffer.from(await blob.arrayBuffer());
+    let rawText = "";
+
+    if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.toLowerCase().endsWith(".docx")) {
+      const extracted = await mammoth.extractRawText({ buffer });
+      rawText = extracted.value.trim();
+    } else if (isTextMime(mimeType)) {
+      rawText = buffer.toString("utf8").trim();
+    } else {
+      const base64 = buffer.toString("base64");
+      const prompt = isMediaMime(mimeType)
+        ? "Transkripsikan seluruh ucapan dari file ini secara VERBATIM, sedekat mungkin kata demi kata. Jangan merangkum, jangan mengoreksi istilah, jangan menambah isi. Gunakan paragraf dan tanda baca secukupnya."
+        : mimeType === "application/pdf"
+          ? "Ekstrak isi dokumen PDF ini selengkap mungkin. Pertahankan judul, subjudul, daftar, angka, istilah, dan isi penting. Jangan meringkas dan jangan menambahkan pengetahuan luar."
+          : "Ekstrak semua informasi tekstual yang dapat dibaca dari file/gambar ini. Jangan menambahkan informasi yang tidak ada pada sumber.";
+      rawText = await geminiGenerate([
+        { text: prompt },
+        { inlineData: { mimeType, data: base64 } },
+      ]);
+    }
+
+    if (!rawText.trim()) throw new Error("Tidak ada teks yang berhasil diekstrak.");
+
+    const knowledge = await getScopeKnowledge(supabase, nodeId, 40);
+    const context = buildKnowledgeContext(knowledge.filter(k => k.title !== fileName), 26000);
+    const media = isMediaMime(mimeType);
+
+    const structuredRaw = await geminiGenerate(
+      [{
+        text: `SUMBER MENTAH:
+${rawText}
+
+DATABASE REFERENSI YANG SUDAH ADA:
+${context || "(belum ada database yang relevan)"}
+
+Keluarkan JSON valid tanpa markdown:
+{
+  "structured_text":"...",
+  "summary":"...",
+  "corrections":[{"heard":"...","corrected":"...","basis":"..."}]
+}
+
+Aturan:
+- ${media ? "Sumber mentah adalah transkrip verbatim. structured_text harus menata ulang ucapan menjadi transkrip terstruktur." : "structured_text harus menyusun isi dokumen menjadi catatan terstruktur yang tetap mempertahankan informasi penting."}
+- Jangan menambah fakta yang tidak ada di SUMBER MENTAH.
+- DATABASE REFERENSI hanya boleh dipakai untuk menyelesaikan istilah/nama/singkatan yang keliru atau ambigu.
+- Koreksi hanya dilakukan jika database benar-benar mendukungnya; semua koreksi harus dicatat.
+- Jika database tidak membantu, susun/rangkum berdasarkan SUMBER MENTAH saja.`,
+      }],
+      "Anda mengolah sumber belajar secara konservatif. Jangan mengarang fakta."
+    );
+
+    let structuredText = rawText;
+    let summary = "";
+    let corrections: Array<{ heard: string; corrected: string; basis: string }> = [];
+
+    try {
+      const parsed = JSON.parse(cleanJsonText(structuredRaw));
+      structuredText = String(parsed.structured_text || rawText).trim();
+      summary = String(parsed.summary || "").trim();
+      corrections = Array.isArray(parsed.corrections)
+        ? parsed.corrections.slice(0, 40).map((x: any) => ({
+            heard: String(x.heard || ""),
+            corrected: String(x.corrected || ""),
+            basis: String(x.basis || ""),
+          })).filter((x: any) => x.heard && x.corrected)
+        : [];
+    } catch {
+      structuredText = structuredRaw || rawText;
+    }
+
+    const combined = [
+      structuredText,
+      summary ? `Ringkasan:\n${summary}` : "",
+      `SUMBER MENTAH:\n${rawText}`,
+    ].filter(Boolean).join("\n\n---\n\n");
+
+    const { data: entry, error: entryError } = await supabase
+      .from("knowledge_entries")
+      .insert({
+        user_id: userData.user.id,
+        node_id: nodeId,
+        title: fileName,
+        category: media ? "Transkrip file" : "File",
+        content: combined,
+        raw_content: rawText,
+        source_type: "file",
+        source_file_id: sourceFileId,
+      })
+      .select("id")
+      .single();
+    if (entryError) throw entryError;
+
+    const { error: updateError } = await supabase
+      .from("source_files")
+      .update({
+        processing_status: "ready",
+        raw_text: rawText,
+        structured_text: structuredText + (summary ? `\n\nRingkasan:\n${summary}` : ""),
+        corrections,
+        error_message: null,
+      })
+      .eq("id", sourceFileId);
+    if (updateError) throw updateError;
+
+    return NextResponse.json({
+      entryId: entry.id,
+      rawText,
+      structuredText,
+      summary,
+      corrections,
+    });
+  } catch (error: any) {
+    if (sourceFileId) {
+      await supabase
+        .from("source_files")
+        .update({ processing_status: "error", error_message: error.message || "Gagal memproses file." })
+        .eq("id", sourceFileId);
+    }
+    return NextResponse.json({ error: error.message || "Gagal memproses file." }, { status: 500 });
+  }
+}
