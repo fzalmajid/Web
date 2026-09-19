@@ -30,6 +30,10 @@ export async function POST(req: NextRequest) {
     const mimeType = normalizeMime(String(body.mimeType || "audio/webm"));
     const aiMode = normalizeAiMode(body.aiMode);
 
+    if (aiMode === "simple") {
+      return NextResponse.json({ error: "Mode Simple memakai transkrip Local dari browser dan tidak memanggil Gemini." }, { status: 400 });
+    }
+
     if (!recordingId || !filePath) {
       return NextResponse.json({ error: "Data rekaman tidak lengkap." }, { status: 400 });
     }
