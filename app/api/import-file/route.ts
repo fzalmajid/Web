@@ -251,12 +251,22 @@ Aturan:
       aiUsage,
     });
   } catch (error: any) {
+    const status = Number(error?.statusCode || 500);
+    console.error("[API_IMPORT_FILE_ERROR]", { name: error?.name, code: error?.code, status });
+
     if (sourceFileId) {
       await supabase
         .from("source_files")
-        .update({ processing_status: "error", error_message: error.message || "Gagal memproses file." })
+        .update({
+          processing_status: "error",
+          error_message: error?.message || "Gagal memproses file.",
+        })
         .eq("id", sourceFileId);
     }
-    return NextResponse.json({ error: error.message || "Gagal memproses file." }, { status: 500 });
+
+    return NextResponse.json(
+      { error: error?.message || "Gagal memproses file." },
+      { status: status >= 400 && status < 600 ? status : 500 }
+    );
   }
 }
