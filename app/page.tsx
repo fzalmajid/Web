@@ -4188,11 +4188,13 @@ function AiCreditBadge() {
             ? item.model.split("|", 2)
             : ["legacy", item.model];
           const providerLabel =
-            provider === "user-api-key"
-              ? "API user"
-              : provider === "shared-api-key"
-                ? "Shared"
-                : "Legacy";
+            provider === "user-google-oauth"
+              ? "Google user"
+              : provider === "user-api-key"
+                ? "API user"
+                : provider === "shared-api-key"
+                  ? "Shared"
+                  : "Legacy";
           return providerLabel + " · " + model + ": " + formatTokenUsage(item.total_tokens) + " token / " + item.requests + " request";
         })
         .join(" · ")
