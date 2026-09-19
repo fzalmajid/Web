@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
     const contextNodeId = body.contextNodeId ? String(body.contextNodeId) : null;
     const mimeType = normalizeMime(String(body.mimeType || "audio/webm"));
     const aiMode = normalizeAiMode(body.aiMode);
+    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
+    const ownGemini = Boolean(userGeminiKey);
 
     if (aiMode === "simple") {
       return NextResponse.json({ error: "Mode Simple memakai transkrip Local dari browser dan tidak memanggil Gemini." }, { status: 400 });
@@ -68,8 +70,8 @@ export async function POST(req: NextRequest) {
 
     const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
 
-    const preflight = await checkAiCredits(supabase, "transcription", aiMode);
-    if (!preflight.allowed) {
+    const preflight = ownGemini ? null : await checkAiCredits(supabase, "transcription", aiMode);
+    if (preflight && !preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
@@ -82,7 +84,7 @@ export async function POST(req: NextRequest) {
         { inlineData: { mimeType, data: base64 } },
       ],
       "Anda adalah mesin transkripsi. Jangan menjawab selain transkrip audio.",
-      { models: geminiModelsForMode(aiMode, "audio") }
+      { models: geminiModelsForMode(aiMode, "audio"), apiKey: userGeminiKey }
     );
     await recordAiTokenUsage(supabase, rawResult.usage, rawResult.model);
     const rawTranscript = rawResult.text;
@@ -111,7 +113,7 @@ export async function POST(req: NextRequest) {
         },
       ],
       "Anda menyunting transkrip secara konservatif. Database yang diberikan adalah satu-satunya sumber untuk koreksi istilah faktual.",
-      { models: geminiModelsForMode(aiMode, "standard") }
+      { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
     );
     await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model);
     const structuredRaw = structuredResult.text;
@@ -150,7 +152,7 @@ export async function POST(req: NextRequest) {
 
     if (updateError) throw updateError;
 
-    const aiUsage = await finalizeAiCredits(supabase, "transcription", aiMode);
+    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "transcription", aiMode);
 
     return NextResponse.json({
       rawTranscript,
@@ -160,6 +162,7 @@ export async function POST(req: NextRequest) {
       aiUsage,
       transcriptionModel: rawResult.model,
       structuringModel: structuredResult.model,
+      provider: ownGemini ? "user-api-key" : "shared-api-key",
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
