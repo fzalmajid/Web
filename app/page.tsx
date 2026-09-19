@@ -271,6 +271,7 @@ function Workspace({ session, user }: { session: Session; user: User }) {
           <span>Ruang Belajar</span>
         </button>
         <div className="headerActions">
+          <AiCreditBadge />
           <span className="userPill">{user.email}</span>
           <button className="ghost" onClick={() => supabase.auth.signOut()}>Keluar</button>
         </div>
@@ -1331,6 +1332,36 @@ function BottomAskBar({
         <button disabled={busy || !question.trim()}>{busy ? "..." : "↑"}</button>
       </form>
     </>
+  );
+}
+
+function AiCreditBadge() {
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const [limit, setLimit] = useState(40);
+
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const { data } = await supabase.rpc("get_ai_usage_today");
+      if (!active || !data) return;
+      setRemaining(Number(data.remaining ?? 40));
+      setLimit(Number(data.limit ?? 40));
+    }
+
+    void load();
+    const timer = window.setInterval(load, 15000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return (
+    <span className="aiCreditPill">
+      AI hari ini: {remaining === null ? "..." : remaining + "/" + limit}
+    </span>
   );
 }
 
