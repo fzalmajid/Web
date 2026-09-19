@@ -401,6 +401,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [customizeNode, setCustomizeNode] = useState<StudyNode | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -491,9 +492,9 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           <span>Ruang Belajar</span>
         </button>
         <div className="headerActions">
-          <GeminiAccountConnection session={session} />
           <AiCreditBadge />
           <ThemePicker value={theme} onChange={onThemeChange} />
+          <button className="ghost settingsBtn" onClick={() => setSettingsOpen(true)}>Pengaturan</button>
           <span className="userPill">{user.email}</span>
           <button className="ghost" onClick={() => supabase.auth.signOut()}>Keluar</button>
         </div>
@@ -580,6 +581,28 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         entries={entries}
         nodes={nodes}
       />
+
+      {settingsOpen && (
+        <div className="sheetBackdrop" onMouseDown={() => setSettingsOpen(false)}>
+          <section className="addSheet settingsSheet" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <div>
+                <p className="eyebrow">PENGATURAN</p>
+                <h2>Integrasi & akun</h2>
+              </div>
+              <button className="closeBtn" onClick={() => setSettingsOpen(false)}>×</button>
+            </div>
+
+            <div className="settingsSection">
+              <div>
+                <strong>Gemini milik user</strong>
+                <p className="muted">Hubungkan akun Google + project Cloud sendiri agar quota Gemini berasal dari project user.</p>
+              </div>
+              <GeminiAccountConnection session={session} />
+            </div>
+          </section>
+        </div>
+      )}
 
       {customizeNode && (
         <CustomizeSheet
