@@ -4,7 +4,7 @@ import JSZip from "jszip";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -119,20 +119,17 @@ export async function POST(req: NextRequest) {
       isMediaMime(mimeType) ||
       mimeType === "application/pdf" ||
       mimeType.startsWith("image/");
-    const aiUsage = await consumeAiCredits(
-      supabase,
-      heavyFile ? "file_heavy" : "file_light",
-      aiMode
-    );
-    if (!aiUsage.allowed) {
+    const guardAction = heavyFile ? "file_heavy" : "file_light";
+    const preflight = await checkAiCredits(supabase, guardAction, aiMode);
+    if (!preflight.allowed) {
       await supabase
         .from("source_files")
         .update({
           processing_status: "error",
-          error_message: "Kuota AI hari ini habis. Coba lagi setelah 00.00 WIB.",
+          error_message: aiQuotaError(preflight).error,
         })
         .eq("id", sourceFileId);
-      return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
+      return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
     if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.toLowerCase().endsWith(".docx")) {
@@ -242,6 +239,8 @@ Aturan:
       })
       .eq("id", sourceFileId);
     if (updateError) throw updateError;
+
+    const aiUsage = await consumeAiCredits(supabase, guardAction, aiMode);
 
     return NextResponse.json({
       entryId: entry.id,
