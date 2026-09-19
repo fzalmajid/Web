@@ -1570,18 +1570,12 @@ function DatabaseStoredRecording({
         </div>
       )}
 
-      {(item.structured_transcript || item.transcript || item.raw_transcript) && (
+      {(item.raw_transcript || item.transcript || item.structured_transcript) && (
         <details open className="transcriptPanel">
-          <summary>Transkrip</summary>
-          <div className="dataText">
-            <RichText text={item.structured_transcript || item.transcript || item.raw_transcript || ""} />
+          <summary>Transkrip mentah / verbatim</summary>
+          <div className="dataText raw">
+            <RichText text={item.raw_transcript || item.transcript || item.structured_transcript || ""} />
           </div>
-        </details>
-      )}
-      {item.raw_transcript && item.raw_transcript !== item.structured_transcript && (
-        <details className="transcriptPanel">
-          <summary>Raw Transcript / Verbatim</summary>
-          <div className="dataText raw"><RichText text={item.raw_transcript} /></div>
         </details>
       )}
     </article>
@@ -1604,6 +1598,8 @@ function DatabaseAudioRecorder({
   const streamRef = useRef<MediaStream | null>(null);
   const speechRef = useRef<any>(null);
   const transcriptRef = useRef("");
+  const liveDraftRef = useRef("");
+  const liveTimerRef = useRef<number | null>(null);
   const startedRef = useRef(0);
 
   const [recording, setRecording] = useState(false);
@@ -1620,6 +1616,7 @@ function DatabaseAudioRecorder({
         }
       } catch {}
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (liveTimerRef.current) window.clearInterval(liveTimerRef.current);
     };
   }, []);
 
@@ -1645,14 +1642,23 @@ function DatabaseAudioRecorder({
           interim = (interim + " " + text).trim();
         }
       }
-      setLiveText((transcriptRef.current + " " + interim).trim());
+      liveDraftRef.current = (transcriptRef.current + " " + interim).trim();
     };
 
     recognition.onerror = () => {};
-    recognition.onend = () => {};
+    recognition.onend = () => {
+      if (speechRef.current === recognition && recorderRef.current?.state === "recording") {
+        try { recognition.start(); } catch {}
+      }
+    };
     speechRef.current = recognition;
     try {
       recognition.start();
+      if (liveTimerRef.current) window.clearInterval(liveTimerRef.current);
+      liveTimerRef.current = window.setInterval(() => {
+        const draft = liveDraftRef.current.trim();
+        if (draft) setLiveText(draft);
+      }, 20000);
       return true;
     } catch {
       speechRef.current = null;
@@ -1685,6 +1691,7 @@ function DatabaseAudioRecorder({
 
       chunksRef.current = [];
       transcriptRef.current = "";
+      liveDraftRef.current = "";
       setLiveText("");
       recorderRef.current = recorder;
 
@@ -1703,7 +1710,7 @@ function DatabaseAudioRecorder({
       recorder.start(700);
       startSpeechRecognition();
       setRecording(true);
-      setStatus("Sedang merekam...");
+      setStatus("Sedang merekam · transkrip mentah diperbarui tiap ±20 detik.");
     } catch (error: any) {
       const message =
         error?.name === "NotAllowedError"
@@ -1716,7 +1723,13 @@ function DatabaseAudioRecorder({
   function stop() {
     if (!recording) return;
     setRecording(false);
-    setStatus("Menyimpan rekaman...");
+    const finalDraft = liveDraftRef.current.trim();
+    if (finalDraft) setLiveText(finalDraft);
+    if (liveTimerRef.current) {
+      window.clearInterval(liveTimerRef.current);
+      liveTimerRef.current = null;
+    }
+    setStatus("Menyimpan rekaman mentah...");
     try { speechRef.current?.stop(); } catch {}
     speechRef.current = null;
     try {
@@ -1767,12 +1780,10 @@ function DatabaseAudioRecorder({
       return alert(rowError.message);
     }
 
-    const browserDraft = transcriptRef.current.trim() || liveText.trim();
+    const browserDraft = liveDraftRef.current.trim() || transcriptRef.current.trim() || liveText.trim();
     let raw = browserDraft;
-    let structured = browserDraft;
-    let corrections: Correction[] = [];
 
-    setStatus("Mendengarkan ulang audio asli untuk transkrip final...");
+    setStatus("Mendengarkan audio asli secara verbatim · tanpa koreksi Database...");
     const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
     const response = await fetch("/api/transcribe", {
       method: "POST",
@@ -1790,12 +1801,10 @@ function DatabaseAudioRecorder({
     const data = await response.json().catch(() => ({}));
     if (response.ok) {
       raw = String(data.rawTranscript || browserDraft).trim();
-      structured = String(data.structuredTranscript || raw).trim();
-      corrections = Array.isArray(data.corrections) ? data.corrections : [];
     }
 
     let knowledgeEntryId: string | null = null;
-    if (raw || structured) {
+    if (raw) {
       const { data: entry, error: entryError } = await supabase
         .from("knowledge_entries")
         .insert({
@@ -1803,8 +1812,8 @@ function DatabaseAudioRecorder({
           node_id: node.id,
           title,
           category: "Rekaman audio",
-          content: structured || raw,
-          raw_content: raw || structured,
+          content: raw,
+          raw_content: raw,
           source_type: "transcript",
         })
         .select("id")
@@ -1815,10 +1824,10 @@ function DatabaseAudioRecorder({
       await supabase
         .from("recordings")
         .update({
-          transcript: structured || raw,
-          raw_transcript: raw || structured,
-          structured_transcript: structured || raw,
-          corrections,
+          transcript: raw,
+          raw_transcript: raw,
+          structured_transcript: raw,
+          corrections: [],
           knowledge_entry_id: knowledgeEntryId,
         })
         .eq("id", row.id);
@@ -1828,8 +1837,8 @@ function DatabaseAudioRecorder({
     setLiveText("");
     transcriptRef.current = "";
     setStatus(
-      raw || structured
-        ? "Rekaman dan transkrip sudah masuk Database."
+      raw
+        ? "Rekaman + transkrip mentah sudah masuk Database. Belum dirapikan atau dikoreksi."
         : "Audio sudah masuk Database. Transkrip belum tersedia; audio tetap bisa didengar ulang."
     );
     onChange();
@@ -1847,16 +1856,16 @@ function DatabaseAudioRecorder({
 
       {liveText && (
         <div className="databaseLiveTranscript">
-          <small>Transkrip langsung</small>
+          <small>Transkrip live · update tiap ±20 detik · verbatim</small>
           <div className="dataText raw">{liveText}</div>
         </div>
       )}
 
       <div className="recordActions compactRecordActions">
         <button className="ghost" type="button" disabled={recording || busy} onClick={start}>
-          {busy ? "Menyimpan..." : "● Rekam audio"}
+          {busy ? "Menyimpan..." : "🎙️ Rekam audio"}
         </button>
-        <button className="stopBtn" type="button" disabled={!recording} onClick={stop}>Stop</button>
+        <button className="stopBtn" type="button" disabled={!recording} onClick={stop}>⏹️ Stop</button>
       </div>
     </div>
   );
@@ -4493,6 +4502,8 @@ function BottomAskBar({
   const askVoiceStreamRef = useRef<MediaStream | null>(null);
   const askVoiceSpeechRef = useRef<any>(null);
   const askVoiceTranscriptRef = useRef("");
+  const askVoiceLiveDraftRef = useRef("");
+  const askVoiceTimerRef = useRef<number | null>(null);
   const askVoiceStartedRef = useRef(0);
   const [askVoiceRecording, setAskVoiceRecording] = useState(false);
   const [askVoiceBusy, setAskVoiceBusy] = useState(false);
@@ -4534,6 +4545,7 @@ function BottomAskBar({
         }
       } catch {}
       askVoiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+      if (askVoiceTimerRef.current) window.clearInterval(askVoiceTimerRef.current);
     };
   }, []);
 
@@ -4871,14 +4883,23 @@ function BottomAskBar({
           interim = (interim + " " + text).trim();
         }
       }
-      const live = (askVoiceTranscriptRef.current + " " + interim).trim();
-      if (live) setQuestion(live);
+      askVoiceLiveDraftRef.current = (askVoiceTranscriptRef.current + " " + interim).trim();
     };
 
     recognition.onerror = () => {};
+    recognition.onend = () => {
+      if (askVoiceSpeechRef.current === recognition && askVoiceRecorderRef.current?.state === "recording") {
+        try { recognition.start(); } catch {}
+      }
+    };
     askVoiceSpeechRef.current = recognition;
     try {
       recognition.start();
+      if (askVoiceTimerRef.current) window.clearInterval(askVoiceTimerRef.current);
+      askVoiceTimerRef.current = window.setInterval(() => {
+        const draft = askVoiceLiveDraftRef.current.trim();
+        if (draft) setQuestion(draft);
+      }, 20000);
       return true;
     } catch {
       askVoiceSpeechRef.current = null;
@@ -4922,6 +4943,7 @@ function BottomAskBar({
 
       askVoiceChunksRef.current = [];
       askVoiceTranscriptRef.current = "";
+      askVoiceLiveDraftRef.current = "";
       askVoiceRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event) => {
@@ -4939,7 +4961,7 @@ function BottomAskBar({
       recorder.start(650);
       const live = startAskSpeechRecognition();
       setAskVoiceRecording(true);
-      setAskVoiceStatus(live ? "Merekam · teks live hanya draft, audio akan dicek ulang setelah Stop." : "Merekam audio...");
+      setAskVoiceStatus(live ? "🎙️ Merekam · transkrip live mentah muncul tiap ±20 detik." : "🎙️ Merekam audio...");
     } catch (error: any) {
       setAskVoiceStatus(
         error?.name === "NotAllowedError"
@@ -4952,8 +4974,14 @@ function BottomAskBar({
   function stopAskVoice() {
     if (!askVoiceRecording) return;
     setAskVoiceRecording(false);
+    const finalDraft = askVoiceLiveDraftRef.current.trim();
+    if (finalDraft) setQuestion(finalDraft);
+    if (askVoiceTimerRef.current) {
+      window.clearInterval(askVoiceTimerRef.current);
+      askVoiceTimerRef.current = null;
+    }
     setAskVoiceBusy(true);
-    setAskVoiceStatus("Menyiapkan teks pertanyaan...");
+    setAskVoiceStatus("Menyiapkan transkrip mentah...");
     try { askVoiceSpeechRef.current?.stop(); } catch {}
     askVoiceSpeechRef.current = null;
     try {
@@ -5006,10 +5034,10 @@ function BottomAskBar({
       return alert(rowError.message);
     }
 
-    const browserDraft = askVoiceTranscriptRef.current.trim() || question.trim();
+    const browserDraft = askVoiceLiveDraftRef.current.trim() || askVoiceTranscriptRef.current.trim() || question.trim();
     let transcript = browserDraft;
 
-    setAskVoiceStatus("Mendengarkan ulang audio asli · fokus bunyi dan vokal...");
+    setAskVoiceStatus("Mendengarkan audio asli secara verbatim · fokus bunyi dan vokal, tanpa koreksi...");
     const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
     const response = await fetch("/api/transcribe", {
       method: "POST",
@@ -5053,7 +5081,7 @@ function BottomAskBar({
     setAskVoiceBusy(false);
     setAskVoiceStatus(
       transcript
-        ? "Transkrip sudah masuk ke teks pertanyaan. Pilih Abaikan atau Simpan ke Database."
+        ? "Transkrip mentah sudah masuk ke teks pertanyaan. Silakan edit sendiri bila perlu, lalu Abaikan atau Simpan ke Database."
         : "Audio siap. Transkrip otomatis belum tersedia; ketik/koreksi pertanyaan lalu simpan atau abaikan."
     );
   }
@@ -5280,7 +5308,7 @@ function BottomAskBar({
             aria-label={askVoiceRecording ? "Stop rekam pertanyaan" : "Rekam pertanyaan"}
             title={askVoiceRecording ? "Stop rekam" : "Rekam pertanyaan"}
           >
-            {askVoiceRecording ? "■" : "●"}
+            {askVoiceRecording ? "⏹️" : "🎙️"}
           </button>
           <textarea
             rows={1}
