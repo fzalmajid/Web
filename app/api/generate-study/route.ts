@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiQuotaError, consumeAiCredits } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
     const sourceNodeId = String(body.sourceNodeId || body.scopeNodeId || "");
     const targetNodeId = String(body.targetNodeId || sourceNodeId || "");
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
+    const aiMode = normalizeAiMode(body.aiMode);
 
     if (!sourceNodeId || !targetNodeId) {
       return NextResponse.json({ error: "Scope materi belum dipilih." }, { status: 400 });
@@ -38,18 +39,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Cabang tujuan tidak ditemukan." }, { status: 404 });
     }
 
-    const sources = await getScopeKnowledge(supabase, sourceNodeId, 40);
+    const sourceLimit = aiMode === "high" ? 60 : aiMode === "medium" ? 48 : 32;
+    const sources = await getScopeKnowledge(supabase, sourceNodeId, sourceLimit);
     if (!sources.length) {
       return NextResponse.json({ error: "Database pada sumber materi ini masih kosong." }, { status: 400 });
     }
 
-    const context = buildKnowledgeContext(sources, 30000);
+    const context = buildKnowledgeContext(sources, aiMode === "high" ? 46000 : aiMode === "medium" ? 36000 : 24000);
 
-    const aiUsage = await consumeAiCredits(supabase, "study");
+    const aiUsage = await consumeAiCredits(supabase, "study", aiMode);
     if (!aiUsage.allowed) {
       return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
     }
 
+    const counts = aiMode === "high" ? { cards: 8, quiz: 5 } : aiMode === "medium" ? { cards: 6, quiz: 4 } : { cards: 4, quiz: 3 };
     const requested = mode === "flashcards"
       ? "Buat flashcards saja. quizzes harus berupa array kosong."
       : mode === "quiz"
@@ -61,29 +64,27 @@ export async function POST(req: NextRequest) {
 
 ${context}
 
-${requested}
-
-Keluarkan JSON valid tanpa markdown:
+${requested}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdown:
 {
   "flashcards":[{"front":"...","back":"..."}],
   "quizzes":[{"question":"...","choices":["A","B","C","D"],"correct_answer":"...","explanation":"..."}]
 }
 
-Maksimal 5 flashcard dan 3 soal. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE.`,
+Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE.`,
     }], "Jangan gunakan pengetahuan di luar database yang diberikan.");
 
     const parsed = JSON.parse(cleanJsonText(raw));
     const uid = userData.user.id;
 
     const flashcards = mode === "quiz" ? [] : Array.isArray(parsed.flashcards)
-      ? parsed.flashcards.slice(0, 5).map((x: any) => ({
+      ? parsed.flashcards.slice(0, counts.cards).map((x: any) => ({
           front: String(x.front || "").trim(),
           back: String(x.back || "").trim(),
         })).filter((x: any) => x.front && x.back)
       : [];
 
     const quizzes = mode === "flashcards" ? [] : Array.isArray(parsed.quizzes)
-      ? parsed.quizzes.slice(0, 3).map((x: any) => {
+      ? parsed.quizzes.slice(0, counts.quiz).map((x: any) => {
           const choices = Array.isArray(x.choices) ? x.choices.slice(0, 4).map((v: any) => String(v).trim()).filter(Boolean) : [];
           return {
             question: String(x.question || "").trim(),
