@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       ? Array.from(new Set(body.sourceNodeIds.map((value: unknown) => String(value)).filter(Boolean)))
       : [];
     const aiMode = normalizeAiMode(body.aiMode);
+    const studyInstruction = String(body.studyInstruction || "").trim().slice(0, 2000);
 
     if (!studyNodeId || !sourceNodeIds.length) {
       return NextResponse.json({ error: "Pilih minimal satu Database untuk Study." }, { status: 400 });
@@ -130,6 +131,7 @@ ${bodyText}`;
           ai_mode: aiMode,
           title: studyNode.title,
           overview: "",
+          focus_instruction: studyInstruction,
           status: "processing",
           error_message: null,
           updated_at: new Date().toISOString(),
@@ -165,6 +167,9 @@ ${studyNode.title}
 SUMBER DATABASE YANG DIPILIH:
 ${sourceContext}
 
+INSTRUKSI KHUSUS USER:
+${studyInstruction || "(Tidak ada. Pelajari seluruh materi relevan dari Database yang dipilih.)"}
+
 Susun jalur belajar dari konsep paling mendasar ke yang lebih kompleks.
 ${aiModeInstruction(aiMode)}
 
@@ -186,6 +191,10 @@ Keluarkan JSON valid tanpa markdown:
 
 Aturan wajib:
 - Gunakan HANYA SUMBER DATABASE di atas. Jangan gunakan internet atau pengetahuan di luar sumber.
+- Jika INSTRUKSI KHUSUS USER tidak kosong, jadikan instruksi itu sebagai fokus/scope utama Study.
+- Jika instruksi user meminta fokus tertentu (misalnya hanya CPOB 2024), prioritaskan hanya materi yang sesuai fokus itu. Materi di luar fokus boleh disebut hanya bila benar-benar diperlukan sebagai konteks atau perbandingan agar fokus utama dipahami.
+- Jika INSTRUKSI KHUSUS USER kosong, pelajari seluruh materi relevan dari Database terpilih secara proporsional.
+- Jangan mengabaikan instruksi user selama masih dapat dipenuhi dari Database yang dipilih.
 - Tentukan sendiri kompleksitas materi:
   - materi sederhana boleh dipecah per BAB saja (unit_level="chapter");
   - materi kompleks boleh dipecah lebih kecil menjadi SUBBAB (unit_level="subchapter").
@@ -256,6 +265,7 @@ Aturan wajib:
         source_node_ids: sourceNodeIds,
         ai_mode: aiMode,
         overview,
+        focus_instruction: studyInstruction,
         status: "ready",
         error_message: null,
         updated_at: new Date().toISOString(),
