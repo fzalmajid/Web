@@ -49,7 +49,10 @@ export async function recordAiTokenUsage(
     thoughts_tokens: thoughts,
     total_tokens: total || input + output + thoughts,
   });
-  if (error) throw error;
+  if (error) {
+    console.warn("[AI_USAGE_RECORD_FAILED]", error.message);
+    return null;
+  }
   return data;
 }
 
@@ -143,6 +146,19 @@ export async function consumeAiCredits(
   });
   if (error) throw error;
   return data as AiUsage;
+}
+
+export async function finalizeAiCredits(
+  supabase: SupabaseClient,
+  action: AiAction,
+  mode: AiMode
+): Promise<AiUsage | null> {
+  try {
+    return await consumeAiCredits(supabase, action, mode);
+  } catch (error: any) {
+    console.warn("[AI_GUARD_FINALIZE_FAILED]", error?.message || "unknown error");
+    return null;
+  }
 }
 
 export function aiQuotaError(usage: AiUsage) {
