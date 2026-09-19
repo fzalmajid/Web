@@ -676,7 +676,8 @@ function DatabasePage({
   const [busy, setBusy] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileStatus, setFileStatus] = useState("");
-  const [aiMode, setAiMode] = useState<AiMode>("simple");
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const aiMode = legacyModeForSelection(aiSelection);
 
   const localEntries = entries.filter((item) => item.node_id === node.id && !item.source_file_id);
   const localFiles = files.filter((item) => item.node_id === node.id);
@@ -747,7 +748,7 @@ function DatabasePage({
     onChange();
     setFileStatus("Sedang diproses...");
 
-    if (aiMode === "simple") {
+    if (aiSelection.model === "local") {
       const localMime = inferMime(selectedFile);
       const localSupported =
         localMime.startsWith("text/") ||
@@ -760,9 +761,9 @@ function DatabasePage({
           error_message: "Format ini membutuhkan Gemini. Pilih Instant, Medium, atau High.",
         }).eq("id", row.id);
         setFileBusy(false);
-        setFileStatus("Simple · Local belum mendukung format ini.");
+        setFileStatus("Local belum mendukung format ini.");
         onChange();
-        return alert("Simple · Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih Instant, Medium, atau High (Gemini).");
+        return alert("Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih model Gemini.");
       }
 
       const rawText = (await selectedFile.text()).trim();
@@ -802,14 +803,14 @@ function DatabasePage({
 
       setSelectedFile(null);
       setFileBusy(false);
-      setFileStatus("Selesai dengan Simple · Local · 0 cr.");
+      setFileStatus("Selesai dengan Local · tanpa API.");
       onChange();
       return;
     }
 
     const response = await fetch("/api/import-file", {
       method: "POST",
-      headers: aiRequestHeaders(session),
+      headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
         sourceFileId: row.id,
         filePath: path,
@@ -886,8 +887,8 @@ function DatabasePage({
               onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
             />
             <AiModePicker
-              value={aiMode}
-              onChange={setAiMode}
+              value={aiSelection}
+              onChange={setAiSelection}
               action={selectedFile && isHeavyFile(selectedFile) ? "file_heavy" : "file_light"}
             />
             <button className="primary" disabled={!selectedFile || fileBusy}>
@@ -2075,7 +2076,7 @@ function RecordingPage({
       setStatus("Sedang merekam...");
       recorder.start(750);
 
-      if (aiMode === "simple") {
+      if (aiSelection.model === "local") {
         const started = startBrowserSpeech(false);
         if (!started) {
           setStatus("Sedang merekam. Transkrip browser tidak tersedia; audio tetap disimpan.");
@@ -2158,7 +2159,7 @@ function RecordingPage({
       return alert(error.message);
     }
 
-    if (aiMode === "simple") {
+    if (aiSelection.model === "local") {
       if (!currentLiveTranscript) {
         setBusy(false);
         setStatus("Audio tersimpan. Browser tidak menghasilkan transkrip live.");
@@ -2252,7 +2253,7 @@ function RecordingPage({
   }
 
   async function retryTranscription(item: Recording) {
-    if (aiMode === "simple") {
+    if (aiSelection.model === "local") {
       return alert("Transkrip ulang audio tersimpan membutuhkan mode Gemini. Pilih Instant, Medium, atau High.");
     }
 
@@ -2658,7 +2659,7 @@ function PracticePage({
   async function generate() {
     if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada database sumber.");
 
-    if (aiMode === "simple") {
+    if (aiSelection.model === "local") {
       setBusy(true);
       const scopeIds = collectSubtreeIds(nodes, node.parent_id);
       const sourceEntries = entries.filter((item) => scopeIds.includes(item.node_id));
@@ -2797,7 +2798,7 @@ function PracticePage({
     if (!allAnswered) return;
 
     if (aiQuizzes.length) {
-      if (aiMode === "simple") {
+      if (aiSelection.model === "local") {
         return alert("Soal yang dinilai AI membutuhkan mode Gemini. Pilih Instant, Medium, atau High terlebih dahulu.");
       }
 
@@ -3442,7 +3443,7 @@ function BottomAskBar({
     setWebSources([]);
     setWarning("");
 
-    if (aiMode === "simple") {
+    if (aiSelection.model === "local") {
       const local = answerLocally(question.trim());
       setAnswer(local.text);
       setAnswerModel("Browser / Local");
