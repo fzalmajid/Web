@@ -3243,12 +3243,15 @@ function BottomAskBar({
   entries: KnowledgeEntry[];
   nodes: StudyNode[];
 }) {
+  type KnowledgeMode = "database" | "hybrid" | "web";
+
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [answerModel, setAnswerModel] = useState("");
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
-  const [publicWeb, setPublicWeb] = useState(false);
+  const [knowledgeMode, setKnowledgeMode] = useState<KnowledgeMode>("database");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [aiMode, setAiMode] = useState<AiMode>("simple");
@@ -3258,8 +3261,10 @@ function BottomAskBar({
   const composerRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
-    if (aiMode === "simple" && publicWeb) setPublicWeb(false);
-  }, [aiMode, publicWeb]);
+    if (aiMode === "simple" && knowledgeMode !== "database") {
+      setKnowledgeMode("database");
+    }
+  }, [aiMode, knowledgeMode]);
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem("rb-composer-bottom") || "16");
@@ -3354,6 +3359,12 @@ function BottomAskBar({
     };
   }
 
+  function knowledgeModeLabel(mode: KnowledgeMode) {
+    if (mode === "web") return "Web + Database";
+    if (mode === "hybrid") return "AI + Database";
+    return "Database";
+  }
+
   async function ask(e: FormEvent) {
     e.preventDefault();
     if (!question.trim()) return;
@@ -3361,6 +3372,7 @@ function BottomAskBar({
     setBusy(true);
     setOpen(true);
     setAnswer("");
+    setAnswerModel("");
     setSources([]);
     setWebSources([]);
     setWarning("");
@@ -3368,6 +3380,7 @@ function BottomAskBar({
     if (aiMode === "simple") {
       const local = answerLocally(question.trim());
       setAnswer(local.text);
+      setAnswerModel("Browser / Local");
       setSources(local.refs);
       setBusy(false);
       return;
@@ -3379,27 +3392,28 @@ function BottomAskBar({
         "Content-Type": "application/json",
         Authorization: "Bearer " + session.access_token,
       },
-      body: JSON.stringify({ question, scopeNodeId, aiMode, publicWeb }),
+      body: JSON.stringify({ question, scopeNodeId, aiMode, knowledgeMode }),
     });
 
     const data = await response.json();
     setBusy(false);
 
     if (!response.ok) {
-      if (data.webSearchUnavailable) {
-        setWarning("Public Web tidak tersedia pada quota Google Search Grounding project ini. Credit Web tidak dipotong.");
-        setPublicWeb(false);
-      }
       setAnswer(data.error || "Terjadi kesalahan.");
       return;
     }
 
     setAnswer(data.answer || "");
+    setAnswerModel(String(data.model || ""));
     setSources(data.sources || []);
     setWebSources(data.webSources || []);
     setWarning(data.warning || "");
-    if (data.webFallback) setPublicWeb(false);
+    if (data.knowledgeMode === "hybrid" || data.knowledgeMode === "web" || data.knowledgeMode === "database") {
+      setKnowledgeMode(data.knowledgeMode);
+    }
   }
+
+  const activeKnowledgeLabel = knowledgeModeLabel(knowledgeMode);
 
   return (
     <>
@@ -3407,13 +3421,28 @@ function BottomAskBar({
         <div className="aiAnswer" style={{ bottom: composerBottom + composerHeight + 12 }}>
           <div className="aiAnswerHead">
             <div>
-              <small title={scopeName}>{aiMode === "simple" ? "Simple · Local" : aiMode[0].toUpperCase() + aiMode.slice(1) + " · Gemini 3.6"}{publicWeb ? " · Public Web" : ""} · {scopeName}</small>
+              <small title={scopeName}>
+                {aiMode === "simple" ? "Simple · Browser" : aiMode[0].toUpperCase() + aiMode.slice(1)}
+                {" · "}{activeKnowledgeLabel}
+                {answerModel ? " · " + answerModel : ""}
+                {" · "}{scopeName}
+              </small>
               <strong>{question}</strong>
             </div>
             <button onClick={() => setOpen(false)}>×</button>
           </div>
           {warning && <div className="aiWarning"><RichText text={warning} /></div>}
-          <div className="aiAnswerBody">{busy ? (aiMode === "simple" ? "Mencari secara Local..." : "Mencari di Database...") : <RichText text={answer || "..."} />}</div>
+          <div className="aiAnswerBody">
+            {busy
+              ? aiMode === "simple"
+                ? "Mencari secara lokal di Database..."
+                : knowledgeMode === "web"
+                  ? "Mencari di Database dan Web..."
+                  : knowledgeMode === "hybrid"
+                    ? "Menganalisis Database + pengetahuan AI..."
+                    : "Mencari di Database..."
+              : <RichText text={answer || "..."} />}
+          </div>
           {(!!sources.length || !!webSources.length) && (
             <div className="aiSources">
               {sources.map((source) => (
@@ -3436,16 +3465,40 @@ function BottomAskBar({
         <div className="askTopRow">
           <div className="askScope" title={scopeName}>AI · {scopeName}</div>
           <div className="askControls">
-            <button
-              type="button"
-              className={publicWeb ? "webToggle active" : "webToggle"}
-              disabled={aiMode === "simple"}
-              onClick={() => setPublicWeb((current) => !current)}
-              title={aiMode === "simple" ? "Public Web membutuhkan Gemini 3.6" : "Izinkan Gemini 3.6 memakai Google Search"}
-            >
-              🌐 {publicWeb ? "Web ON" : "Web OFF"}
-            </button>
-            <AiModePicker value={aiMode} onChange={setAiMode} action={publicWeb ? "ask_web" : "ask"} compact />
+            <div className="knowledgeModePicker" role="group" aria-label="Sumber jawaban">
+              <button
+                type="button"
+                className={knowledgeMode === "database" ? "active" : ""}
+                onClick={() => setKnowledgeMode("database")}
+                title="Jawab hanya dari Database yang dipilih"
+              >
+                DB
+              </button>
+              <button
+                type="button"
+                className={knowledgeMode === "hybrid" ? "active" : ""}
+                disabled={aiMode === "simple"}
+                onClick={() => setKnowledgeMode("hybrid")}
+                title="Database utama + pengetahuan internal model, tanpa browsing"
+              >
+                AI+DB
+              </button>
+              <button
+                type="button"
+                className={knowledgeMode === "web" ? "active" : ""}
+                disabled={aiMode === "simple"}
+                onClick={() => setKnowledgeMode("web")}
+                title="Database + Google Search"
+              >
+                🌐 Web
+              </button>
+            </div>
+            <AiModePicker
+              value={aiMode}
+              onChange={setAiMode}
+              action={knowledgeMode === "web" ? "ask_web" : "ask"}
+              compact
+            />
           </div>
         </div>
         <textarea
@@ -3457,7 +3510,13 @@ function BottomAskBar({
             el.style.height = "auto";
             el.style.height = Math.min(el.scrollHeight, 140) + "px";
           }}
-          placeholder="Tanya sesuatu dari Database..."
+          placeholder={
+            knowledgeMode === "web"
+              ? "Tanya dari Database + Web..."
+              : knowledgeMode === "hybrid"
+                ? "Tanya dari Database + pengetahuan AI..."
+                : "Tanya sesuatu dari Database..."
+          }
         />
         <button className="sendAsk" disabled={busy || !question.trim()}>{busy ? "..." : "↑"}</button>
       </form>
