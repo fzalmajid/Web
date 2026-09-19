@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, geminiModelsForMode, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
@@ -75,8 +75,10 @@ ${requested}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdow
 }
 
 Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
-    }], "Jangan gunakan pengetahuan di luar database yang diberikan.");
-    await recordAiTokenUsage(supabase, geminiResult.usage);
+    }], "Jangan gunakan pengetahuan di luar database yang diberikan.", {
+      models: geminiModelsForMode(aiMode, "standard"),
+    });
+    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model);
     const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
