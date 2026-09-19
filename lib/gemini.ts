@@ -93,14 +93,23 @@ function normalizeProviderError(
   const modelUnavailable =
     response.status === 404 ||
     /model.*not found|model.*not available|not supported.*model|unsupported model/i.test(providerMessage);
+  const modelConfigInvalid =
+    response.status === 400 &&
+    /thinking|temperature|generation.?config|unsupported.*parameter|invalid argument/i.test(providerMessage);
 
-  if (modelUnavailable) return new GeminiModelUnavailableError();
+  if (modelUnavailable || modelConfigInvalid) return new GeminiModelUnavailableError(
+    modelConfigInvalid
+      ? "Konfigurasi model ini tidak cocok untuk request tersebut. Sistem mencoba model fallback."
+      : undefined
+  );
   if (quotaLike && googleSearch) return new GeminiWebSearchQuotaError();
   if (quotaLike) return new GeminiQuotaError();
   if (busyLike) return new GeminiUnavailableError();
 
   return new GeminiApiError(
-    "Gemini API gagal memproses permintaan ini.",
+    response.status === 400
+      ? "Request tidak kompatibel dengan model yang dipilih. Coba model lain atau ubah tingkat penalaran."
+      : "Gemini belum dapat memproses permintaan ini. Coba model lain.",
     response.status >= 400 && response.status < 600 ? response.status : 500
   );
 }
@@ -157,7 +166,10 @@ export async function geminiGenerateDetailed(
             contents: [{ role: "user", parts }],
             tools: options?.googleSearch ? [{ google_search: {} }] : undefined,
             generationConfig: {
-              temperature: model === "gemini-3.5-transcribe" ? undefined : 0.2,
+              temperature:
+                model === "gemini-3.5-transcribe" || model.startsWith("gemini-3")
+                  ? undefined
+                  : 0.2,
               maxOutputTokens: 8192,
               thinkingConfig: thinkingConfigForModel(model, options?.effort || "none"),
               audioTranscriptionConfig:
