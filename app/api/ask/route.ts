@@ -62,8 +62,8 @@ export async function POST(req: NextRequest) {
         {
           error:
             knowledgeMode === "web"
-              ? "Web + Database membutuhkan Gemini. Pilih Instant, Medium, atau High."
-              : "AI + Database membutuhkan Gemini. Pilih Instant, Medium, atau High.",
+              ? "Web + Database membutuhkan Gemini. Pilih salah satu model Gemini."
+              : "AI + Database membutuhkan Gemini. Pilih salah satu model Gemini.",
         },
         { status: 400 }
       );
