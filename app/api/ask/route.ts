@@ -10,7 +10,7 @@ import {
   aiModeInstruction,
   aiQuotaError,
   checkAiCredits,
-  consumeAiCredits,
+  finalizeAiCredits,
   normalizeAiMode,
   recordAiTokenUsage,
 } from "@/lib/aiQuota";
@@ -130,7 +130,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
         );
 
         await recordAiTokenUsage(supabase, result.usage);
-        const aiUsage = await consumeAiCredits(supabase, "ask_web", aiMode);
+        const aiUsage = await finalizeAiCredits(supabase, "ask_web", aiMode);
 
         return NextResponse.json({
           answer: result.text,
@@ -170,7 +170,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
         );
 
         await recordAiTokenUsage(supabase, fallbackResult.usage);
-        const aiUsage = await consumeAiCredits(supabase, "ask", aiMode);
+        const aiUsage = await finalizeAiCredits(supabase, "ask", aiMode);
 
         return NextResponse.json({
           answer: fallbackResult.text,
@@ -201,7 +201,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal."
     );
     await recordAiTokenUsage(supabase, result.usage);
-    const aiUsage = await consumeAiCredits(supabase, "ask", aiMode);
+    const aiUsage = await finalizeAiCredits(supabase, "ask", aiMode);
 
     return NextResponse.json({
       answer: result.text,
