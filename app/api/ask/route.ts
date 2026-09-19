@@ -7,6 +7,7 @@ import {
 } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge, searchScopeKnowledge } from "@/lib/knowledge";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
+import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import {
   aiModeInstruction,
   aiQuotaError,
@@ -43,8 +44,8 @@ export async function POST(req: NextRequest) {
     const scopeNodeId = body.scopeNodeId ?? null;
     const aiMode = normalizeAiMode(body.aiMode ?? "instant");
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
-    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
-    const ownGemini = Boolean(userGeminiKey);
+    const geminiAuth = geminiUserAuthFromHeaders(req.headers);
+    const ownGemini = geminiAuth.ownGemini;
     const knowledgeMode: KnowledgeMode =
       body.knowledgeMode === "hybrid" || body.knowledgeMode === "web"
         ? body.knowledgeMode
@@ -167,11 +168,13 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
             googleSearch: true,
             models: modelPlanForSelection(aiSelection.model, aiMode, "web"),
             effort: aiSelection.effort,
-            apiKey: userGeminiKey,
+            apiKey: geminiAuth.apiKey,
+      accessToken: geminiAuth.accessToken,
+      projectId: geminiAuth.projectId,
           }
         );
 
-        await recordAiTokenUsage(supabase, result.usage, result.model, ownGemini ? "user-api-key" : "shared-api-key");
+        await recordAiTokenUsage(supabase, result.usage, result.model, geminiAuth.provider);
         const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "ask_web", aiMode);
 
         return NextResponse.json({
@@ -184,7 +187,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
           webFallback: false,
           model: result.model,
           aiUsage,
-          provider: ownGemini ? "user-api-key" : "shared-api-key",
+          provider: geminiAuth.provider,
         });
       } catch (error) {
         if (!isWebSearchQuotaError(error)) throw error;
@@ -195,11 +198,13 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
           {
             models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
             effort: aiSelection.effort,
-            apiKey: userGeminiKey,
+            apiKey: geminiAuth.apiKey,
+      accessToken: geminiAuth.accessToken,
+      projectId: geminiAuth.projectId,
           }
         );
 
-        await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model, ownGemini ? "user-api-key" : "shared-api-key");
+        await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model, geminiAuth.provider);
         const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "ask", aiMode);
 
         return NextResponse.json({
@@ -214,7 +219,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
             "Google Search tidak tersedia untuk request ini. Sistem otomatis beralih ke AI + Database tanpa browsing.",
           model: fallbackResult.model,
           aiUsage,
-          provider: ownGemini ? "user-api-key" : "shared-api-key",
+          provider: geminiAuth.provider,
         });
       }
     }
@@ -234,11 +239,13 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       {
             models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
             effort: aiSelection.effort,
-            apiKey: userGeminiKey,
+            apiKey: geminiAuth.apiKey,
+      accessToken: geminiAuth.accessToken,
+      projectId: geminiAuth.projectId,
           }
     );
 
-    await recordAiTokenUsage(supabase, result.usage, result.model, ownGemini ? "user-api-key" : "shared-api-key");
+    await recordAiTokenUsage(supabase, result.usage, result.model, geminiAuth.provider);
     const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, action, aiMode);
 
     return NextResponse.json({
@@ -251,7 +258,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       webFallback: false,
       model: result.model,
       aiUsage,
-      provider: ownGemini ? "user-api-key" : "shared-api-key",
+      provider: geminiAuth.provider,
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
