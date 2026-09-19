@@ -1819,3 +1819,65 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   align-items:center;
   gap:7px;
 }
+
+
+/* Model-first AI picker */
+.aiModelPopover{
+  width:min(430px,calc(100vw - 32px));
+}
+.aiEffortGrid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:7px;
+  padding:4px;
+}
+.aiEffortOption{
+  display:grid;
+  gap:3px;
+  min-height:58px;
+  padding:9px 10px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--card);
+  color:var(--ink);
+  text-align:left;
+}
+.aiEffortOption:hover,
+.aiEffortOption.active{
+  border-color:#9db8ad;
+  background:#eef5f2;
+}
+.aiEffortOption strong{
+  font-size:.78rem;
+}
+.aiEffortOption small{
+  color:var(--muted);
+  font-size:.66rem;
+  line-height:1.3;
+}
+.gptComposer .aiModePopover button.aiEffortOption{
+  width:auto !important;
+  height:auto !important;
+  border:1px solid var(--line) !important;
+  border-radius:12px !important;
+  background:var(--card) !important;
+  color:var(--ink) !important;
+  padding:9px 10px !important;
+  display:grid !important;
+  grid-template-columns:1fr !important;
+  gap:3px !important;
+  text-align:left !important;
+  box-shadow:none !important;
+}
+.gptComposer .aiModePopover button.aiEffortOption.active{
+  background:#eef5f2 !important;
+  border-color:#9db8ad !important;
+}
+@media(max-width:620px){
+  .aiEffortGrid{
+    grid-template-columns:1fr;
+  }
+  .aiModelPopover{
+    width:min(360px,calc(100vw - 24px));
+  }
+}
