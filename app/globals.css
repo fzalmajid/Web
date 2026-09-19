@@ -983,3 +983,26 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     white-space:normal;
   }
 }
+
+
+/* Keep AI response visible above the movable composer */
+.pageShell{padding-bottom:260px}
+.aiAnswerHead small{
+  display:block;
+  max-width:min(78vw,760px);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.askTopRow .askScope{
+  max-width:min(55vw,520px);
+}
+@media(max-width:620px){
+  .pageShell{padding-bottom:230px}
+  .aiAnswer{
+    max-height:46vh;
+  }
+  .aiAnswerHead small{
+    max-width:76vw;
+  }
+}
