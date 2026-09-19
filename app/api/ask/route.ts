@@ -42,6 +42,8 @@ export async function POST(req: NextRequest) {
     const question = body.question;
     const scopeNodeId = body.scopeNodeId ?? null;
     const aiMode = normalizeAiMode(body.aiMode ?? "instant");
+    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
+    const ownGemini = Boolean(userGeminiKey);
     const knowledgeMode: KnowledgeMode =
       body.knowledgeMode === "hybrid" || body.knowledgeMode === "web"
         ? body.knowledgeMode
@@ -151,8 +153,8 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
     }));
 
     if (knowledgeMode === "web") {
-      const preflight = await checkAiCredits(supabase, "ask_web", aiMode);
-      if (!preflight.allowed) {
+      const preflight = ownGemini ? null : await checkAiCredits(supabase, "ask_web", aiMode);
+      if (preflight && !preflight.allowed) {
         return NextResponse.json(aiQuotaError(preflight), { status: 429 });
       }
 
@@ -160,11 +162,11 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
         const result = await geminiGenerateDetailed(
           [{ text: webPrompt }],
           "Anda adalah tutor Ruang Belajar. Database pribadi tetap prioritas dan Google Search boleh dipakai karena pengguna memilih Web + Database.",
-          { googleSearch: true, models: geminiModelsForMode(aiMode, "web") }
+          { googleSearch: true, models: geminiModelsForMode(aiMode, "web"), apiKey: userGeminiKey }
         );
 
         await recordAiTokenUsage(supabase, result.usage, result.model);
-        const aiUsage = await finalizeAiCredits(supabase, "ask_web", aiMode);
+        const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "ask_web", aiMode);
 
         return NextResponse.json({
           answer: result.text,
@@ -176,6 +178,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
           webFallback: false,
           model: result.model,
           aiUsage,
+          provider: ownGemini ? "user-api-key" : "shared-api-key",
         });
       } catch (error) {
         if (!isWebSearchQuotaError(error)) throw error;
@@ -183,11 +186,11 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
         const fallbackResult = await geminiGenerateDetailed(
           [{ text: hybridPrompt }],
           "Anda adalah tutor Ruang Belajar. Gunakan Database sebagai konteks utama dan pengetahuan internal model sebagai pelengkap. Jangan browsing internet.",
-          { models: geminiModelsForMode(aiMode, "standard") }
+          { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
         );
 
         await recordAiTokenUsage(supabase, fallbackResult.usage, fallbackResult.model);
-        const aiUsage = await finalizeAiCredits(supabase, "ask", aiMode);
+        const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "ask", aiMode);
 
         return NextResponse.json({
           answer: fallbackResult.text,
@@ -201,13 +204,14 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
             "Google Search tidak tersedia untuk request ini. Sistem otomatis beralih ke AI + Database tanpa browsing.",
           model: fallbackResult.model,
           aiUsage,
+          provider: ownGemini ? "user-api-key" : "shared-api-key",
         });
       }
     }
 
     const action = "ask";
-    const preflight = await checkAiCredits(supabase, action, aiMode);
-    if (!preflight.allowed) {
+    const preflight = ownGemini ? null : await checkAiCredits(supabase, action, aiMode);
+    if (preflight && !preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
@@ -217,11 +221,11 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       useHybrid
         ? "Anda adalah tutor Ruang Belajar. Database adalah referensi utama; pengetahuan internal model boleh dipakai sebagai pelengkap dan harus dibedakan."
         : "Anda adalah tutor Ruang Belajar yang terikat ketat pada database yang diberikan. Jangan memakai pengetahuan eksternal.",
-      { models: geminiModelsForMode(aiMode, "standard") }
+      { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
     );
 
     await recordAiTokenUsage(supabase, result.usage, result.model);
-    const aiUsage = await finalizeAiCredits(supabase, action, aiMode);
+    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, action, aiMode);
 
     return NextResponse.json({
       answer: result.text,
@@ -233,6 +237,7 @@ ${WHATSAPP_FORMAT_INSTRUCTION}`;
       webFallback: false,
       model: result.model,
       aiUsage,
+      provider: ownGemini ? "user-api-key" : "shared-api-key",
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
