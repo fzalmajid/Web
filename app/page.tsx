@@ -4,9 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import {
+  AI_MODEL_CATALOG,
+  defaultSelection,
+  legacyModeForSelection,
+  modelCapability,
+  selectionFromLegacyMode,
+  type AiEffort,
+  type AiModelId,
+  type AiSelection,
+} from "@/lib/aiModels";
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study";
-type AiMode = "simple" | "instant" | "medium" | "high";
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
   id: string;
@@ -86,6 +95,8 @@ type StudyPath = {
   node_id: string;
   source_node_ids: string[];
   ai_mode: "instant" | "medium" | "high";
+  ai_model?: AiModelId | null;
+  ai_effort?: AiEffort | null;
   title: string;
   overview: string;
   focus_instruction: string;
@@ -110,13 +121,6 @@ type StudyUnit = {
   completed_at: string | null;
 };
 
-const aiModes: Array<{ value: AiMode; label: string; provider: "Local" | "Gemini"; hint: string; model: string }> = [
-  { value: "simple", label: "Simple", provider: "Local", hint: "Browser · tanpa Gemini API", model: "Browser" },
-  { value: "instant", label: "Instant", provider: "Gemini", hint: "Cepat · Free-first", model: "Gemini 2.5 Flash-Lite" },
-  { value: "medium", label: "Medium", provider: "Gemini", hint: "Lebih teliti · Free-first", model: "Gemini 2.5 Flash" },
-  { value: "high", label: "High", provider: "Gemini", hint: "Paling mendalam · fallback otomatis", model: "Gemini 3.6 Flash" },
-];
-
 const nodeEmojis = ["📚","🧠","📝","🎓","💊","🧪","🔬","📖","🎙️","🗂️","✨","🌱","💡","📌","✅","⭐","🧬","🧫","⚗️","🏥","💉","🩺","🧴","🧾","📂","📁","📊","📈","📉","🧩","❓","❗","🧮","🧭","🗒️","📒","📓","📔","📕","📗","📘","📙","🎧","🎤","🎥","🖼️","🧑‍⚕️","👩‍🔬","👨‍🔬","🧑‍🏫","🏆","🎯","⏱️","🔖","🧷","🪄","🌟","🔥","💬","🗃️","🧱","🔎","🧷"];
 const nodeColors = [
   { value: "default", label: "Default" },
@@ -133,12 +137,13 @@ function getSessionGeminiKey() {
   return String(window.sessionStorage.getItem("rb-user-gemini-key") || "").trim();
 }
 
-function aiRequestHeaders(session: Session) {
+function aiRequestHeaders(session: Session, selection?: AiSelection) {
   const key = getSessionGeminiKey();
   return {
     "Content-Type": "application/json",
     Authorization: "Bearer " + session.access_token,
     ...(key ? { "X-RB-Gemini-Key": key } : {}),
+    ...(selection ? { "X-RB-AI-Model": selection.model, "X-RB-AI-Effort": selection.effort } : {}),
   };
 }
 
