@@ -4018,9 +4018,9 @@ function GeminiAccountConnection({ session }: { session: Session }) {
       <button
         className={connected ? "geminiConnect connected" : "geminiConnect"}
         onClick={() => setOpen(true)}
-        title={connected ? "Gemini sendiri aktif · " + providerLabel : "Hubungkan Gemini milik user"}
+        title={connected ? "Integrasi Gemini aktif · " + providerLabel : "Hubungkan akun Google"}
       >
-        {connected ? "Gemini sendiri ✓" : "Gemini sendiri"}
+        {provider === "google" ? "Google terhubung ✓" : provider === "api-key" ? "Gemini terhubung ✓" : "Hubungkan Google"}
       </button>
 
       {open && (
