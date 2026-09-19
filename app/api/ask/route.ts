@@ -20,6 +20,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Pertanyaan terlalu pendek." }, { status: 400 });
     }
 
+    if (aiMode === "simple") {
+      return NextResponse.json({ error: "Mode Simple diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
+    }
+
     const supabase = createServerSupabase(token);
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData.user) {
