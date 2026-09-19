@@ -3134,7 +3134,10 @@ function ThemePicker({
 
 function AiCreditBadge() {
   const [remaining, setRemaining] = useState<number | null>(null);
-  const [limit, setLimit] = useState(40);
+  const [limit, setLimit] = useState(400);
+  const [activeAccounts, setActiveAccounts] = useState(1);
+  const [poolUsed, setPoolUsed] = useState(0);
+  const [poolTotal, setPoolTotal] = useState(400);
 
   useEffect(() => {
     let active = true;
@@ -3142,8 +3145,11 @@ function AiCreditBadge() {
     async function load() {
       const { data } = await supabase.rpc("get_ai_usage_today");
       if (!active || !data) return;
-      setRemaining(Number(data.remaining ?? 40));
-      setLimit(Number(data.limit ?? 40));
+      setRemaining(Number(data.remaining ?? 400));
+      setLimit(Number(data.limit ?? 400));
+      setActiveAccounts(Number(data.actual_active_accounts ?? data.active_accounts ?? 1) || 1);
+      setPoolUsed(Number(data.pool_used ?? 0));
+      setPoolTotal(Number(data.pool_total ?? 400));
     }
 
     void load();
@@ -3156,8 +3162,18 @@ function AiCreditBadge() {
   }, []);
 
   return (
-    <span className="aiCreditPill">
-      AI hari ini: {remaining === null ? "..." : remaining + "/" + limit}
+    <span
+      className="aiCreditPill"
+      title={
+        activeAccounts +
+        " akun aktif hari ini · Pool bersama " +
+        poolUsed +
+        "/" +
+        poolTotal +
+        " credit terpakai"
+      }
+    >
+      AI {remaining === null ? "..." : remaining + "/" + limit} · {activeAccounts} aktif
     </span>
   );
 }
