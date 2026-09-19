@@ -1,6 +1,12 @@
 export type AiModelId =
   | "local"
+  | "gemini-3.8-flash"
+  | "gemini-3.7-flash"
   | "gemini-3.6-flash"
+  | "gemini-3.5-flash"
+  | "gemini-3.5-flash-lite"
+  | "gemini-3.1-flash-lite"
+  | "gemini-2.5-pro"
   | "gemini-2.5-flash"
   | "gemini-2.5-flash-lite"
   | "gemini-3.5-transcribe";
@@ -28,65 +34,139 @@ export type AiModelCapability = {
   contexts: Array<"general" | "transcription">;
   efforts: Array<{ value: AiEffort; label: string; hint: string }>;
   defaultEffort: AiEffort;
+  freeTier: boolean;
+  freeWeb?: boolean;
 };
+
+const LEVEL_3X_ALL: AiModelCapability["efforts"] = [
+  { value: "minimal", label: "Minimal", hint: "Penalaran paling ringan" },
+  { value: "low", label: "Low", hint: "Cepat, reasoning ringan" },
+  { value: "medium", label: "Medium", hint: "Seimbang" },
+  { value: "high", label: "High", hint: "Penalaran paling dalam" },
+];
+
+const LEVEL_3X_LMH: AiModelCapability["efforts"] = [
+  { value: "low", label: "Low", hint: "Cepat, reasoning ringan" },
+  { value: "medium", label: "Medium", hint: "Seimbang" },
+  { value: "high", label: "High", hint: "Penalaran paling dalam" },
+];
+
+const LEVEL_25: AiModelCapability["efforts"] = [
+  { value: "off", label: "Off", hint: "Thinking budget 0" },
+  { value: "low", label: "Low", hint: "Thinking budget ringan" },
+  { value: "medium", label: "Medium", hint: "Thinking budget sedang" },
+  { value: "high", label: "High", hint: "Thinking budget tinggi" },
+  { value: "dynamic", label: "Dynamic", hint: "Model mengatur budget otomatis" },
+];
+
+const LEVEL_25_PRO: AiModelCapability["efforts"] = [
+  { value: "low", label: "Low", hint: "Thinking budget ringan" },
+  { value: "medium", label: "Medium", hint: "Thinking budget sedang" },
+  { value: "high", label: "High", hint: "Thinking budget tinggi" },
+  { value: "dynamic", label: "Dynamic", hint: "Model mengatur budget otomatis" },
+];
 
 export const AI_MODEL_CATALOG: AiModelCapability[] = [
   {
     id: "local",
     label: "Local",
-    subtitle: "Tanpa Gemini API",
+    subtitle: "Tanpa Gemini · Database/browser",
     contexts: ["general", "transcription"],
     efforts: [],
     defaultEffort: "none",
+    freeTier: true,
+  },
+  {
+    id: "gemini-3.8-flash",
+    label: "Gemini 3.8 Flash",
+    subtitle: "Terbaru · Flash paling cerdas",
+    contexts: ["general", "transcription"],
+    efforts: LEVEL_3X_LMH,
+    defaultEffort: "medium",
+    freeTier: true,
+  },
+  {
+    id: "gemini-3.7-flash",
+    label: "Gemini 3.7 Flash",
+    subtitle: "Cepat · multi-step stabil",
+    contexts: ["general", "transcription"],
+    efforts: LEVEL_3X_LMH,
+    defaultEffort: "medium",
+    freeTier: true,
   },
   {
     id: "gemini-3.6-flash",
     label: "Gemini 3.6 Flash",
-    subtitle: "Reasoning Gemini 3",
+    subtitle: "Multimodal · reasoning fleksibel",
     contexts: ["general", "transcription"],
-    efforts: [
-      { value: "minimal", label: "Minimal", hint: "Penalaran sangat ringan" },
-      { value: "low", label: "Low", hint: "Lebih cepat" },
-      { value: "medium", label: "Medium", hint: "Seimbang · default model" },
-      { value: "high", label: "High", hint: "Penalaran paling dalam" },
-    ],
+    efforts: LEVEL_3X_ALL,
     defaultEffort: "medium",
+    freeTier: true,
+  },
+  {
+    id: "gemini-3.5-flash",
+    label: "Gemini 3.5 Flash",
+    subtitle: "Flash stabil · fallback kuat",
+    contexts: ["general", "transcription"],
+    efforts: LEVEL_3X_ALL,
+    defaultEffort: "medium",
+    freeTier: true,
+  },
+  {
+    id: "gemini-3.5-flash-lite",
+    label: "Gemini 3.5 Flash-Lite",
+    subtitle: "Hemat · volume tinggi",
+    contexts: ["general", "transcription"],
+    efforts: LEVEL_3X_ALL,
+    defaultEffort: "low",
+    freeTier: true,
+  },
+  {
+    id: "gemini-3.1-flash-lite",
+    label: "Gemini 3.1 Flash-Lite",
+    subtitle: "Ringan · fallback hemat",
+    contexts: ["general", "transcription"],
+    efforts: LEVEL_3X_ALL,
+    defaultEffort: "low",
+    freeTier: true,
+  },
+  {
+    id: "gemini-2.5-pro",
+    label: "Gemini 2.5 Pro",
+    subtitle: "Reasoning Pro · tugas kompleks",
+    contexts: ["general", "transcription"],
+    efforts: LEVEL_25_PRO,
+    defaultEffort: "dynamic",
+    freeTier: true,
   },
   {
     id: "gemini-2.5-flash",
     label: "Gemini 2.5 Flash",
-    subtitle: "Cepat, Free Tier tersedia",
+    subtitle: "Free Tier · Web gratis tersedia",
     contexts: ["general", "transcription"],
-    efforts: [
-      { value: "off", label: "Off", hint: "Thinking budget 0" },
-      { value: "low", label: "Low", hint: "Thinking budget ringan" },
-      { value: "medium", label: "Medium", hint: "Thinking budget sedang" },
-      { value: "high", label: "High", hint: "Thinking budget tinggi" },
-      { value: "dynamic", label: "Dynamic", hint: "Model mengatur budget otomatis" },
-    ],
+    efforts: LEVEL_25,
     defaultEffort: "dynamic",
+    freeTier: true,
+    freeWeb: true,
   },
   {
     id: "gemini-2.5-flash-lite",
     label: "Gemini 2.5 Flash-Lite",
-    subtitle: "Paling hemat, Free Tier tersedia",
+    subtitle: "Paling hemat · Web gratis tersedia",
     contexts: ["general", "transcription"],
-    efforts: [
-      { value: "off", label: "Off", hint: "Tanpa thinking · default model" },
-      { value: "low", label: "Low", hint: "Thinking ringan" },
-      { value: "medium", label: "Medium", hint: "Thinking sedang" },
-      { value: "high", label: "High", hint: "Thinking tinggi" },
-      { value: "dynamic", label: "Dynamic", hint: "Model mengatur budget otomatis" },
-    ],
+    efforts: LEVEL_25,
     defaultEffort: "off",
+    freeTier: true,
+    freeWeb: true,
   },
   {
     id: "gemini-3.5-transcribe",
     label: "Gemini 3.5 Transcribe",
-    subtitle: "Khusus speech-to-text · tanpa level thinking",
+    subtitle: "Khusus speech-to-text · tanpa level",
     contexts: ["transcription"],
     efforts: [],
     defaultEffort: "none",
+    freeTier: true,
   },
 ];
 
@@ -128,8 +208,8 @@ export function selectionFromLegacyMode(
 ): AiSelection {
   if (mode === "simple") return defaultSelection("local", context);
   if (context === "transcription") return defaultSelection("gemini-3.5-transcribe", context);
-  if (mode === "high") return { model: "gemini-3.6-flash", effort: "high" };
-  if (mode === "medium") return { model: "gemini-2.5-flash", effort: "medium" };
+  if (mode === "high") return { model: "gemini-3.8-flash", effort: "high" };
+  if (mode === "medium") return { model: "gemini-3.8-flash", effort: "medium" };
   return { model: "gemini-2.5-flash-lite", effort: "off" };
 }
 
@@ -141,7 +221,7 @@ export function legacyModeForSelection(selection: AiSelection): AiLegacyMode {
 }
 
 export function thinkingConfigForModel(model: string, effort: AiEffort) {
-  if (model === "gemini-3.5-transcribe" || model === "gemini-3.5-transcribe-live") {
+  if (model === "gemini-3.5-transcribe" || model.includes("-live")) {
     return undefined;
   }
 
@@ -154,9 +234,10 @@ export function thinkingConfigForModel(model: string, effort: AiEffort) {
   }
 
   if (model.startsWith("gemini-2.5")) {
+    const isPro = model === "gemini-2.5-pro";
     const budget =
       effort === "off" || effort === "minimal"
-        ? 0
+        ? (isPro ? -1 : 0)
         : effort === "low"
           ? 1024
           : effort === "medium"
@@ -184,29 +265,13 @@ export function selectionFromHeaders(
       : context === "transcription"
         ? "gemini-3.5-transcribe"
         : legacyMode === "high"
-          ? "gemini-3.6-flash"
+          ? "gemini-3.8-flash"
           : legacyMode === "medium"
-            ? "gemini-2.5-flash"
+            ? "gemini-3.8-flash"
             : "gemini-2.5-flash-lite";
 
   const model = normalizeAiModel(rawModel || fallbackModel, context);
-
-  const fallbackEffort: AiEffort =
-    model === "local" || model === "gemini-3.5-transcribe"
-      ? "none"
-      : model === "gemini-3.6-flash"
-        ? legacyMode === "high"
-          ? "high"
-          : legacyMode === "medium"
-            ? "medium"
-            : "low"
-        : model === "gemini-2.5-flash-lite" && legacyMode === "instant"
-          ? "off"
-          : legacyMode === "high"
-            ? "high"
-            : legacyMode === "medium"
-              ? "medium"
-              : "low";
+  const fallbackEffort = modelCapability(model).defaultEffort;
 
   return {
     model,
@@ -223,18 +288,35 @@ export function modelPlanForSelection(
 
   if (selectedModel === "gemini-3.5-transcribe") {
     return task === "audio"
-      ? ["gemini-3.5-transcribe", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
-      : ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+      ? ["gemini-3.5-transcribe", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+      : ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+  }
+
+  // Search is intentionally free-first: 2.5 Flash/Lite currently have free Search grounding.
+  if (task === "web") {
+    return Array.from(new Set([
+      selectedModel,
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+    ]));
+  }
+
+  if (task === "audio") {
+    return Array.from(new Set([
+      selectedModel,
+      "gemini-3.5-transcribe",
+      "gemini-3.8-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-2.5-flash",
+    ]));
   }
 
   const fallback =
-    task === "web"
-      ? ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
-      : task === "audio"
-        ? ["gemini-3.5-transcribe", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
-        : legacyMode === "high"
-          ? ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
-          : ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.6-flash"];
+    legacyMode === "high"
+      ? ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
+      : legacyMode === "medium"
+        ? ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
+        : ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash"];
 
   return Array.from(new Set([selectedModel, ...fallback]));
 }
