@@ -25,6 +25,34 @@ export type AiUsage = {
   reset_timezone: string;
 };
 
+export type ActualGeminiUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  thoughtsTokens?: number;
+  totalTokens?: number;
+};
+
+export async function recordAiTokenUsage(
+  supabase: SupabaseClient,
+  usage?: ActualGeminiUsage | null
+) {
+  if (!usage) return null;
+  const total = Math.max(0, Math.round(Number(usage.totalTokens || 0)));
+  const input = Math.max(0, Math.round(Number(usage.inputTokens || 0)));
+  const output = Math.max(0, Math.round(Number(usage.outputTokens || 0)));
+  const thoughts = Math.max(0, Math.round(Number(usage.thoughtsTokens || 0)));
+  if (!total && !input && !output && !thoughts) return null;
+
+  const { data, error } = await supabase.rpc("record_ai_token_usage", {
+    input_tokens: input,
+    output_tokens: output,
+    thoughts_tokens: thoughts,
+    total_tokens: total || input + output + thoughts,
+  });
+  if (error) throw error;
+  return data;
+}
+
 export function normalizeAiMode(value: unknown): AiMode {
   if (value === "simple" || value === "medium" || value === "high") return value;
   return "instant";
