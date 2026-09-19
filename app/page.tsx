@@ -2648,7 +2648,8 @@ function PracticePage({
   const [essayAnswers, setEssayAnswers] = useState<Record<string, string>>({});
   const [aiResults, setAiResults] = useState<Record<string, AiGradeResult>>({});
   const [submitted, setSubmitted] = useState(false);
-  const [aiMode, setAiMode] = useState<AiMode>("simple");
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
   const [manualQuestion, setManualQuestion] = useState("");
@@ -2819,7 +2820,7 @@ function PracticePage({
 
     if (aiQuizzes.length) {
       if (aiSelection.model === "local") {
-        return alert("Soal yang dinilai AI membutuhkan mode Gemini. Pilih Instant, Medium, atau High terlebih dahulu.");
+        return alert("Soal yang dinilai AI membutuhkan model Gemini.");
       }
 
       setGrading(true);
@@ -2895,7 +2896,7 @@ function PracticePage({
 
         {mode === "flashcards" ? (
           <>
-            <AiModePicker value={aiMode} onChange={setAiMode} action="study" />
+            <AiModePicker value={aiSelection} onChange={setAiSelection} action="study" />
             <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
               {busy ? "Membuat..." : "Buat Flashcard"}
             </button>
@@ -2904,7 +2905,7 @@ function PracticePage({
           <div className="quizCreateActions">
             <div>
               <small className="createLabel">AI / MODE PENILAIAN</small>
-              <AiModePicker value={aiMode} onChange={setAiMode} action="study" />
+              <AiModePicker value={aiSelection} onChange={setAiSelection} action="study" />
               <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
                 {busy ? "Membuat..." : "Buat Kuis dari Database"}
               </button>
