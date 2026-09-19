@@ -3573,18 +3573,35 @@ function AiCreditBadge() {
   const [inputTokens, setInputTokens] = useState(0);
   const [outputTokens, setOutputTokens] = useState(0);
   const [activeAccounts, setActiveAccounts] = useState(0);
+  const [modelUsage, setModelUsage] = useState<Array<{ model: string; requests: number; total_tokens: number }>>([]);
 
   useEffect(() => {
     let active = true;
 
     async function load() {
-      const { data } = await supabase.rpc("get_ai_usage_today");
-      if (!active || !data) return;
-      setTotalTokens(Number(data.total_tokens ?? 0));
-      setInputTokens(Number(data.input_tokens ?? 0));
-      setOutputTokens(Number(data.output_tokens ?? 0));
-      const activeCount = Number(data.actual_active_accounts ?? data.active_accounts ?? 0);
-      setActiveAccounts(Number.isFinite(activeCount) ? activeCount : 0);
+      const [daily, models] = await Promise.all([
+        supabase.rpc("get_ai_usage_today"),
+        supabase.rpc("get_ai_model_usage_today"),
+      ]);
+      if (!active) return;
+
+      if (daily.data) {
+        setTotalTokens(Number(daily.data.total_tokens ?? 0));
+        setInputTokens(Number(daily.data.input_tokens ?? 0));
+        setOutputTokens(Number(daily.data.output_tokens ?? 0));
+        const activeCount = Number(daily.data.actual_active_accounts ?? daily.data.active_accounts ?? 0);
+        setActiveAccounts(Number.isFinite(activeCount) ? activeCount : 0);
+      }
+
+      if (Array.isArray(models.data)) {
+        setModelUsage(
+          models.data.map((item: any) => ({
+            model: String(item.model || "unknown"),
+            requests: Number(item.requests || 0),
+            total_tokens: Number(item.total_tokens || 0),
+          }))
+        );
+      }
     }
 
     void load();
@@ -3596,17 +3613,24 @@ function AiCreditBadge() {
     };
   }, []);
 
+  const modelBreakdown = modelUsage.length
+    ? modelUsage
+        .map((item) => item.model + ": " + formatTokenUsage(item.total_tokens) + " token / " + item.requests + " request")
+        .join(" · ")
+    : "Belum ada breakdown model pada request baru.";
+
   return (
     <span
       className="aiCreditPill"
       title={
-        "Usage asli dari Gemini API · input " +
+        "Usage asli Gemini API · input " +
         formatTokenUsage(inputTokens) +
         " token · output " +
         formatTokenUsage(outputTokens) +
         " token · " +
         activeAccounts +
-        " akun aktif hari ini"
+        " akun aktif · " +
+        modelBreakdown
       }
     >
       Gemini hari ini: {totalTokens === null ? "..." : formatTokenUsage(totalTokens) + " token"} · {activeAccounts} aktif
