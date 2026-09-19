@@ -1853,6 +1853,14 @@ function StoredRecording({
   );
 }
 
+function normalizeQuizAnswer(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.!?,;:]+$/g, "");
+}
+
 function PracticePage({
   session,
   node,
@@ -1870,49 +1878,58 @@ function PracticePage({
   nodes: StudyNode[];
   onChange: () => void;
 }) {
-  type EssayResult = {
+  type AiGradeResult = {
     gradable: boolean;
     correct: boolean;
     score: number;
     feedback: string;
     basis: string;
   };
+  type ManualKind = "mcq-fixed" | "essay-fixed" | "mcq-ai" | "essay-ai";
 
   const mode = node.node_type === "flashcards" ? "flashcards" : "quiz";
   const localCards = cards.filter((item) => item.scope_node_id === node.id);
   const localQuizzes = quizzes.filter((item) => item.scope_node_id === node.id);
-  const fixedQuizzes = localQuizzes.filter((item) => (item.quiz_type || "mcq") === "mcq");
-  const essayQuizzes = localQuizzes.filter((item) => item.quiz_type === "essay");
+
+  const fixedMcq = localQuizzes.filter((item) => item.quiz_type === "mcq" && item.grading_mode === "fixed");
+  const fixedEssay = localQuizzes.filter((item) => item.quiz_type === "essay" && item.grading_mode === "fixed");
+  const aiQuizzes = localQuizzes.filter((item) => item.grading_mode === "ai");
+  const aiMcq = aiQuizzes.filter((item) => item.quiz_type === "mcq");
+  const aiEssay = aiQuizzes.filter((item) => item.quiz_type === "essay");
 
   const [busy, setBusy] = useState(false);
   const [grading, setGrading] = useState(false);
   const [flipped, setFlipped] = useState<Record<string, boolean>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [essayAnswers, setEssayAnswers] = useState<Record<string, string>>({});
-  const [essayResults, setEssayResults] = useState<Record<string, EssayResult>>({});
+  const [aiResults, setAiResults] = useState<Record<string, AiGradeResult>>({});
   const [submitted, setSubmitted] = useState(false);
   const [aiMode, setAiMode] = useState<AiMode>("simple");
   const [manualOpen, setManualOpen] = useState(false);
-  const [manualKind, setManualKind] = useState<"mcq" | "essay">("mcq");
+  const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
   const [manualQuestion, setManualQuestion] = useState("");
   const [manualChoices, setManualChoices] = useState(["", "", "", ""]);
   const [manualCorrect, setManualCorrect] = useState(0);
+  const [manualExpectedAnswer, setManualExpectedAnswer] = useState("");
 
-  const answeredFixed = fixedQuizzes.filter((quiz) => answers[quiz.id]).length;
-  const answeredEssay = essayQuizzes.filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
-  const totalQuestions = fixedQuizzes.length + essayQuizzes.length;
-  const answeredTotal = answeredFixed + answeredEssay;
+  const answeredMcq = [...fixedMcq, ...aiMcq].filter((quiz) => answers[quiz.id]).length;
+  const answeredEssay = [...fixedEssay, ...aiEssay].filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
+  const totalQuestions = localQuizzes.length;
+  const answeredTotal = answeredMcq + answeredEssay;
   const allAnswered = totalQuestions > 0 && answeredTotal === totalQuestions;
 
-  const correctFixed = fixedQuizzes.filter((quiz) => answers[quiz.id] === quiz.correct_answer).length;
-  const gradableEssayResults = essayQuizzes
-    .map((quiz) => essayResults[quiz.id])
-    .filter((item): item is EssayResult => !!item && item.gradable);
-  const correctEssay = gradableEssayResults.filter((item) => item.correct).length;
-  const gradedCount = fixedQuizzes.length + gradableEssayResults.length;
+  const correctFixedMcq = fixedMcq.filter((quiz) => answers[quiz.id] === quiz.correct_answer).length;
+  const correctFixedEssay = fixedEssay.filter(
+    (quiz) => normalizeQuizAnswer(essayAnswers[quiz.id] || "") === normalizeQuizAnswer(quiz.correct_answer || "")
+  ).length;
+  const gradableAiResults = aiQuizzes
+    .map((quiz) => aiResults[quiz.id])
+    .filter((item): item is AiGradeResult => !!item && item.gradable);
+  const correctAi = gradableAiResults.filter((item) => item.correct).length;
+  const gradedCount = fixedMcq.length + fixedEssay.length + gradableAiResults.length;
   const totalScorePoints =
-    correctFixed * 100 +
-    gradableEssayResults.reduce((sum, item) => sum + item.score, 0);
+    (correctFixedMcq + correctFixedEssay) * 100 +
+    gradableAiResults.reduce((sum, item) => sum + item.score, 0);
   const scorePercent = gradedCount ? Math.round(totalScorePoints / gradedCount) : 0;
 
   async function generate() {
@@ -2000,46 +2017,50 @@ function PracticePage({
     e.preventDefault();
     if (!manualQuestion.trim()) return;
 
-    if (manualKind === "essay") {
-      setBusy(true);
-      const { error } = await supabase.from("quizzes").insert({
-        user_id: session.user.id,
-        material_id: null,
-        scope_node_id: node.id,
-        question: manualQuestion.trim(),
-        choices: [],
-        correct_answer: "",
-        explanation: "Dinilai Gemini 3.6 hanya berdasarkan Database.",
-        quiz_type: "essay",
-        grading_mode: "ai",
-      });
-      setBusy(false);
-      if (error) return alert(error.message);
-    } else {
-      const choices = manualChoices.map((item) => item.trim()).filter(Boolean);
-      if (choices.length < 2) return alert("Isi minimal 2 pilihan jawaban.");
-      const correctText = manualChoices[manualCorrect]?.trim();
-      if (!correctText || !choices.includes(correctText)) return alert("Pilih jawaban benar yang sudah diisi.");
+    const isMcq = manualKind === "mcq-fixed" || manualKind === "mcq-ai";
+    const isAi = manualKind === "mcq-ai" || manualKind === "essay-ai";
+    const choices = manualChoices.map((item) => item.trim()).filter(Boolean);
 
-      setBusy(true);
-      const { error } = await supabase.from("quizzes").insert({
-        user_id: session.user.id,
-        material_id: null,
-        scope_node_id: node.id,
-        question: manualQuestion.trim(),
-        choices,
-        correct_answer: correctText,
-        explanation: "Kuis dibuat manual.",
-        quiz_type: "mcq",
-        grading_mode: "fixed",
-      });
-      setBusy(false);
-      if (error) return alert(error.message);
+    if (isMcq && choices.length < 2) {
+      return alert("Isi minimal 2 pilihan jawaban.");
     }
+
+    let correctAnswer = "";
+    if (manualKind === "mcq-fixed") {
+      correctAnswer = manualChoices[manualCorrect]?.trim();
+      if (!correctAnswer || !choices.includes(correctAnswer)) {
+        return alert("Pilih jawaban benar yang sudah diisi.");
+      }
+    }
+
+    if (manualKind === "essay-fixed") {
+      correctAnswer = manualExpectedAnswer.trim();
+      if (!correctAnswer) return alert("Isi jawaban acuan untuk Essay.");
+    }
+
+    setBusy(true);
+    const { error } = await supabase.from("quizzes").insert({
+      user_id: session.user.id,
+      material_id: null,
+      scope_node_id: node.id,
+      question: manualQuestion.trim(),
+      choices: isMcq ? choices : [],
+      correct_answer: correctAnswer,
+      explanation: isAi
+        ? "Dinilai Gemini 3.6 hanya berdasarkan Database."
+        : manualKind === "essay-fixed"
+          ? "Essay dinilai lokal berdasarkan jawaban acuan."
+          : "Kuis dibuat manual.",
+      quiz_type: isMcq ? "mcq" : "essay",
+      grading_mode: isAi ? "ai" : "fixed",
+    });
+    setBusy(false);
+    if (error) return alert(error.message);
 
     setManualQuestion("");
     setManualChoices(["", "", "", ""]);
     setManualCorrect(0);
+    setManualExpectedAnswer("");
     setManualOpen(false);
     resetQuizSession();
     onChange();
@@ -2049,15 +2070,15 @@ function PracticePage({
     setSubmitted(false);
     setAnswers({});
     setEssayAnswers({});
-    setEssayResults({});
+    setAiResults({});
   }
 
   async function finishQuiz() {
     if (!allAnswered) return;
 
-    if (essayQuizzes.length) {
+    if (aiQuizzes.length) {
       if (aiMode === "simple") {
-        return alert("Essay harus dinilai Gemini 3.6. Pilih Instant, Medium, atau High terlebih dahulu.");
+        return alert("Soal yang dinilai AI membutuhkan Gemini 3.6. Pilih Instant, Medium, atau High terlebih dahulu.");
       }
 
       setGrading(true);
@@ -2069,18 +2090,18 @@ function PracticePage({
         },
         body: JSON.stringify({
           aiMode,
-          answers: essayQuizzes.map((quiz) => ({
+          answers: aiQuizzes.map((quiz) => ({
             quizId: quiz.id,
-            answer: essayAnswers[quiz.id],
+            answer: quiz.quiz_type === "mcq" ? answers[quiz.id] : essayAnswers[quiz.id],
           })),
         }),
       });
       const data = await response.json();
       setGrading(false);
 
-      if (!response.ok) return alert(data.error || "Gagal menilai essay.");
+      if (!response.ok) return alert(data.error || "Gagal menilai jawaban AI.");
 
-      const mapped: Record<string, EssayResult> = {};
+      const mapped: Record<string, AiGradeResult> = {};
       (data.results || []).forEach((item: any) => {
         mapped[String(item.id)] = {
           gradable: item.gradable !== false,
@@ -2090,7 +2111,7 @@ function PracticePage({
           basis: String(item.basis || ""),
         };
       });
-      setEssayResults(mapped);
+      setAiResults(mapped);
     }
 
     setSubmitted(true);
@@ -2100,6 +2121,7 @@ function PracticePage({
     if (!confirm("Hapus soal ini?")) return;
     const { error } = await supabase.from("quizzes").delete().eq("id", id);
     if (error) return alert(error.message);
+
     setAnswers((current) => {
       const next = { ...current };
       delete next[id];
@@ -2110,13 +2132,20 @@ function PracticePage({
       delete next[id];
       return next;
     });
-    setEssayResults((current) => {
+    setAiResults((current) => {
       const next = { ...current };
       delete next[id];
       return next;
     });
     setSubmitted(false);
     onChange();
+  }
+
+  function quizLabel(quiz: Quiz) {
+    if (quiz.quiz_type === "mcq" && quiz.grading_mode === "fixed") return "PILIHAN GANDA";
+    if (quiz.quiz_type === "essay" && quiz.grading_mode === "fixed") return "ESSAY";
+    if (quiz.quiz_type === "mcq" && quiz.grading_mode === "ai") return "PILIHAN GANDA DINILAI AI";
+    return "ESSAY DINILAI AI";
   }
 
   return (
@@ -2136,7 +2165,7 @@ function PracticePage({
         ) : (
           <div className="quizCreateActions">
             <div>
-              <small className="createLabel">AI / MODE PENILAIAN ESSAY</small>
+              <small className="createLabel">AI / MODE PENILAIAN</small>
               <AiModePicker value={aiMode} onChange={setAiMode} action="study" />
               <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
                 {busy ? "Membuat..." : "Buat Kuis dari Database"}
@@ -2159,13 +2188,22 @@ function PracticePage({
             <h2>Buat pertanyaan sendiri</h2>
           </div>
 
-          <div className="quizKindTabs">
-            <button type="button" className={manualKind === "mcq" ? "active" : ""} onClick={() => setManualKind("mcq")}>
-              Pilihan ganda
-            </button>
-            <button type="button" className={manualKind === "essay" ? "active" : ""} onClick={() => setManualKind("essay")}>
-              Essay dinilai AI
-            </button>
+          <div className="quizKindTabs fourKinds">
+            {[
+              { value: "mcq-fixed" as ManualKind, label: "Pilihan Ganda" },
+              { value: "essay-fixed" as ManualKind, label: "Essay" },
+              { value: "mcq-ai" as ManualKind, label: "Pilihan ganda dinilai AI" },
+              { value: "essay-ai" as ManualKind, label: "Essay dinilai AI" },
+            ].map((item) => (
+              <button
+                type="button"
+                key={item.value}
+                className={manualKind === item.value ? "active" : ""}
+                onClick={() => setManualKind(item.value)}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
 
           <label>
@@ -2173,18 +2211,22 @@ function PracticePage({
             <textarea rows={3} required value={manualQuestion} onChange={(e) => setManualQuestion(e.target.value)} placeholder="Tulis pertanyaan..." />
           </label>
 
-          {manualKind === "mcq" ? (
+          {(manualKind === "mcq-fixed" || manualKind === "mcq-ai") && (
             <>
               <div className="manualChoices">
                 {manualChoices.map((choice, index) => (
                   <label className="manualChoiceRow" key={index}>
-                    <input
-                      type="radio"
-                      name="manual-correct"
-                      checked={manualCorrect === index}
-                      onChange={() => setManualCorrect(index)}
-                      title="Jawaban benar"
-                    />
+                    {manualKind === "mcq-fixed" ? (
+                      <input
+                        type="radio"
+                        name="manual-correct"
+                        checked={manualCorrect === index}
+                        onChange={() => setManualCorrect(index)}
+                        title="Jawaban benar"
+                      />
+                    ) : (
+                      <span className="aiChoiceDot">AI</span>
+                    )}
                     <span>{String.fromCharCode(65 + index)}</span>
                     <input
                       value={choice}
@@ -2194,12 +2236,32 @@ function PracticePage({
                   </label>
                 ))}
               </div>
-              <small className="muted">Lingkaran yang dipilih = jawaban benar.</small>
+              <small className="muted">
+                {manualKind === "mcq-fixed"
+                  ? "Lingkaran yang dipilih = jawaban benar."
+                  : "Gemini 3.6 akan menentukan pilihan yang benar berdasarkan Database saat kuis dinilai."}
+              </small>
             </>
-          ) : (
+          )}
+
+          {manualKind === "essay-fixed" && (
+            <label>
+              Jawaban acuan
+              <textarea
+                rows={3}
+                required
+                value={manualExpectedAnswer}
+                onChange={(e) => setManualExpectedAnswer(e.target.value)}
+                placeholder="Tulis jawaban yang dianggap benar..."
+              />
+              <small className="muted">Mode Essay tanpa AI membandingkan jawaban secara lokal dengan jawaban acuan ini.</small>
+            </label>
+          )}
+
+          {(manualKind === "mcq-ai" || manualKind === "essay-ai") && (
             <div className="essayInfo">
-              <strong>Gemini 3.6 akan menilai jawaban peserta.</strong>
-              <span>Penilaian hanya memakai Database di materi induk. Public Web tidak dipakai untuk penilaian essay.</span>
+              <strong>Gemini 3.6 akan menentukan benar/salah.</strong>
+              <span>Penilaian hanya memakai Database di materi induk. Public Web tidak dipakai untuk penilaian kuis.</span>
             </div>
           )}
 
@@ -2216,7 +2278,7 @@ function PracticePage({
               onClick={() => setFlipped((value) => ({ ...value, [card.id]: !value[card.id] }))}
             >
               <small>{flipped[card.id] ? "JAWABAN" : "PERTANYAAN"}</small>
-              <strong>{flipped[card.id] ? card.back : card.front}</strong>
+              <strong><RichText text={flipped[card.id] ? card.back : card.front} /></strong>
               <span>Ketuk untuk balik</span>
             </button>
           ))}
@@ -2248,62 +2310,67 @@ function PracticePage({
               <div className="scoreNumber">{scorePercent}</div>
               <div>
                 <small>NILAI AKHIR</small>
-                <strong>{correctFixed + correctEssay} jawaban dinilai benar · {gradedCount} soal dinilai</strong>
-                {essayQuizzes.length !== gradableEssayResults.length && (
-                  <span className="muted">{essayQuizzes.length - gradableEssayResults.length} essay tidak cukup sumber untuk dinilai.</span>
+                <strong>{correctFixedMcq + correctFixedEssay + correctAi} jawaban dinilai benar · {gradedCount} soal dinilai</strong>
+                {aiQuizzes.length !== gradableAiResults.length && (
+                  <span className="muted">{aiQuizzes.length - gradableAiResults.length} soal AI tidak cukup sumber untuk dinilai.</span>
                 )}
               </div>
             </div>
           )}
 
           <div className="quizList">
-            {fixedQuizzes.map((quiz, index) => (
-              <article className="dataCard quizCard" key={quiz.id}>
-                <div className="quizCardHead">
-                  <small>PILIHAN GANDA · SOAL {index + 1}</small>
-                  <button className="dangerSmall" onClick={() => removeQuiz(quiz.id)}>Hapus</button>
-                </div>
-                <h3>{quiz.question}</h3>
-                {quiz.choices.map((choice) => (
-                  <button
-                    key={choice}
-                    disabled={submitted}
-                    className={answers[quiz.id] === choice ? "choice selected" : "choice"}
-                    onClick={() => setAnswers((value) => ({ ...value, [quiz.id]: choice }))}
-                  >
-                    {choice}
-                  </button>
-                ))}
-                {submitted && (
-                  <div className={answers[quiz.id] === quiz.correct_answer ? "answerState ok" : "answerState bad"}>
-                    {answers[quiz.id] === quiz.correct_answer ? "Benar" : "Salah"} · Jawaban: {quiz.correct_answer}
-                    {quiz.explanation && <><br />{quiz.explanation}</>}
-                  </div>
-                )}
-              </article>
-            ))}
+            {localQuizzes.map((quiz, index) => {
+              const isMcq = quiz.quiz_type === "mcq";
+              const answer = isMcq ? answers[quiz.id] || "" : essayAnswers[quiz.id] || "";
+              const aiResult = aiResults[quiz.id];
+              const fixedCorrect = isMcq
+                ? answer === quiz.correct_answer
+                : normalizeQuizAnswer(answer) === normalizeQuizAnswer(quiz.correct_answer || "");
 
-            {essayQuizzes.map((quiz, index) => {
-              const result = essayResults[quiz.id];
               return (
-                <article className="dataCard quizCard essayCard" key={quiz.id}>
+                <article className="dataCard quizCard" key={quiz.id}>
                   <div className="quizCardHead">
-                    <small>ESSAY AI · SOAL {fixedQuizzes.length + index + 1}</small>
+                    <small>{quizLabel(quiz)} · SOAL {index + 1}</small>
                     <button className="dangerSmall" onClick={() => removeQuiz(quiz.id)}>Hapus</button>
                   </div>
-                  <h3>{quiz.question}</h3>
-                  <textarea
-                    rows={4}
-                    disabled={submitted}
-                    value={essayAnswers[quiz.id] || ""}
-                    onChange={(e) => setEssayAnswers((current) => ({ ...current, [quiz.id]: e.target.value }))}
-                    placeholder="Tulis jawabanmu..."
-                  />
-                  {submitted && result && (
-                    <div className={result.correct ? "answerState ok" : "answerState bad"}>
-                      <strong>{result.gradable ? (result.correct ? "Benar" : "Belum benar") : "Belum dapat dinilai"} · {result.score}/100</strong>
-                      {result.feedback && <><br />{result.feedback}</>}
-                      {result.basis && <><br /><small>Dasar Database: {result.basis}</small></>}
+
+                  <h3><RichText text={quiz.question} /></h3>
+
+                  {isMcq ? (
+                    quiz.choices.map((choice) => (
+                      <button
+                        key={choice}
+                        disabled={submitted}
+                        className={answers[quiz.id] === choice ? "choice selected" : "choice"}
+                        onClick={() => setAnswers((value) => ({ ...value, [quiz.id]: choice }))}
+                      >
+                        <RichText text={choice} />
+                      </button>
+                    ))
+                  ) : (
+                    <textarea
+                      rows={4}
+                      disabled={submitted}
+                      value={essayAnswers[quiz.id] || ""}
+                      onChange={(e) => setEssayAnswers((current) => ({ ...current, [quiz.id]: e.target.value }))}
+                      placeholder="Tulis jawabanmu..."
+                    />
+                  )}
+
+                  {submitted && quiz.grading_mode === "fixed" && (
+                    <div className={fixedCorrect ? "answerState ok" : "answerState bad"}>
+                      <strong>{fixedCorrect ? "Benar" : "Salah"}</strong>
+                      <br />
+                      <span>{isMcq ? "Jawaban" : "Jawaban acuan"}: <RichText text={quiz.correct_answer} /></span>
+                      {quiz.explanation && <><br /><RichText text={quiz.explanation} /></>}
+                    </div>
+                  )}
+
+                  {submitted && quiz.grading_mode === "ai" && aiResult && (
+                    <div className={aiResult.correct ? "answerState ok" : "answerState bad"}>
+                      <strong>{aiResult.gradable ? (aiResult.correct ? "Benar" : "Belum benar") : "Belum dapat dinilai"} · {aiResult.score}/100</strong>
+                      {aiResult.feedback && <><br /><RichText text={aiResult.feedback} /></>}
+                      {aiResult.basis && <><br /><small>Dasar Database: <RichText text={aiResult.basis} /></small></>}
                     </div>
                   )}
                 </article>
