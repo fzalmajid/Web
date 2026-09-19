@@ -1477,8 +1477,8 @@ function StudyPage({
                       onChange={(e) => setQuickDbFile(e.target.files?.[0] || null)}
                     />
                     <AiModePicker
-                      value={quickDbAiMode}
-                      onChange={setQuickDbAiMode}
+                      value={quickDbAiSelection}
+                      onChange={setQuickDbAiSelection}
                       action={quickDbFile && isHeavyFile(quickDbFile) ? "file_heavy" : "file_light"}
                     />
                     <button className="primary" disabled={!quickDbName.trim() || !quickDbFile || quickFileBusy}>
@@ -2201,14 +2201,14 @@ function RecordingPage({
         corrections: [],
         added: false,
       });
-      setStatus("Selesai · Simple Browser · tanpa Gemini API.");
+      setStatus("Selesai · Local · Browser · tanpa Gemini API.");
       onChange();
       return;
     }
 
     const response = await fetch("/api/transcribe", {
       method: "POST",
-      headers: aiRequestHeaders(session),
+      headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
         recordingId: row.id,
         filePath: path,
@@ -2277,7 +2277,7 @@ function RecordingPage({
 
     const response = await fetch("/api/transcribe", {
       method: "POST",
-      headers: aiRequestHeaders(session),
+      headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
         recordingId: item.id,
         filePath: item.file_path,
@@ -2737,7 +2737,7 @@ function PracticePage({
     setBusy(true);
     const response = await fetch("/api/generate-study", {
       method: "POST",
-      headers: aiRequestHeaders(session),
+      headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
         sourceNodeId: node.parent_id,
         targetNodeId: node.id,
@@ -2825,7 +2825,7 @@ function PracticePage({
       setGrading(true);
       const response = await fetch("/api/grade-quiz", {
         method: "POST",
-        headers: aiRequestHeaders(session),
+        headers: aiRequestHeaders(session, aiSelection),
         body: JSON.stringify({
           aiMode,
           answers: aiQuizzes.map((quiz) => ({
@@ -3474,7 +3474,7 @@ function BottomAskBar({
 
     const response = await fetch("/api/ask", {
       method: "POST",
-      headers: aiRequestHeaders(session),
+      headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({ question, scopeNodeId, aiMode, knowledgeMode }),
     });
 
