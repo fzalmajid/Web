@@ -9,6 +9,7 @@ import {
   defaultSelection,
   legacyModeForSelection,
   modelCapability,
+  modelProvider,
   selectionFromLegacyMode,
   type AiEffort,
   type AiModelId,
@@ -139,6 +140,20 @@ function getSessionGeminiKey() {
   return String(window.sessionStorage.getItem("rb-user-gemini-key") || "").trim();
 }
 
+function getSessionOpenAIKey() {
+  if (typeof window === "undefined") return "";
+  return String(window.sessionStorage.getItem("rb-user-openai-key") || "").trim();
+}
+
+function getSessionAnthropicKey() {
+  if (typeof window === "undefined") return "";
+  return String(window.sessionStorage.getItem("rb-user-anthropic-key") || "").trim();
+}
+
+function emitPluginChange() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("rb-plugin-change"));
+}
+
 function getSessionGoogleGeminiAuth() {
   if (typeof window === "undefined") return { accessToken: "", projectId: "" };
   const accessToken = String(window.sessionStorage.getItem("rb-google-gemini-token") || "").trim();
@@ -155,20 +170,27 @@ function getSessionGoogleGeminiAuth() {
 }
 
 function aiRequestHeaders(session: Session, selection?: AiSelection) {
+  const provider = selection ? modelProvider(selection.model) : "gemini";
   const googleAuth = getSessionGoogleGeminiAuth();
-  const key = googleAuth.accessToken && googleAuth.projectId ? "" : getSessionGeminiKey();
+  const geminiKey = googleAuth.accessToken && googleAuth.projectId ? "" : getSessionGeminiKey();
+  const openAIKey = getSessionOpenAIKey();
+  const anthropicKey = getSessionAnthropicKey();
 
   return {
     "Content-Type": "application/json",
     Authorization: "Bearer " + session.access_token,
-    ...(googleAuth.accessToken && googleAuth.projectId
+    ...(provider === "gemini" && googleAuth.accessToken && googleAuth.projectId
       ? {
           "X-RB-Google-Access-Token": googleAuth.accessToken,
           "X-RB-Google-Project": googleAuth.projectId,
         }
-      : key
-        ? { "X-RB-Gemini-Key": key }
-        : {}),
+      : provider === "gemini" && geminiKey
+        ? { "X-RB-Gemini-Key": geminiKey }
+        : provider === "openai" && openAIKey
+          ? { "X-RB-OpenAI-Key": openAIKey }
+          : provider === "anthropic" && anthropicKey
+            ? { "X-RB-Anthropic-Key": anthropicKey }
+            : {}),
     ...(selection ? { "X-RB-AI-Model": selection.model, "X-RB-AI-Effort": selection.effort } : {}),
   };
 }
@@ -822,7 +844,7 @@ function DatabasePage({
   const [busy, setBusy] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileStatus, setFileStatus] = useState("");
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
 
   const localEntries = entries.filter((item) => item.node_id === node.id && !item.source_file_id);
@@ -1126,7 +1148,7 @@ function StudyPage({
   const [quickDbContent, setQuickDbContent] = useState("");
   const [quickDbCreatedId, setQuickDbCreatedId] = useState<string | null>(null);
   const [quickDbFile, setQuickDbFile] = useState<File | null>(null);
-  const [quickDbAiSelection, setQuickDbAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const [quickDbAiSelection, setQuickDbAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
   const quickDbAiMode = legacyModeForSelection(quickDbAiSelection);
   const [quickDbStatus, setQuickDbStatus] = useState("");
   const [quickBusy, setQuickBusy] = useState(false);
@@ -1448,7 +1470,7 @@ function StudyPage({
     setQuickDbContent("");
     setQuickDbCreatedId(null);
     setQuickDbFile(null);
-    setQuickDbAiSelection(defaultSelection("local"));
+    setQuickDbAiSelection(defaultSelection("local", "chat"));
     setQuickDbStatus("");
   }
 
@@ -2803,7 +2825,7 @@ function PracticePage({
   const [essayAnswers, setEssayAnswers] = useState<Record<string, string>>({});
   const [aiResults, setAiResults] = useState<Record<string, AiGradeResult>>({});
   const [submitted, setSubmitted] = useState(false);
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
@@ -3312,12 +3334,25 @@ function AiModePicker({
   context?: "general" | "transcription";
 }) {
   const [open, setOpen] = useState(false);
+  const [pluginRevision, setPluginRevision] = useState(0);
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  void action;
 
-  const visibleModels = AI_MODEL_CATALOG.filter(
-    (item) => item.contexts.includes(context) && (allowLocal || item.id !== "local")
-  );
+  useEffect(() => {
+    const refresh = () => setPluginRevision((value) => value + 1);
+    window.addEventListener("rb-plugin-change", refresh);
+    return () => window.removeEventListener("rb-plugin-change", refresh);
+  }, []);
+
+  const chatAction = action === "ask" || action === "ask_web";
+  const openAIConnected = pluginRevision >= 0 && Boolean(getSessionOpenAIKey());
+  const anthropicConnected = pluginRevision >= 0 && Boolean(getSessionAnthropicKey());
+
+  const visibleModels = AI_MODEL_CATALOG.filter((item) => {
+    if (!item.contexts.includes(context) || (!allowLocal && item.id === "local")) return false;
+    if (item.provider === "openai") return chatAction && openAIConnected;
+    if (item.provider === "anthropic") return chatAction && anthropicConnected;
+    return true;
+  });
   const selected =
     visibleModels.find((item) => item.id === value.model) ||
     visibleModels.find((item) => item.id !== "local") ||
@@ -3536,7 +3571,7 @@ function BottomAskBar({
   const [selectedSources, setSelectedSources] = useState<SourceKind[]>(["database"]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
   const [composerBottom, setComposerBottom] = useState(16);
   const [composerHeight, setComposerHeight] = useState(118);
@@ -3644,7 +3679,7 @@ function BottomAskBar({
 
   function toggleSource(source: SourceKind) {
     if (source !== "database" && aiSelection.model === "local") {
-      setAiSelection(defaultSelection("gemini-2.5-flash-lite"));
+      setAiSelection(defaultSelection("gemini-2.5-flash-lite", "chat"));
     }
 
     setSelectedSources((current) => {
@@ -3783,6 +3818,7 @@ function BottomAskBar({
               value={aiSelection}
               onChange={setAiSelection}
               action={selectedSources.includes("web") ? "ask_web" : "ask"}
+              context="chat"
               compact
             />
           </div>
