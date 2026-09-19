@@ -161,6 +161,48 @@ export function thinkingConfigForModel(model: string, effort: AiEffort) {
   return undefined;
 }
 
+export function selectionFromHeaders(
+  headers: Headers,
+  context: "general" | "transcription",
+  legacyMode: AiLegacyMode
+): AiSelection {
+  const rawModel = String(headers.get("x-rb-ai-model") || "").trim();
+  const fallbackModel: AiModelId =
+    legacyMode === "simple"
+      ? "local"
+      : context === "transcription"
+        ? "gemini-3.5-transcribe"
+        : legacyMode === "high"
+          ? "gemini-3.6-flash"
+          : legacyMode === "medium"
+            ? "gemini-2.5-flash"
+            : "gemini-2.5-flash-lite";
+
+  const model = normalizeAiModel(rawModel || fallbackModel, context);
+
+  const fallbackEffort: AiEffort =
+    model === "local" || model === "gemini-3.5-transcribe"
+      ? "none"
+      : model === "gemini-3.6-flash"
+        ? legacyMode === "high"
+          ? "high"
+          : legacyMode === "medium"
+            ? "medium"
+            : "low"
+        : model === "gemini-2.5-flash-lite" && legacyMode === "instant"
+          ? "off"
+          : legacyMode === "high"
+            ? "high"
+            : legacyMode === "medium"
+              ? "medium"
+              : "low";
+
+  return {
+    model,
+    effort: normalizeAiEffort(model, headers.get("x-rb-ai-effort") || fallbackEffort),
+  };
+}
+
 export function modelPlanForSelection(
   selectedModel: AiModelId,
   legacyMode: AiLegacyMode,
