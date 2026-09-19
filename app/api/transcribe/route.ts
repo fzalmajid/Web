@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerate, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
             "4. Jangan mengubah transkrip verbatim.\n" +
             "5. Bila database kosong/tidak relevan, jangan menambah fakta luar; cukup tata dan rangkum berdasarkan rekaman.\n" +
             "6. basis harus singkat dan menyebut dasar dari database.\n" +
-            "7. " + aiModeInstruction(aiMode),
+            "7. " + aiModeInstruction(aiMode) + "\n8. " + WHATSAPP_FORMAT_INSTRUCTION,
         },
       ],
       "Anda menyunting transkrip secara konservatif. Database yang diberikan adalah satu-satunya sumber untuk koreksi istilah faktual."
