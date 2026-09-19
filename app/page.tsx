@@ -495,6 +495,7 @@ function Auth() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
 
   function signupPasswordError(value: string) {
     if (value.length < 6) return "Password minimal 6 karakter.";
@@ -548,6 +549,30 @@ function Auth() {
     setBusy(false);
   }
 
+  async function resendVerification() {
+    const target = email.trim();
+    if (!target) {
+      setMessage("Masukkan email akun yang ingin diverifikasi.");
+      return;
+    }
+
+    setResendBusy(true);
+    setMessage("");
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: target,
+      options: { emailRedirectTo: AUTH_REDIRECT_URL },
+    });
+    setResendBusy(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Email verifikasi baru sudah dikirim. Gunakan email TERBARU; link lama bisa masih mengarah ke localhost.");
+  }
+
   return (
     <main className="authShell">
       <section className="authCard">
@@ -584,6 +609,9 @@ function Auth() {
 
         <button className="textBtn" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
           {mode === "login" ? "Belum punya akun? Daftar" : "Sudah punya akun? Masuk"}
+        </button>
+        <button className="textBtn" type="button" disabled={resendBusy} onClick={resendVerification}>
+          {resendBusy ? "Mengirim..." : "Kirim ulang email verifikasi"}
         </button>
       </section>
     </main>
