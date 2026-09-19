@@ -45,6 +45,8 @@ export async function POST(req: NextRequest) {
       ? Array.from(new Set(body.sourceNodeIds.map((value: unknown) => String(value)).filter(Boolean)))
       : [];
     const aiMode = normalizeAiMode(body.aiMode);
+    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
+    const ownGemini = Boolean(userGeminiKey);
     const studyInstruction = String(body.studyInstruction || "").trim().slice(0, 2000);
 
     if (!studyNodeId || !sourceNodeIds.length) {
@@ -143,8 +145,8 @@ ${bodyText}`;
 
     if (pathError) throw pathError;
 
-    const preflight = await checkAiCredits(supabase, "study", aiMode);
-    if (!preflight.allowed) {
+    const preflight = ownGemini ? null : await checkAiCredits(supabase, "study", aiMode);
+    if (preflight && !preflight.allowed) {
       await supabase
         .from("study_paths")
         .update({ status: "error", error_message: aiQuotaError(preflight).error })
@@ -210,7 +212,7 @@ Aturan wajib:
 - Jangan bocorkan materi unit-unit berikutnya di unit sebelumnya.\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
       }],
       "Anda menyusun kurikulum belajar bertahap yang ketat pada sumber pengguna. Jangan mengarang fakta.",
-      { models: geminiModelsForMode(aiMode, "standard") }
+      { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
     );
     await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model);
     const raw = geminiResult.text;
@@ -276,13 +278,15 @@ Aturan wajib:
       .eq("id", pathRow.id);
     if (readyError) throw readyError;
 
-    const aiUsage = await finalizeAiCredits(supabase, "study", aiMode);
+    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "study", aiMode);
 
     return NextResponse.json({
       pathId: pathRow.id,
       overview,
       unitCount: units.length,
       aiUsage,
+      model: geminiResult.model,
+      provider: ownGemini ? "user-api-key" : "shared-api-key",
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
