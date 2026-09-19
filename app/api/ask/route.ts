@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { geminiGenerate } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge, searchScopeKnowledge } from "@/lib/knowledge";
+import { aiQuotaError, consumeAiCredits } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -40,6 +41,11 @@ export async function POST(req: NextRequest) {
 
     const context = buildKnowledgeContext(data, 28000);
 
+    const aiUsage = await consumeAiCredits(supabase, "ask");
+    if (!aiUsage.allowed) {
+      return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
+    }
+
     const answer = await geminiGenerate(
       [{
         text: `PERTANYAAN:
@@ -61,6 +67,7 @@ Jawab hanya berdasarkan DATABASE di atas.
       answer,
       sources: data.map((m) => ({ id: m.id, node_id: m.node_id, title: m.title, category: m.category })),
       grounded: true,
+      aiUsage,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Gagal menjawab." }, { status: 500 });
