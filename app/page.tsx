@@ -3132,12 +3132,17 @@ function ThemePicker({
   );
 }
 
+function formatTokenUsage(value: number) {
+  if (value >= 1_000_000) return (value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1) + "M";
+  if (value >= 1_000) return (value / 1_000).toFixed(value >= 100_000 ? 0 : 1) + "K";
+  return String(value);
+}
+
 function AiCreditBadge() {
-  const [remaining, setRemaining] = useState<number | null>(null);
-  const [limit, setLimit] = useState(400);
-  const [activeAccounts, setActiveAccounts] = useState(1);
-  const [poolUsed, setPoolUsed] = useState(0);
-  const [poolTotal, setPoolTotal] = useState(400);
+  const [totalTokens, setTotalTokens] = useState<number | null>(null);
+  const [inputTokens, setInputTokens] = useState(0);
+  const [outputTokens, setOutputTokens] = useState(0);
+  const [activeAccounts, setActiveAccounts] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -3145,12 +3150,11 @@ function AiCreditBadge() {
     async function load() {
       const { data } = await supabase.rpc("get_ai_usage_today");
       if (!active || !data) return;
-      setRemaining(Number(data.remaining ?? 400));
-      setLimit(Number(data.limit ?? 400));
+      setTotalTokens(Number(data.total_tokens ?? 0));
+      setInputTokens(Number(data.input_tokens ?? 0));
+      setOutputTokens(Number(data.output_tokens ?? 0));
       const activeCount = Number(data.actual_active_accounts ?? data.active_accounts ?? 0);
       setActiveAccounts(Number.isFinite(activeCount) ? activeCount : 0);
-      setPoolUsed(Number(data.pool_used ?? 0));
-      setPoolTotal(Number(data.pool_total ?? 400));
     }
 
     void load();
@@ -3166,15 +3170,16 @@ function AiCreditBadge() {
     <span
       className="aiCreditPill"
       title={
+        "Usage asli dari Gemini API · input " +
+        formatTokenUsage(inputTokens) +
+        " token · output " +
+        formatTokenUsage(outputTokens) +
+        " token · " +
         activeAccounts +
-        " akun aktif hari ini · Pool bersama " +
-        poolUsed +
-        "/" +
-        poolTotal +
-        " credit terpakai"
+        " akun aktif hari ini"
       }
     >
-      AI {remaining === null ? "..." : remaining + "/" + limit} · {activeAccounts} aktif
+      Gemini hari ini: {totalTokens === null ? "..." : formatTokenUsage(totalTokens) + " token"} · {activeAccounts} aktif
     </span>
   );
 }
