@@ -214,7 +214,7 @@ Aturan wajib:
       "Anda menyusun kurikulum belajar bertahap yang ketat pada sumber pengguna. Jangan mengarang fakta.",
       { models: geminiModelsForMode(aiMode, "standard"), apiKey: userGeminiKey }
     );
-    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model);
+    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, ownGemini ? "user-api-key" : "shared-api-key");
     const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
