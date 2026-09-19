@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerate, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -73,18 +73,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(aiQuotaError(aiUsage), { status: 429 });
     }
 
-    const rawTranscript = await geminiGenerate([
+    const rawResult = await geminiGenerateDetailed([
       {
         text:
           "Transkripsikan audio berikut secara VERBATIM. Tulis apa yang benar-benar terdengar sedekat mungkin kata demi kata. Jangan mengoreksi istilah, jangan merangkum, jangan menambahkan fakta. Rapikan tanda baca dan paragraf secukupnya.",
       },
       { inlineData: { mimeType, data: base64 } },
     ]);
+    await recordAiTokenUsage(supabase, rawResult.usage);
+    const rawTranscript = rawResult.text;
 
     const knowledge = await getScopeKnowledge(supabase, contextNodeId, 40);
     const context = buildKnowledgeContext(knowledge, 26000);
 
-    const structuredRaw = await geminiGenerate(
+    const structuredResult = await geminiGenerateDetailed(
       [
         {
           text:
@@ -106,6 +108,8 @@ export async function POST(req: NextRequest) {
       ],
       "Anda menyunting transkrip secara konservatif. Database yang diberikan adalah satu-satunya sumber untuk koreksi istilah faktual."
     );
+    await recordAiTokenUsage(supabase, structuredResult.usage);
+    const structuredRaw = structuredResult.text;
 
     let structuredTranscript = rawTranscript;
     let summary = "";
