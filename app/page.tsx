@@ -3502,7 +3502,7 @@ function BottomAskBar({
   entries: KnowledgeEntry[];
   nodes: StudyNode[];
 }) {
-  type KnowledgeMode = "database" | "hybrid" | "web";
+  type SourceKind = "ai" | "database" | "web";
 
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -3510,7 +3510,7 @@ function BottomAskBar({
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
-  const [knowledgeMode, setKnowledgeMode] = useState<KnowledgeMode>("database");
+  const [selectedSources, setSelectedSources] = useState<SourceKind[]>(["database"]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
@@ -3521,10 +3521,10 @@ function BottomAskBar({
   const composerRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
-    if (aiSelection.model === "local" && knowledgeMode !== "database") {
-      setKnowledgeMode("database");
+    if (aiSelection.model === "local") {
+      setSelectedSources(["database"]);
     }
-  }, [aiMode, knowledgeMode]);
+  }, [aiSelection.model]);
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem("rb-composer-bottom") || "16");
@@ -3619,15 +3619,33 @@ function BottomAskBar({
     };
   }
 
-  function knowledgeModeLabel(mode: KnowledgeMode) {
-    if (mode === "web") return "Web + Database";
-    if (mode === "hybrid") return "AI + Database";
-    return "Database";
+  function toggleSource(source: SourceKind) {
+    if (source !== "database" && aiSelection.model === "local") {
+      setAiSelection(defaultSelection("gemini-2.5-flash-lite"));
+    }
+
+    setSelectedSources((current) => {
+      if (current.includes(source)) {
+        if (current.length === 1) return current;
+        return current.filter((item) => item !== source);
+      }
+      return [...current, source];
+    });
+  }
+
+  function sourcesLabel(value = selectedSources) {
+    const ordered: SourceKind[] = ["ai", "database", "web"];
+    const labels: Record<SourceKind, string> = {
+      ai: "AI",
+      database: "Database",
+      web: "Web",
+    };
+    return ordered.filter((item) => value.includes(item)).map((item) => labels[item]).join(" + ");
   }
 
   async function ask(e: FormEvent) {
     e.preventDefault();
-    if (!question.trim()) return;
+    if (!question.trim() || !selectedSources.length) return;
 
     setBusy(true);
     setOpen(true);
@@ -3649,14 +3667,14 @@ function BottomAskBar({
     const response = await fetch("/api/ask", {
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
-      body: JSON.stringify({ question, scopeNodeId, aiMode, knowledgeMode }),
+      body: JSON.stringify({ question, scopeNodeId, aiMode, sources: selectedSources }),
     });
 
     const data = await response.json();
     setBusy(false);
 
     if (!response.ok) {
-      setAnswer(data.error || "Terjadi kesalahan.");
+      setAnswer(data.error || "Model belum dapat memproses permintaan ini. Coba model lain.");
       return;
     }
 
@@ -3665,12 +3683,12 @@ function BottomAskBar({
     setSources(data.sources || []);
     setWebSources(data.webSources || []);
     setWarning(data.warning || "");
-    if (data.knowledgeMode === "hybrid" || data.knowledgeMode === "web" || data.knowledgeMode === "database") {
-      setKnowledgeMode(data.knowledgeMode);
+    if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
+      setSelectedSources(data.selectedSources);
     }
   }
 
-  const activeKnowledgeLabel = knowledgeModeLabel(knowledgeMode);
+  const activeSourcesLabel = sourcesLabel();
 
   return (
     <>
@@ -3685,7 +3703,7 @@ function BottomAskBar({
                     (modelCapability(aiSelection.model).efforts.length
                       ? " · " + modelCapability(aiSelection.model).efforts.find((item) => item.value === aiSelection.effort)?.label
                       : "")}
-                {" · "}{activeKnowledgeLabel}
+                {" · "}{activeSourcesLabel}
                 {answerModel ? " · " + answerModel : ""}
                 {" · "}{scopeName}
               </small>
@@ -3696,13 +3714,7 @@ function BottomAskBar({
           {warning && <div className="aiWarning"><RichText text={warning} /></div>}
           <div className="aiAnswerBody">
             {busy
-              ? aiSelection.model === "local"
-                ? "Mencari secara lokal di Database..."
-                : knowledgeMode === "web"
-                  ? "Mencari di Database dan Web..."
-                  : knowledgeMode === "hybrid"
-                    ? "Menganalisis Database + pengetahuan AI..."
-                    : "Mencari di Database..."
+              ? "Memproses dari " + activeSourcesLabel + "..."
               : <RichText text={answer || "..."} />}
           </div>
           {(!!sources.length || !!webSources.length) && (
@@ -3725,40 +3737,29 @@ function BottomAskBar({
           <span />
         </button>
         <div className="askTopRow">
-          <div className="askScope" title={scopeName}>AI · {scopeName}</div>
+          <div className="askScope" title={scopeName}>{scopeName}</div>
           <div className="askControls">
-            <div className="knowledgeModePicker" role="group" aria-label="Sumber jawaban">
-              <button
-                type="button"
-                className={knowledgeMode === "database" ? "active" : ""}
-                onClick={() => setKnowledgeMode("database")}
-                title="Jawab hanya dari Database yang dipilih"
-              >
-                DB
-              </button>
-              <button
-                type="button"
-                className={knowledgeMode === "hybrid" ? "active" : ""}
-                disabled={aiSelection.model === "local"}
-                onClick={() => setKnowledgeMode("hybrid")}
-                title="Database utama + pengetahuan internal model, tanpa browsing"
-              >
-                AI+DB
-              </button>
-              <button
-                type="button"
-                className={knowledgeMode === "web" ? "active" : ""}
-                disabled={aiSelection.model === "local"}
-                onClick={() => setKnowledgeMode("web")}
-                title="Database + Google Search"
-              >
-                🌐 Web
-              </button>
+            <div className="sourceToggleGroup" role="group" aria-label="Sumber jawaban">
+              {([
+                { id: "ai" as const, label: "AI" },
+                { id: "database" as const, label: "Database" },
+                { id: "web" as const, label: "Web" },
+              ]).map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={selectedSources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
+                  onClick={() => toggleSource(item.id)}
+                  aria-pressed={selectedSources.includes(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
             <AiModePicker
               value={aiSelection}
               onChange={setAiSelection}
-              action={knowledgeMode === "web" ? "ask_web" : "ask"}
+              action={selectedSources.includes("web") ? "ask_web" : "ask"}
               compact
             />
           </div>
@@ -3772,15 +3773,11 @@ function BottomAskBar({
             el.style.height = "auto";
             el.style.height = Math.min(el.scrollHeight, 140) + "px";
           }}
-          placeholder={
-            knowledgeMode === "web"
-              ? "Tanya dari Database + Web..."
-              : knowledgeMode === "hybrid"
-                ? "Tanya dari Database + pengetahuan AI..."
-                : "Tanya sesuatu dari Database..."
-          }
+          placeholder={"Tanya dari " + activeSourcesLabel + "..."}
         />
-        <button className="sendAsk" disabled={busy || !question.trim()}>{busy ? "..." : "↑"}</button>
+        <button className="sendAsk" disabled={busy || !question.trim() || !selectedSources.length}>
+          {busy ? "..." : "↑"}
+        </button>
       </form>
     </>
   );
