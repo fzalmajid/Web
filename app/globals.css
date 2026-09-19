@@ -1746,3 +1746,65 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     overflow-x:auto;
   }
 }
+
+
+/* Session-only user Gemini API connection */
+.geminiConnect{
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:var(--card);
+  color:var(--muted);
+  padding:7px 10px;
+  font-size:.7rem;
+  font-weight:800;
+  white-space:nowrap;
+}
+.geminiConnect.connected{
+  color:var(--text);
+  border-color:#8fc9a6;
+  background:#eef8f1;
+}
+:root[data-theme="dark"] .geminiConnect.connected{
+  background:#183026;
+  border-color:#315744;
+}
+.geminiConnectSheet{
+  max-width:560px;
+}
+.geminiKeyField{
+  display:grid;
+  gap:7px;
+  font-size:.8rem;
+  font-weight:800;
+}
+.geminiKeyField input{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.geminiKeyField small{
+  font-family:inherit;
+  font-weight:500;
+  line-height:1.45;
+}
+.geminiConnectActions{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:9px;
+}
+.geminiConnectActions .textBtn{
+  margin-left:auto;
+}
+@media(max-width:700px){
+  .geminiConnect{
+    max-width:120px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .geminiConnectActions{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .geminiConnectActions .textBtn{
+    margin-left:0;
+  }
+}
