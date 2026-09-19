@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -365,6 +365,8 @@ function Workspace({ session, user }: { session: Session; user: User }) {
             node={current}
             cards={cards}
             quizzes={quizzes}
+            entries={entries}
+            nodes={nodes}
             onChange={refresh}
           />
         )}
@@ -664,6 +666,66 @@ function DatabasePage({
     }
 
     setFileStatus("Membaca file dan menyusun isi...");
+
+    if (aiMode === "simple") {
+      const localMime = inferMime(selectedFile);
+      const localSupported =
+        localMime.startsWith("text/") ||
+        localMime === "application/json" ||
+        localMime === "application/xml";
+
+      if (!localSupported) {
+        await supabase.from("source_files").update({
+          processing_status: "error",
+          error_message: "Format ini membutuhkan Gemini. Pilih Instant, Medium, atau High.",
+        }).eq("id", row.id);
+        setFileBusy(false);
+        setFileStatus("Simple · Local belum mendukung format ini.");
+        onChange();
+        return alert("Simple · Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, gambar, audio, atau video pilih Instant, Medium, atau High (Gemini).");
+      }
+
+      const rawText = (await selectedFile.text()).trim();
+      if (!rawText) {
+        setFileBusy(false);
+        setFileStatus("");
+        return alert("File tidak berisi teks yang dapat dibaca.");
+      }
+
+      const { data: entry, error: entryError } = await supabase
+        .from("knowledge_entries")
+        .insert({
+          user_id: user.id,
+          node_id: node.id,
+          title: selectedFile.name,
+          category: "File Local",
+          content: rawText,
+          raw_content: rawText,
+          source_type: "file",
+          source_file_id: row.id,
+        })
+        .select("id")
+        .single();
+
+      if (entryError) {
+        setFileBusy(false);
+        return alert(entryError.message);
+      }
+
+      await supabase.from("source_files").update({
+        processing_status: "ready",
+        raw_text: rawText,
+        structured_text: rawText,
+        corrections: [],
+        error_message: null,
+      }).eq("id", row.id);
+
+      setSelectedFile(null);
+      setFileBusy(false);
+      setFileStatus("Selesai dengan Simple · Local · 0 cr.");
+      onChange();
+      return;
+    }
 
     const response = await fetch("/api/import-file", {
       method: "POST",
@@ -1278,12 +1340,16 @@ function PracticePage({
   node,
   cards,
   quizzes,
+  entries,
+  nodes,
   onChange,
 }: {
   session: Session;
   node: StudyNode;
   cards: Flashcard[];
   quizzes: Quiz[];
+  entries: KnowledgeEntry[];
+  nodes: StudyNode[];
   onChange: () => void;
 }) {
   const mode = node.node_type === "flashcards" ? "flashcards" : "quiz";
@@ -1296,6 +1362,58 @@ function PracticePage({
 
   async function generate() {
     if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada database sumber.");
+
+    if (aiMode === "simple") {
+      setBusy(true);
+      const scopeIds = collectSubtreeIds(nodes, node.parent_id);
+      const sourceEntries = entries.filter((item) => scopeIds.includes(item.node_id));
+      const sentences = sourceEntries
+        .flatMap((entry) => entry.content.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
+        .map((sentence) => sentence.trim())
+        .filter((sentence) => sentence.length >= 35 && sentence.length <= 260)
+        .slice(0, 12);
+
+      if (!sentences.length) {
+        setBusy(false);
+        return alert("Belum ada cukup teks di Database untuk dibuat secara Local.");
+      }
+
+      if (mode === "flashcards") {
+        const local = sentences.slice(0, 5).map((sentence, index) => ({
+          user_id: session.user.id,
+          material_id: null,
+          scope_node_id: node.id,
+          front: "Poin " + (index + 1) + ": apa isi pentingnya?",
+          back: sentence,
+        }));
+        const { error } = await supabase.from("flashcards").insert(local);
+        setBusy(false);
+        if (error) return alert(error.message);
+        onChange();
+        return;
+      }
+
+      const pool = sentences.slice(0, 6);
+      const localQuiz = pool.slice(0, 3).map((correct, index) => {
+        const distractors = pool.filter((item) => item !== correct).slice(index, index + 3);
+        const choices = [correct, ...distractors].slice(0, 4);
+        return {
+          user_id: session.user.id,
+          material_id: null,
+          scope_node_id: node.id,
+          question: "Pernyataan mana yang sesuai dengan materi?",
+          choices,
+          correct_answer: correct,
+          explanation: "Jawaban diambil langsung dari Database.",
+        };
+      }).filter((item) => item.choices.length >= 2);
+
+      const { error } = await supabase.from("quizzes").insert(localQuiz);
+      setBusy(false);
+      if (error) return alert(error.message);
+      onChange();
+      return;
+    }
 
     setBusy(true);
     const response = await fetch("/api/generate-study", {
@@ -1577,22 +1695,24 @@ function BottomAskBar({
     if (Number.isFinite(saved)) setComposerBottom(Math.max(12, Math.min(saved, 320)));
   }, []);
 
-  function startDrag(event: React.PointerEvent<HTMLButtonElement>) {
+  function startDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     event.preventDefault();
     dragRef.current = { y: event.clientY, bottom: composerBottom };
+    let latestBottom = composerBottom;
     event.currentTarget.setPointerCapture?.(event.pointerId);
 
     const move = (e: PointerEvent) => {
       if (!dragRef.current) return;
       const max = Math.min(320, Math.max(80, window.innerHeight * 0.42));
       const next = Math.max(12, Math.min(max, dragRef.current.bottom + dragRef.current.y - e.clientY));
+      latestBottom = next;
       setComposerBottom(next);
     };
     const end = () => {
       dragRef.current = null;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
-      window.localStorage.setItem("rb-composer-bottom", String(Math.round(composerBottom)));
+      window.localStorage.setItem("rb-composer-bottom", String(Math.round(latestBottom)));
     };
 
     window.addEventListener("pointermove", move);
