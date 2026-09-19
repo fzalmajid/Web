@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, checkAiCredits, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -129,7 +129,7 @@ Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, ja
       if (error) throw error;
     }
 
-    const aiUsage = await consumeAiCredits(supabase, "study", aiMode);
+    const aiUsage = await finalizeAiCredits(supabase, "study", aiMode);
     return NextResponse.json({ flashcards: flashcards.length, quizzes: quizzes.length, aiUsage });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Gagal membuat latihan." }, { status: 500 });
