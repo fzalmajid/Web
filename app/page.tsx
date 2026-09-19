@@ -3377,7 +3377,7 @@ function AiModePicker({
   action: "ask" | "ask_web" | "study" | "transcription" | "file_light" | "file_heavy";
   compact?: boolean;
   allowLocal?: boolean;
-  context?: "general" | "transcription";
+  context?: "general" | "transcription" | "chat";
 }) {
   const [open, setOpen] = useState(false);
   const [pluginRevision, setPluginRevision] = useState(0);
