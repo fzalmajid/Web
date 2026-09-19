@@ -122,6 +122,17 @@ export function defaultSelection(
   };
 }
 
+export function selectionFromLegacyMode(
+  mode: AiLegacyMode,
+  context: "general" | "transcription" = "general"
+): AiSelection {
+  if (mode === "simple") return defaultSelection("local", context);
+  if (context === "transcription") return defaultSelection("gemini-3.5-transcribe", context);
+  if (mode === "high") return { model: "gemini-3.6-flash", effort: "high" };
+  if (mode === "medium") return { model: "gemini-2.5-flash", effort: "medium" };
+  return { model: "gemini-2.5-flash-lite", effort: "off" };
+}
+
 export function legacyModeForSelection(selection: AiSelection): AiLegacyMode {
   if (selection.model === "local") return "simple";
   if (selection.effort === "high") return "high";
