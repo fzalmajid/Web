@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerate } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerate, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 
@@ -29,11 +29,11 @@ export async function POST(req: NextRequest) {
         }].filter((item) => item.quizId && item.answer);
 
     if (!items.length) {
-      return NextResponse.json({ error: "Jawaban essay belum diisi." }, { status: 400 });
+      return NextResponse.json({ error: "Jawaban kuis AI belum diisi." }, { status: 400 });
     }
     if (aiMode === "simple") {
       return NextResponse.json({
-        error: "Penilaian essay membutuhkan Gemini 3.6. Pilih Instant, Medium, atau High."
+        error: "Penilaian AI membutuhkan Gemini 3.6. Pilih Instant, Medium, atau High."
       }, { status: 400 });
     }
 
@@ -46,19 +46,19 @@ export async function POST(req: NextRequest) {
     const ids = items.map((item: any) => item.quizId);
     const { data: quizzes, error: quizError } = await supabase
       .from("quizzes")
-      .select("id,question,scope_node_id,quiz_type,grading_mode")
+      .select("id,question,choices,scope_node_id,quiz_type,grading_mode")
       .in("id", ids);
 
     if (quizError || !quizzes || quizzes.length !== ids.length) {
-      return NextResponse.json({ error: "Ada soal essay yang tidak ditemukan." }, { status: 404 });
+      return NextResponse.json({ error: "Ada soal AI yang tidak ditemukan." }, { status: 404 });
     }
-    if (quizzes.some((quiz: any) => quiz.quiz_type !== "essay" || quiz.grading_mode !== "ai")) {
-      return NextResponse.json({ error: "Ada soal yang bukan essay AI." }, { status: 400 });
+    if (quizzes.some((quiz: any) => quiz.grading_mode !== "ai")) {
+      return NextResponse.json({ error: "Ada soal yang bukan mode dinilai AI." }, { status: 400 });
     }
 
     const scopeIds = Array.from(new Set(quizzes.map((quiz: any) => quiz.scope_node_id).filter(Boolean)));
     if (scopeIds.length !== 1) {
-      return NextResponse.json({ error: "Soal essay harus berasal dari satu halaman kuis yang sama." }, { status: 400 });
+      return NextResponse.json({ error: "Soal AI harus berasal dari satu halaman kuis yang sama." }, { status: 400 });
     }
 
     const { data: quizNode, error: nodeError } = await supabase
@@ -94,7 +94,9 @@ export async function POST(req: NextRequest) {
       const found = items.find((item: any) => item.quizId === quiz.id);
       return {
         id: quiz.id,
+        quiz_type: quiz.quiz_type,
         question: quiz.question,
+        choices: Array.isArray(quiz.choices) ? quiz.choices : [],
         answer: found?.answer || "",
       };
     });
@@ -126,11 +128,12 @@ Keluarkan JSON valid tanpa markdown:
 Aturan:
 - Harus ada tepat satu result untuk setiap id soal.
 - score angka 0-100.
-- correct=true hanya bila inti jawaban sudah benar berdasarkan database.
-- Jawaban sebagian benar boleh diberi score parsial tetapi correct=false bila inti masih kurang/keliru.
+- Untuk quiz_type="mcq": nilai pilihan yang dipilih peserta berdasarkan Database. Jika pilihannya benar, score=100 dan correct=true. Jika salah, score=0 dan correct=false.
+- Untuk quiz_type="essay": nilai makna jawaban. Jawaban sebagian benar boleh diberi score parsial tetapi correct=false bila inti masih kurang/keliru.
 - Jangan menggunakan pengetahuan umum atau internet.
 - Jika database tidak cukup untuk menilai suatu soal, gradable=false, correct=false, score=0 dan jelaskan kekurangan sumber di feedback.
-- basis harus singkat dan menyebut dasar dari database tanpa mengarang kutipan.`
+- basis harus singkat dan menyebut dasar dari database tanpa mengarang kutipan.
+- ${WHATSAPP_FORMAT_INSTRUCTION}`
     }], "Anda adalah penilai kuis yang ketat dan hanya boleh memakai database yang diberikan.");
 
     const parsed = JSON.parse(cleanJsonText(raw));
