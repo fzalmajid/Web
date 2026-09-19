@@ -969,7 +969,12 @@ function StudyPage({
   const [quickDbOpen, setQuickDbOpen] = useState(false);
   const [quickDbName, setQuickDbName] = useState("");
   const [quickDbContent, setQuickDbContent] = useState("");
+  const [quickDbCreatedId, setQuickDbCreatedId] = useState<string | null>(null);
+  const [quickDbFile, setQuickDbFile] = useState<File | null>(null);
+  const [quickDbAiMode, setQuickDbAiMode] = useState<AiMode>("simple");
+  const [quickDbStatus, setQuickDbStatus] = useState("");
   const [quickBusy, setQuickBusy] = useState(false);
+  const [quickFileBusy, setQuickFileBusy] = useState(false);
 
   const branchIds = useMemo(
     () => node.parent_id ? collectSubtreeIds(nodes, node.parent_id) : [],
@@ -1063,12 +1068,19 @@ function StudyPage({
     await loadStudy();
   }
 
-  async function createQuickDatabase(e: FormEvent) {
-    e.preventDefault();
-    if (!node.parent_id) return alert("Study harus berada di dalam Materi.");
-    if (!quickDbName.trim()) return;
+  async function ensureQuickDatabase() {
+    if (quickDbCreatedId) {
+      return { id: quickDbCreatedId, title: quickDbName.trim() };
+    }
+    if (!node.parent_id) {
+      alert("Study harus berada di dalam Materi.");
+      return null;
+    }
+    if (!quickDbName.trim()) {
+      alert("Isi nama Database terlebih dahulu.");
+      return null;
+    }
 
-    setQuickBusy(true);
     const { data: created, error } = await supabase
       .from("study_nodes")
       .insert({
@@ -1083,36 +1095,196 @@ function StudyPage({
       .single();
 
     if (error || !created) {
-      setQuickBusy(false);
-      return alert(error?.message || "Gagal membuat Database.");
+      alert(error?.message || "Gagal membuat Database.");
+      return null;
     }
 
-    if (quickDbContent.trim()) {
-      const { error: entryError } = await supabase.from("knowledge_entries").insert({
+    setQuickDbCreatedId(created.id);
+    setSelectedSources((current) => [...new Set([...current, created.id])]);
+    onChange();
+    return { id: created.id, title: quickDbName.trim() };
+  }
+
+  async function saveQuickDatabaseText(e: FormEvent) {
+    e.preventDefault();
+    if (!quickDbContent.trim()) return;
+
+    setQuickBusy(true);
+    const database = await ensureQuickDatabase();
+    if (!database) {
+      setQuickBusy(false);
+      return;
+    }
+
+    const { error } = await supabase.from("knowledge_entries").insert({
+      user_id: user.id,
+      node_id: database.id,
+      title: database.title,
+      category: "",
+      content: quickDbContent.trim(),
+      raw_content: quickDbContent.trim(),
+      source_type: "manual",
+    });
+
+    setQuickBusy(false);
+    if (error) return alert(error.message);
+
+    setQuickDbContent("");
+    setQuickDbStatus("Teks sudah ditambahkan. Database otomatis dipilih sebagai sumber Study.");
+    onChange();
+  }
+
+  async function uploadQuickDatabaseFile(e: FormEvent) {
+    e.preventDefault();
+    if (!quickDbFile) return;
+
+    const mimeType = inferMime(quickDbFile);
+    if (!mimeType) return alert("Jenis file belum didukung.");
+    if (quickDbFile.size > 50 * 1024 * 1024) return alert("File maksimal 50 MB.");
+
+    setQuickFileBusy(true);
+    setQuickDbStatus("Mengupload...");
+
+    const database = await ensureQuickDatabase();
+    if (!database) {
+      setQuickFileBusy(false);
+      setQuickDbStatus("");
+      return;
+    }
+
+    const safeName = quickDbFile.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+    const path = user.id + "/" + database.id + "/" + crypto.randomUUID() + "-" + safeName;
+
+    const upload = await supabase.storage
+      .from("study-files")
+      .upload(path, quickDbFile, { contentType: mimeType });
+
+    if (upload.error) {
+      setQuickFileBusy(false);
+      setQuickDbStatus("");
+      return alert(upload.error.message);
+    }
+
+    const { data: row, error } = await supabase
+      .from("source_files")
+      .insert({
         user_id: user.id,
-        node_id: created.id,
-        title: quickDbName.trim(),
-        category: "",
-        content: quickDbContent.trim(),
-        raw_content: quickDbContent.trim(),
-        source_type: "manual",
-      });
+        node_id: database.id,
+        file_path: path,
+        file_name: quickDbFile.name,
+        mime_type: mimeType,
+        size_bytes: quickDbFile.size,
+        processing_status: "processing",
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      await supabase.storage.from("study-files").remove([path]);
+      setQuickFileBusy(false);
+      setQuickDbStatus("");
+      return alert(error.message);
+    }
+
+    onChange();
+    setQuickDbStatus("Sedang diproses...");
+
+    if (quickDbAiMode === "simple") {
+      const localSupported =
+        mimeType.startsWith("text/") ||
+        mimeType === "application/json" ||
+        mimeType === "application/xml";
+
+      if (!localSupported) {
+        await supabase.from("source_files").update({
+          processing_status: "error",
+          error_message: "Format ini membutuhkan Gemini. Pilih Instant, Medium, atau High.",
+        }).eq("id", row.id);
+
+        setQuickFileBusy(false);
+        setQuickDbStatus("Simple · Local belum mendukung format ini.");
+        onChange();
+        return alert("Simple · Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih Instant, Medium, atau High (Gemini).");
+      }
+
+      const rawText = (await quickDbFile.text()).trim();
+      if (!rawText) {
+        setQuickFileBusy(false);
+        setQuickDbStatus("");
+        return alert("File tidak berisi teks yang dapat dibaca.");
+      }
+
+      const { error: entryError } = await supabase
+        .from("knowledge_entries")
+        .insert({
+          user_id: user.id,
+          node_id: database.id,
+          title: quickDbFile.name,
+          category: "File Local",
+          content: rawText,
+          raw_content: rawText,
+          source_type: "file",
+          source_file_id: row.id,
+        });
 
       if (entryError) {
-        setQuickBusy(false);
+        setQuickFileBusy(false);
         return alert(entryError.message);
       }
+
+      await supabase.from("source_files").update({
+        processing_status: "ready",
+        raw_text: rawText,
+        structured_text: rawText,
+        corrections: [],
+        error_message: null,
+      }).eq("id", row.id);
+
+      setQuickDbFile(null);
+      setQuickFileBusy(false);
+      setQuickDbStatus("Selesai dengan Simple · Local · 0 cr. Database otomatis dipilih sebagai sumber Study.");
+      onChange();
+      return;
     }
 
-    setSelectedSources((current) => [...new Set([...current, created.id])]);
-    const hadContent = Boolean(quickDbContent.trim());
+    const response = await fetch("/api/import-file", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({
+        sourceFileId: row.id,
+        filePath: path,
+        fileName: quickDbFile.name,
+        mimeType,
+        nodeId: database.id,
+        aiMode: quickDbAiMode,
+      }),
+    });
+
+    const result = await response.json();
+    setQuickFileBusy(false);
+
+    if (!response.ok) {
+      setQuickDbStatus("File tersimpan, tetapi pemrosesan gagal.");
+      onChange();
+      return alert(result.error || "Gagal memproses file.");
+    }
+
+    setQuickDbFile(null);
+    setQuickDbStatus("Selesai. File sudah menjadi isi Database dan otomatis dipilih sebagai sumber Study.");
+    onChange();
+  }
+
+  function closeQuickDatabase() {
+    setQuickDbOpen(false);
     setQuickDbName("");
     setQuickDbContent("");
-    setQuickDbOpen(false);
-    setQuickBusy(false);
-    onChange();
-
-    if (!hadContent) onOpen(created.id);
+    setQuickDbCreatedId(null);
+    setQuickDbFile(null);
+    setQuickDbAiMode("simple");
+    setQuickDbStatus("");
   }
 
   async function checkRecall(unit: StudyUnit) {
@@ -1224,27 +1396,74 @@ function StudyPage({
           </div>
 
           {quickDbOpen && (
-            <form className="quickDbForm" onSubmit={createQuickDatabase}>
-              <div>
-                <strong>Database baru</strong>
-                <small className="muted">Paste teks sekarang, atau kosongkan isi untuk membuka halaman Database lengkap.</small>
+            <section className="quickDatabaseShortcut">
+              <div className="quickDatabaseHead">
+                <div>
+                  <p className="eyebrow">DATABASE BARU</p>
+                  <h2>Tambah Database dari Study</h2>
+                  <p className="muted">Shortcut ini sama seperti halaman Database. Setelah ada isi, Database otomatis terpilih sebagai sumber Study.</p>
+                </div>
+                <button className="ghost" type="button" onClick={closeQuickDatabase}>Tutup</button>
               </div>
-              <input
-                value={quickDbName}
-                onChange={(e) => setQuickDbName(e.target.value)}
-                placeholder="Nama Database, misal: Materi CPOB 2024"
-                required
-              />
-              <textarea
-                rows={6}
-                value={quickDbContent}
-                onChange={(e) => setQuickDbContent(e.target.value)}
-                placeholder="Opsional: paste materi langsung di sini..."
-              />
-              <button className="primary" disabled={quickBusy}>
-                {quickBusy ? "Membuat..." : quickDbContent.trim() ? "Buat + pilih Database" : "Buat & buka Database"}
-              </button>
-            </form>
+
+              <label className="quickDatabaseName">
+                Nama Database
+                <input
+                  value={quickDbName}
+                  onChange={(e) => setQuickDbName(e.target.value)}
+                  placeholder="Contoh: Materi CPOB 2024"
+                  required
+                  disabled={Boolean(quickDbCreatedId)}
+                />
+              </label>
+
+              <div className="toolGrid quickDatabaseGrid">
+                <article className="panel">
+                  <h2>Masukkan teks</h2>
+                  <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti Database serta jalur materi yang sedang dibuka.</p>
+                  <form className="stack" onSubmit={saveQuickDatabaseText}>
+                    <textarea
+                      required
+                      rows={14}
+                      value={quickDbContent}
+                      onChange={(e) => setQuickDbContent(e.target.value)}
+                      placeholder="Paste teks materi di sini..."
+                    />
+                    <button className="primary" disabled={quickBusy || !quickDbName.trim() || !quickDbContent.trim()}>
+                      {quickBusy ? "Menyimpan..." : "Tambahkan ke Database"}
+                    </button>
+                  </form>
+                </article>
+
+                <article className="panel">
+                  <h2>Upload file</h2>
+                  <p className="muted">PDF, DOCX, PPTX, TXT/MD/CSV/JSON, gambar, audio, dan video. Audio/video akan ditranskrip dulu.</p>
+                  <form className="stack" onSubmit={uploadQuickDatabaseFile}>
+                    <input
+                      type="file"
+                      accept=".pdf,.docx,.pptx,.txt,.md,.csv,.json,.xml,.mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.webm,.mp4,.mov,.png,.jpg,.jpeg,.webp"
+                      onChange={(e) => setQuickDbFile(e.target.files?.[0] || null)}
+                    />
+                    <AiModePicker
+                      value={quickDbAiMode}
+                      onChange={setQuickDbAiMode}
+                      action={quickDbFile && isHeavyFile(quickDbFile) ? "file_heavy" : "file_light"}
+                    />
+                    <button className="primary" disabled={!quickDbName.trim() || !quickDbFile || quickFileBusy}>
+                      {quickFileBusy ? "Memproses..." : "Upload & olah"}
+                    </button>
+                  </form>
+                  {quickDbStatus && <div className="notice">{quickDbStatus}</div>}
+                </article>
+              </div>
+
+              {quickDbCreatedId && (
+                <div className="quickDatabaseCreated">
+                  <span>✓ Database <strong>{quickDbName}</strong> sudah dibuat dan dipilih untuk Study.</span>
+                  <button className="ghost" type="button" onClick={() => onOpen(quickDbCreatedId)}>Buka halaman Database</button>
+                </div>
+              )}
+            </section>
           )}
 
           {path?.status === "error" && path.error_message && (
