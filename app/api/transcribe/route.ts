@@ -118,13 +118,18 @@ function audioModelsForProvider(available: string[]) {
   return Array.from(new Set([...preferred, ...otherLikelyMultimodal]));
 }
 
-function transcriptionPrompt() {
+function transcriptionPrompt(languageHint?: string) {
   return (
-    "Transkripsikan audio berikut secara VERBATIM dalam bahasa yang terdengar. " +
-    "Pertahankan kata yang diucapkan sedekat mungkin kata demi kata. " +
-    "Jangan merangkum, jangan menambah fakta, dan jangan mengoreksi istilah berdasarkan tebakan. " +
-    "Rapikan tanda baca serta pergantian paragraf secukupnya. " +
-    "Keluarkan HANYA transkrip, tanpa pembukaan atau penjelasan."
+    "Transkripsikan AUDIO secara VERBATIM berdasarkan bunyi yang benar-benar terdengar, bukan berdasarkan topik atau tebakan semantik. " +
+    (languageHint === "id-ID"
+      ? "Bahasa utama adalah Bahasa Indonesia. Dengarkan setiap suku kata dan bedakan vokal a, i, u, e, o dengan teliti. "
+      : "") +
+    "Untuk ucapan pendek, pertahankan jumlah kata dan urutan kata sedekat mungkin dengan audio. " +
+    "Jangan melengkapi kalimat menjadi kalimat lain yang terasa lebih masuk akal. " +
+    "Jangan mengambil konteks dari Database, percakapan, atau materi apa pun. " +
+    "Jika satu bagian sungguh tidak jelas, tulis [tidak jelas] untuk bagian itu daripada mengarang kata. " +
+    "Jangan merangkum, jangan menambah fakta, jangan menerjemahkan, dan jangan mengoreksi istilah berdasarkan tebakan. " +
+    "Keluarkan HANYA kata-kata transkrip."
   );
 }
 
@@ -132,7 +137,8 @@ async function rawGenerateInline(
   model: string,
   bytes: Buffer,
   mimeType: string,
-  auth: GeminiAuth
+  auth: GeminiAuth,
+  languageHint?: string
 ) {
   const response = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/" +
@@ -146,7 +152,7 @@ async function rawGenerateInline(
           {
             role: "user",
             parts: [
-              { text: transcriptionPrompt() },
+              { text: transcriptionPrompt(languageHint) },
               {
                 inlineData: {
                   mimeType,
@@ -232,11 +238,91 @@ async function uploadGeminiAudio(bytes: Buffer, mimeType: string, auth: GeminiAu
   return String(info.file.uri);
 }
 
+
+function textFromInteraction(data: any) {
+  const direct = String(data?.output_text || "").trim();
+  if (direct) return direct;
+  return (Array.isArray(data?.steps) ? data.steps : [])
+    .filter((step: any) => step?.type === "model_output")
+    .flatMap((step: any) => Array.isArray(step?.content) ? step.content : [])
+    .filter((item: any) => item?.type === "text")
+    .map((item: any) => String(item?.text || ""))
+    .join("")
+    .trim();
+}
+
+function usageFromInteraction(data: any) {
+  const usage = data?.usage || {};
+  const inputTokens = Number(usage.total_input_tokens || 0);
+  const outputTokens = Number(usage.total_output_tokens || 0);
+  const thoughtsTokens = Number(usage.total_thought_tokens || 0);
+  const totalTokens = Number(
+    usage.total_tokens || inputTokens + outputTokens + thoughtsTokens
+  );
+  return { inputTokens, outputTokens, thoughtsTokens, totalTokens };
+}
+
+async function transcribeWithDedicatedModel(
+  bytes: Buffer,
+  mimeType: string,
+  auth: GeminiAuth,
+  languageHint?: string
+) {
+  const fileUri = await uploadGeminiAudio(bytes, mimeType, auth);
+  const response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/interactions",
+    {
+      method: "POST",
+      headers: geminiAuthHeaders(auth),
+      body: JSON.stringify({
+        model: "gemini-3.5-transcribe",
+        input: [
+          {
+            type: "audio",
+            uri: fileUri,
+            mime_type: mimeType,
+          },
+        ],
+        generation_config: {
+          transcription_config: {
+            ...(languageHint ? { language_codes: [languageHint] } : {}),
+            mode: { type: "verbatim" },
+          },
+        },
+      }),
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = String(data?.error?.message || "");
+    throw Object.assign(
+      new Error(message || "Gemini 3.5 Transcribe belum tersedia pada provider ini."),
+      { statusCode: response.status, providerMessage: message }
+    );
+  }
+
+  const text = textFromInteraction(data);
+  if (!text) {
+    throw Object.assign(new Error("Gemini 3.5 Transcribe tidak mengembalikan teks."), {
+      statusCode: 502,
+    });
+  }
+
+  return {
+    text,
+    usage: usageFromInteraction(data),
+    model: "gemini-3.5-transcribe",
+    dedicated: true,
+  };
+}
+
 async function rawGenerateWithFile(
   model: string,
   fileUri: string,
   mimeType: string,
-  auth: GeminiAuth
+  auth: GeminiAuth,
+  languageHint?: string
 ) {
   const response = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/" +
@@ -281,8 +367,20 @@ async function rawGenerateWithFile(
 async function transcribeGeminiAudio(
   bytes: Buffer,
   mimeType: string,
-  auth: GeminiAuth
+  auth: GeminiAuth,
+  languageHint?: string
 ) {
+  let dedicatedError: any = null;
+  try {
+    return await transcribeWithDedicatedModel(bytes, mimeType, auth, languageHint);
+  } catch (error: any) {
+    dedicatedError = error;
+    console.warn("[TRANSCRIBE_DEDICATED_FALLBACK]", {
+      status: Number(error?.statusCode || 500),
+      message: String(error?.providerMessage || error?.message || "").slice(0, 220),
+    });
+  }
+
   const available = await listGenerateModels(auth);
   const models = audioModelsForProvider(available);
 
@@ -299,11 +397,11 @@ async function transcribeGeminiAudio(
   for (const model of models) {
     try {
       if (bytes.byteLength <= INLINE_AUDIO_MAX_BYTES) {
-        return await rawGenerateInline(model, bytes, mimeType, auth);
+        return { ...(await rawGenerateInline(model, bytes, mimeType, auth, languageHint)), dedicated: false };
       }
 
       if (!fileUri) fileUri = await uploadGeminiAudio(bytes, mimeType, auth);
-      return await rawGenerateWithFile(model, fileUri, mimeType, auth);
+      return { ...(await rawGenerateWithFile(model, fileUri, mimeType, auth, languageHint)), dedicated: false };
     } catch (error: any) {
       lastError = error;
       const status = Number(error?.statusCode || 500);
@@ -324,7 +422,7 @@ async function transcribeGeminiAudio(
     }
   }
 
-  throw lastError || Object.assign(
+  throw lastError || dedicatedError || Object.assign(
     new Error("Provider Gemini belum berhasil memproses audio."),
     { statusCode: 503 }
   );
@@ -478,6 +576,8 @@ export async function POST(req: NextRequest) {
     const recordingId = String(body.recordingId || "");
     const filePath = String(body.filePath || "");
     const contextNodeId = body.contextNodeId ? String(body.contextNodeId) : null;
+    const purpose = body.purpose === "question" ? "question" : "recording";
+    const languageHint = purpose === "question" ? "id-ID" : undefined;
     const browserTranscript = String(body.browserTranscript || "").trim();
     const mimeType = normalizeMime(String(body.mimeType || "audio/webm"));
     const aiMode = normalizeAiMode(body.aiMode);
@@ -553,17 +653,19 @@ export async function POST(req: NextRequest) {
     let transcriptionProvider = "browser-live";
     let transcriptionWarning = "";
     let rawAuth: GeminiAuth | null = null;
+    let usedDedicatedTranscriber = false;
     let lastAudioError: any = null;
 
     for (const auth of authCandidates) {
       if (auth.provider === "shared-api-key" && !(await ensureSharedQuota())) continue;
 
       try {
-        const result = await transcribeGeminiAudio(audioBytes, mimeType, auth);
+        const result = await transcribeGeminiAudio(audioBytes, mimeType, auth, languageHint);
         rawTranscript = result.text;
         transcriptionModel = result.model;
         transcriptionProvider = auth.provider;
         rawAuth = auth;
+        usedDedicatedTranscriber = Boolean(result.dedicated);
         if (auth.provider === "shared-api-key") usedShared = true;
         await recordAiTokenUsage(supabase, result.usage, result.model, auth.provider);
         break;
@@ -577,7 +679,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (rawTranscript && browserTranscript && browserTranscriptShouldWin(rawTranscript, browserTranscript)) {
+    if (
+      rawTranscript &&
+      browserTranscript &&
+      !usedDedicatedTranscriber &&
+      browserTranscriptShouldWin(rawTranscript, browserTranscript)
+    ) {
       const rejectedModel = transcriptionModel;
       rawTranscript = browserTranscript;
       transcriptionModel = "Browser live cross-check";
@@ -606,6 +713,39 @@ export async function POST(req: NextRequest) {
         ),
         { statusCode: status >= 400 && status < 600 ? status : 503 }
       );
+    }
+
+    if (purpose === "question") {
+      const { error: updateError } = await supabase
+        .from("recordings")
+        .update({
+          raw_transcript: rawTranscript,
+          structured_transcript: rawTranscript,
+          transcript: rawTranscript,
+          corrections: [],
+        })
+        .eq("id", recordingId);
+
+      if (updateError) throw updateError;
+
+      const aiUsage = usedShared
+        ? await finalizeAiCredits(supabase, "transcription", aiMode)
+        : null;
+
+      return NextResponse.json({
+        rawTranscript,
+        structuredTranscript: rawTranscript,
+        summary: "",
+        corrections: [],
+        warning: transcriptionWarning,
+        aiUsage,
+        transcriptionModel,
+        structuringModel: "",
+        provider: {
+          transcription: transcriptionProvider,
+          structuring: "none",
+        },
+      });
     }
 
     const knowledge = await getScopeKnowledge(supabase, contextNodeId, 40);
