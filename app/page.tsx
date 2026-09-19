@@ -363,6 +363,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           <span>Ruang Belajar</span>
         </button>
         <div className="headerActions">
+          <GeminiAccountConnection session={session} />
           <AiCreditBadge />
           <ThemePicker value={theme} onChange={onThemeChange} />
           <span className="userPill">{user.email}</span>
@@ -3510,6 +3511,122 @@ function BottomAskBar({
         />
         <button className="sendAsk" disabled={busy || !question.trim()}>{busy ? "..." : "↑"}</button>
       </form>
+    </>
+  );
+}
+
+function GeminiAccountConnection({ session }: { session: Session }) {
+  const [open, setOpen] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setConnected(Boolean(getSessionGeminiKey()));
+  }, []);
+
+  async function connect() {
+    const candidate = keyInput.trim() || getSessionGeminiKey();
+    if (!candidate) {
+      setMessage("Tempel Gemini API key dari Google AI Studio.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+
+    const response = await fetch("/api/check-gemini-key", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+        "X-RB-Gemini-Key": candidate,
+      },
+      body: "{}",
+    });
+    const data = await response.json();
+    setBusy(false);
+
+    if (!response.ok || data.valid === false) {
+      setMessage(data.error || "API key belum dapat dipakai.");
+      return;
+    }
+
+    window.sessionStorage.setItem("rb-user-gemini-key", candidate);
+    setConnected(true);
+    setKeyInput("");
+    const modelInfo = Array.isArray(data.recommendedAvailable) && data.recommendedAvailable.length
+      ? " Model tersedia: " + data.recommendedAvailable.join(", ") + "."
+      : "";
+    setMessage("Terhubung. Request AI berikutnya memakai quota project API key ini." + modelInfo);
+  }
+
+  function disconnect() {
+    window.sessionStorage.removeItem("rb-user-gemini-key");
+    setConnected(false);
+    setKeyInput("");
+    setMessage("Koneksi API key sesi ini sudah diputus.");
+  }
+
+  return (
+    <>
+      <button
+        className={connected ? "geminiConnect connected" : "geminiConnect"}
+        onClick={() => setOpen(true)}
+        title={connected ? "Gemini API key user aktif untuk sesi ini" : "Gunakan Gemini API key milik sendiri"}
+      >
+        {connected ? "Gemini sendiri ✓" : "Gemini sendiri"}
+      </button>
+
+      {open && (
+        <div className="sheetBackdrop" onMouseDown={() => setOpen(false)}>
+          <section className="addSheet geminiConnectSheet" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="sheetHead">
+              <div>
+                <p className="eyebrow">GEMINI AKUN SENDIRI</p>
+                <h2>Gunakan API project milik user</h2>
+              </div>
+              <button className="closeBtn" onClick={() => setOpen(false)}>×</button>
+            </div>
+
+            <div className="notice">
+              Google AI Pro/Gemini Pro di aplikasi Gemini tidak otomatis menjadi quota API. Koneksi ini memakai Gemini API key dari project Google AI Studio milik user.
+            </div>
+
+            <label className="geminiKeyField">
+              Gemini API key
+              <input
+                type="password"
+                autoComplete="off"
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+                placeholder={connected ? "Key sudah aktif · tempel key lain untuk mengganti" : "Tempel API key dari Google AI Studio"}
+              />
+              <small className="muted">
+                Disimpan hanya di sessionStorage browser ini. Tidak disimpan ke Supabase atau Database Ruang Belajar.
+              </small>
+            </label>
+
+            <div className="geminiConnectActions">
+              <button className="primary" disabled={busy || (!keyInput.trim() && !connected)} onClick={connect}>
+                {busy ? "Memeriksa..." : connected && !keyInput.trim() ? "Cek koneksi" : "Hubungkan"}
+              </button>
+              {connected && <button className="ghost" onClick={disconnect}>Putuskan</button>}
+              <a
+                className="textBtn"
+                href="https://aistudio.google.com/apikey"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Buka Google AI Studio API Keys
+              </a>
+            </div>
+
+            {message && <div className="notice">{message}</div>}
+          </section>
+        </div>
+      )}
     </>
   );
 }
