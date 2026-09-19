@@ -128,6 +128,20 @@ const nodeColors = [
   { value: "slate", label: "Slate" },
 ];
 
+function getSessionGeminiKey() {
+  if (typeof window === "undefined") return "";
+  return String(window.sessionStorage.getItem("rb-user-gemini-key") || "").trim();
+}
+
+function aiRequestHeaders(session: Session) {
+  const key = getSessionGeminiKey();
+  return {
+    "Content-Type": "application/json",
+    Authorization: "Bearer " + session.access_token,
+    ...(key ? { "X-RB-Gemini-Key": key } : {}),
+  };
+}
+
 const labels: Record<NodeType, string> = {
   material: "Materi",
   submaterial: "Materi",
@@ -789,10 +803,7 @@ function DatabasePage({
 
     const response = await fetch("/api/import-file", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + session.access_token,
-      },
+      headers: aiRequestHeaders(session),
       body: JSON.stringify({
         sourceFileId: row.id,
         filePath: path,
@@ -1038,10 +1049,7 @@ function StudyPage({
     setBuilding(true);
     const response = await fetch("/api/build-study", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + session.access_token,
-      },
+      headers: aiRequestHeaders(session),
       body: JSON.stringify({
         studyNodeId: node.id,
         sourceNodeIds: selectedSources,
@@ -1242,10 +1250,7 @@ function StudyPage({
 
     const response = await fetch("/api/import-file", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + session.access_token,
-      },
+      headers: aiRequestHeaders(session),
       body: JSON.stringify({
         sourceFileId: row.id,
         filePath: path,
@@ -1900,10 +1905,7 @@ function RecordingPage({
 
     const response = await fetch("/api/live-transcribe-token", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + session.access_token,
-      },
+      headers: aiRequestHeaders(session),
       body: JSON.stringify({ aiMode }),
     });
     const data = await response.json();
@@ -2176,10 +2178,7 @@ function RecordingPage({
 
     const response = await fetch("/api/transcribe", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + session.access_token,
-      },
+      headers: aiRequestHeaders(session),
       body: JSON.stringify({
         recordingId: row.id,
         filePath: path,
@@ -2645,10 +2644,7 @@ function PracticePage({
     setBusy(true);
     const response = await fetch("/api/generate-study", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + session.access_token,
-      },
+      headers: aiRequestHeaders(session),
       body: JSON.stringify({
         sourceNodeId: node.parent_id,
         targetNodeId: node.id,
@@ -2736,10 +2732,7 @@ function PracticePage({
       setGrading(true);
       const response = await fetch("/api/grade-quiz", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + session.access_token,
-        },
+        headers: aiRequestHeaders(session),
         body: JSON.stringify({
           aiMode,
           answers: aiQuizzes.map((quiz) => ({
@@ -3388,10 +3381,7 @@ function BottomAskBar({
 
     const response = await fetch("/api/ask", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + session.access_token,
-      },
+      headers: aiRequestHeaders(session),
       body: JSON.stringify({ question, scopeNodeId, aiMode, knowledgeMode }),
     });
 
