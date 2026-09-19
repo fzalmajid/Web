@@ -24,7 +24,17 @@ export default function Home(){
   useEffect(()=>{
     supabase.auth.getSession().then(({data})=>{setSession(data.session);setLoading(false);});
     const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,next)=>setSession(next));
-    if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(()=>{});
+
+    // Clear the old cache-first PWA shell that could pin users to an earlier deployment.
+    if ("caches" in window) {
+      caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key)))).catch(()=>{});
+    }
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js?v=4", { updateViaCache: "none" })
+        .then(reg => reg.update())
+        .catch(()=>{});
+    }
+
     return ()=>subscription.unsubscribe();
   },[]);
   if(loading) return <main className="center"><div className="loader">Memuat Ruang Belajar...</div></main>;
