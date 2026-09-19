@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerate, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
         ? "Buat quizzes saja. flashcards harus berupa array kosong."
         : "Buat flashcards dan quizzes.";
 
-    const raw = await geminiGenerate([{
+    const geminiResult = await geminiGenerateDetailed([{
       text: `Gunakan HANYA DATABASE berikut:
 
 ${context}
@@ -76,6 +76,8 @@ ${requested}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdow
 
 Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
     }], "Jangan gunakan pengetahuan di luar database yang diberikan.");
+    await recordAiTokenUsage(supabase, geminiResult.usage);
+    const raw = geminiResult.text;
 
     const parsed = JSON.parse(cleanJsonText(raw));
     const uid = userData.user.id;
