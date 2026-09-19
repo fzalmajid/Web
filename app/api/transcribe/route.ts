@@ -379,22 +379,47 @@ function structuredCandidateIsFaithful(raw: string, candidate: string) {
   const rawCoverage = multisetCoverage(rawWords, candidateWords);
   const candidateCoverage = multisetCoverage(candidateWords, rawWords);
   const lengthRatio = candidateWords.length / Math.max(1, rawWords.length);
-  const requiredRawCoverage = rawWords.length < 20 ? 0.78 : 0.7;
+  const requiredRawCoverage = rawWords.length < 20 ? 0.9 : 0.84;
 
   return (
     rawCoverage >= requiredRawCoverage &&
-    candidateCoverage >= 0.62 &&
-    lengthRatio >= 0.65 &&
-    lengthRatio <= 1.45
+    candidateCoverage >= 0.82 &&
+    lengthRatio >= 0.82 &&
+    lengthRatio <= 1.22
   );
+}
+
+function browserTranscriptShouldWin(audioTranscript: string, browserTranscript: string) {
+  const audioWords = normalizedWords(audioTranscript);
+  const browserWords = normalizedWords(browserTranscript);
+  if (audioWords.length < 4 || browserWords.length < 4) return false;
+
+  const audioCoveredByBrowser = multisetCoverage(audioWords, browserWords);
+  const browserCoveredByAudio = multisetCoverage(browserWords, audioWords);
+  const lengthRatio = browserWords.length / Math.max(1, audioWords.length);
+
+  // Browser live may be partial. Only override Gemini when the two transcripts
+  // strongly disagree in both directions, or when Gemini produced a wildly
+  // different-length sentence. This protects verbatim content from ASR hallucination.
+  const severeDisagreement =
+    audioCoveredByBrowser < 0.45 && browserCoveredByAudio < 0.45;
+  const implausibleLength =
+    (lengthRatio < 0.45 || lengthRatio > 2.2) &&
+    Math.max(audioCoveredByBrowser, browserCoveredByAudio) < 0.55;
+
+  return severeDisagreement || implausibleLength;
 }
 
 function safeTranscriptCorrections(
   raw: string,
-  value: unknown
+  value: unknown,
+  databaseContext: string
 ): Array<{ heard: string; corrected: string; basis: string }> {
   if (!Array.isArray(value)) return [];
   const rawLower = raw.toLowerCase();
+  const databaseLower = String(databaseContext || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 
   return value
     .slice(0, 30)
@@ -410,8 +435,14 @@ function safeTranscriptCorrections(
       const heardWords = normalizedWords(item.heard);
       const correctedWords = normalizedWords(item.corrected);
       if (!heardWords.length || !correctedWords.length) return false;
-      if (heardWords.length > 6 || correctedWords.length > 6) return false;
-      if (correctedWords.length > heardWords.length + 3) return false;
+      if (heardWords.length > 5 || correctedWords.length > 5) return false;
+      if (correctedWords.length > heardWords.length + 2) return false;
+
+      // Database is allowed to correct only a local term that is actually
+      // present in the supplied database context. It may not inject a new topic.
+      const normalizedCorrected = item.corrected.toLowerCase().replace(/\s+/g, " ");
+      if (!databaseLower || !databaseLower.includes(normalizedCorrected)) return false;
+
       return true;
     });
 }
@@ -546,7 +577,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (!rawTranscript && browserTranscript) {
+    if (rawTranscript && browserTranscript && browserTranscriptShouldWin(rawTranscript, browserTranscript)) {
+      const rejectedModel = transcriptionModel;
+      rawTranscript = browserTranscript;
+      transcriptionModel = "Browser live cross-check";
+      transcriptionProvider = "browser-live";
+      transcriptionWarning =
+        "Hasil Gemini audio berbeda jauh dari transkrip live, jadi Raw Transcript memakai transkrip browser agar isi ucapan tidak diganti oleh tebakan model." +
+        (rejectedModel ? " Model audio yang ditolak: " + rejectedModel + "." : "");
+    } else if (!rawTranscript && browserTranscript) {
       rawTranscript = browserTranscript;
       transcriptionModel = "Browser live fallback";
       transcriptionProvider = "browser-live";
@@ -630,10 +669,10 @@ export async function POST(req: NextRequest) {
         try {
           const parsed = JSON.parse(cleanJsonText(result.text));
           const candidate = String(parsed.structured_transcript || "").trim();
-          corrections = safeTranscriptCorrections(rawTranscript, parsed.corrections);
+          corrections = safeTranscriptCorrections(rawTranscript, parsed.corrections, context);
           const minimallyCorrectedRaw = applyTranscriptCorrections(rawTranscript, corrections);
 
-          if (candidate && structuredCandidateIsFaithful(rawTranscript, candidate)) {
+          if (candidate && structuredCandidateIsFaithful(minimallyCorrectedRaw, candidate)) {
             structuredTranscript = candidate;
           } else {
             structuredTranscript = minimallyCorrectedRaw;
@@ -644,6 +683,9 @@ export async function POST(req: NextRequest) {
           }
 
           summary = String(parsed.summary || "").trim();
+          if (summary && !structuredCandidateIsFaithful(rawTranscript, summary)) {
+            summary = "";
+          }
         } catch {
           structuredTranscript = rawTranscript;
           corrections = [];

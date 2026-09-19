@@ -2781,7 +2781,7 @@ function RecordingPage({
         node_id: databaseId,
         title: "Hasil Rekaman - " + new Date(item.created_at).toLocaleString("id-ID"),
         category: "Hasil Rekaman",
-        content: item.structured_transcript,
+        content: item.structured_transcript || item.raw_transcript,
         raw_content: item.raw_transcript || item.structured_transcript,
         source_type: "transcript",
       })
@@ -2813,8 +2813,7 @@ function RecordingPage({
         <p className="eyebrow">REKAMAN & TRANSKRIP</p>
         <h1>{node.title}</h1>
         <p className="muted">
-          Local memakai transkrip browser tanpa Gemini. Jika memilih model Gemini, teks langsung memakai Gemini 3.5 Transcribe Live,
-          sedangkan model yang dipilih dipakai untuk hasil final/penataan. Jika salah satu layanan gagal, audio dan hasil live yang sudah ada tetap dipertahankan.
+          Raw Transcript selalu dipertahankan sebagai versi ucapan apa adanya. Versi tertata hanya merapikan tanda baca/paragraf dan koreksi istilah yang benar-benar didukung Database; Database tidak boleh mengganti isi rekaman.
         </p>
       </div>
 
@@ -2876,14 +2875,14 @@ function RecordingPage({
           <div className="finalTranscript">
             <h2>Hasil Rekaman</h2>
 
-            <div className="resultSection">
-              <strong>Versi tertata & terkonteks</strong>
-              <div className="dataText"><RichText text={result.structured} /></div>
-            </div>
+            <details open className="transcriptPanel">
+              <summary>Versi tertata</summary>
+              <div className="dataText"><RichText text={result.structured || result.raw} /></div>
+            </details>
 
-            <details>
-              <summary>Verbatim final</summary>
-              <div className="dataText raw"><RichText text={result.raw} /></div>
+            <details open className="transcriptPanel">
+              <summary>Raw Transcript / Verbatim</summary>
+              <div className="dataText raw"><RichText text={result.raw || result.structured} /></div>
             </details>
 
             {!!result.corrections.length && <CorrectionList corrections={result.corrections} />}
@@ -2960,11 +2959,20 @@ function StoredRecording({
         </div>
       </div>
 
-      {item.structured_transcript && <div className="dataText">{item.structured_transcript}</div>}
-      {item.raw_transcript && (
-        <details>
-          <summary>Verbatim</summary>
-          <div className="dataText raw">{item.raw_transcript}</div>
+      {(item.structured_transcript || item.raw_transcript) && (
+        <details open className="transcriptPanel">
+          <summary>Versi tertata</summary>
+          <div className="dataText">
+            <RichText text={item.structured_transcript || item.raw_transcript || ""} />
+          </div>
+        </details>
+      )}
+      {(item.raw_transcript || item.structured_transcript) && (
+        <details open className="transcriptPanel">
+          <summary>Raw Transcript / Verbatim</summary>
+          <div className="dataText raw">
+            <RichText text={item.raw_transcript || item.structured_transcript || ""} />
+          </div>
         </details>
       )}
 

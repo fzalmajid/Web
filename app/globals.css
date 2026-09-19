@@ -2589,3 +2589,30 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     grid-template-columns:1fr;
   }
 }
+
+
+/* Consistent dual transcript panels */
+.transcriptPanel{
+  margin-top:9px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--card);
+  overflow:hidden;
+}
+.transcriptPanel>summary{
+  cursor:pointer;
+  padding:10px 12px;
+  font-size:.76rem;
+  font-weight:900;
+  color:var(--ink);
+  background:var(--soft);
+  border-bottom:1px solid transparent;
+  list-style-position:inside;
+}
+.transcriptPanel[open]>summary{
+  border-bottom-color:var(--line);
+}
+.transcriptPanel>.dataText{
+  margin:0;
+  padding:12px;
+}
