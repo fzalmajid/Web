@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
     const targetNodeId = String(body.targetNodeId || sourceNodeId || "");
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
+    const userGeminiKey = String(req.headers.get("x-rb-gemini-key") || "").trim() || undefined;
+    const ownGemini = Boolean(userGeminiKey);
 
     if (aiMode === "simple") {
       return NextResponse.json({ error: "Mode Simple diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
@@ -51,8 +53,8 @@ export async function POST(req: NextRequest) {
 
     const context = buildKnowledgeContext(sources, aiMode === "high" ? 46000 : aiMode === "medium" ? 36000 : 24000);
 
-    const preflight = await checkAiCredits(supabase, "study", aiMode);
-    if (!preflight.allowed) {
+    const preflight = ownGemini ? null : await checkAiCredits(supabase, "study", aiMode);
+    if (preflight && !preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
@@ -77,6 +79,7 @@ ${requested}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdow
 Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
     }], "Jangan gunakan pengetahuan di luar database yang diberikan.", {
       models: geminiModelsForMode(aiMode, "standard"),
+      apiKey: userGeminiKey,
     });
     await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model);
     const raw = geminiResult.text;
@@ -131,8 +134,14 @@ Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, ja
       if (error) throw error;
     }
 
-    const aiUsage = await finalizeAiCredits(supabase, "study", aiMode);
-    return NextResponse.json({ flashcards: flashcards.length, quizzes: quizzes.length, aiUsage });
+    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "study", aiMode);
+    return NextResponse.json({
+      flashcards: flashcards.length,
+      quizzes: quizzes.length,
+      aiUsage,
+      model: geminiResult.model,
+      provider: ownGemini ? "user-api-key" : "shared-api-key",
+    });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
     console.error("[API_GENERATE_STUDY_ERROR]", { name: error?.name, code: error?.code, status });
