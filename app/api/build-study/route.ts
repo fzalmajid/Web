@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
-import { aiModeInstruction, aiQuotaError, checkAiCredits, consumeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -275,7 +275,7 @@ Aturan wajib:
       .eq("id", pathRow.id);
     if (readyError) throw readyError;
 
-    const aiUsage = await consumeAiCredits(supabase, "study", aiMode);
+    const aiUsage = await finalizeAiCredits(supabase, "study", aiMode);
 
     return NextResponse.json({
       pathId: pathRow.id,
