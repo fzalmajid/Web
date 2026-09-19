@@ -113,6 +113,8 @@ export async function consumeAiCredits(
 }
 
 export function aiQuotaError(usage: AiUsage) {
+  const active = Number(usage.active_accounts || 1);
+  const share = Number(usage.fair_share || usage.limit || 0);
   return {
     error:
       "Credit AI hari ini tidak cukup untuk mode " +
@@ -121,7 +123,11 @@ export function aiQuotaError(usage: AiUsage) {
       usage.remaining +
       "/" +
       usage.limit +
-      " credit. Reset 00.00 WIB.",
+      " credit. Jatah saat ini " +
+      share +
+      " credit karena ada " +
+      active +
+      " akun aktif hari ini. Reset 00.00 WIB.",
     aiUsage: usage,
   };
 }
