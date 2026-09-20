@@ -434,7 +434,7 @@ async function checkLeakedPassword(password: string) {
 const labels: Record<NodeType, string> = {
   material: "Materi",
   submaterial: "Materi",
-  database: "Database",
+  database: "Folder",
   recording: "Rekaman",
   flashcards: "Flashcard",
   quiz: "Kuis",
@@ -672,7 +672,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const aiScopeId =
     !current
       ? null
-      : current.node_type === "material" || current.node_type === "submaterial"
+      : isFolderLikeNode(current)
         ? current.id
         : current.parent_id;
 
@@ -688,7 +688,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }, [current, nodes]);
 
   const aiScopeName = !current
-    ? "Seluruh Database"
+    ? "Seluruh folder"
     : path.map((item) => item.title).join(" · ");
 
   function goBack() {
@@ -750,28 +750,23 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           </div>
         )}
 
-        {!current || current.node_type === "material" || current.node_type === "submaterial" ? (
+        {!current || isFolderLikeNode(current) ? (
           <FolderPage
+            session={session}
+            user={user}
             current={current}
             children={children}
+            nodes={nodes}
+            entries={entries}
+            files={files}
+            recordings={recordings}
             onOpen={setCurrentId}
             onAdd={() => setAddOpen(true)}
             onCustomize={setCustomizeNode}
             onDelete={removeNode}
-          />
-        ) : null}
-
-        {current?.node_type === "database" && (
-          <DatabasePage
-            session={session}
-            user={user}
-            node={current}
-            entries={entries}
-            files={files}
-            recordings={recordings}
             onChange={refresh}
           />
-        )}
+        ) : null}
 
         {current?.node_type === "recording" && (
           <RecordingPage
@@ -904,9 +899,14 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
       {addOpen && (
         <AddSheet
+          session={session}
           user={user}
           parent={current}
           onClose={() => setAddOpen(false)}
+          onAdded={() => {
+            setAddOpen(false);
+            refresh();
+          }}
           onCreated={(id) => {
             setAddOpen(false);
             setCurrentId(id);
@@ -918,39 +918,304 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   );
 }
 
+
+function isFolderLikeNode(node: StudyNode) {
+  return node.node_type === "material" || node.node_type === "submaterial" || node.node_type === "database";
+}
+
+function clientReadableTextFile(file: File) {
+  const mime = inferMime(file);
+  return (
+    mime.startsWith("text/") ||
+    mime === "application/json" ||
+    mime === "application/xml" ||
+    /\.(txt|md|csv|json|xml)$/i.test(file.name)
+  );
+}
+
+async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
+  const mimeType = inferMime(file) || "application/octet-stream";
+  if (file.size > 50 * 1024 * 1024) throw new Error("File maksimal 50 MB.");
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const path = user.id + "/" + nodeId + "/" + crypto.randomUUID() + "-" + safeName;
+
+  const upload = await supabase.storage.from("study-files").upload(path, file, { contentType: mimeType });
+  if (upload.error) throw upload.error;
+
+  let rawText = "";
+  if (clientReadableTextFile(file)) {
+    try { rawText = (await file.text()).trim(); } catch {}
+  }
+
+  const { data: row, error } = await supabase
+    .from("source_files")
+    .insert({
+      user_id: user.id,
+      node_id: nodeId,
+      file_path: path,
+      file_name: file.name,
+      mime_type: mimeType,
+      size_bytes: file.size,
+      processing_status: "ready",
+      raw_text: rawText || null,
+      structured_text: null,
+      corrections: [],
+      error_message: null,
+      source_kind: "file",
+      source_url: null,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    await supabase.storage.from("study-files").remove([path]);
+    throw error;
+  }
+
+  if (rawText) {
+    const { error: entryError } = await supabase.from("knowledge_entries").insert({
+      user_id: user.id,
+      node_id: nodeId,
+      title: file.name,
+      category: "RAW file",
+      content: rawText,
+      raw_content: rawText,
+      source_type: "file",
+      source_file_id: row.id,
+    });
+    if (entryError) {
+      await supabase.from("source_files").delete().eq("id", row.id);
+      await supabase.storage.from("study-files").remove([path]);
+      throw entryError;
+    }
+  }
+
+  return row as SourceFile;
+}
+
+async function moveExplorerItemToFolder(
+  kind: "file" | "recording" | "entry",
+  id: string,
+  targetNodeId: string
+) {
+  if (kind === "file") {
+    const { error } = await supabase.from("source_files").update({ node_id: targetNodeId }).eq("id", id);
+    if (error) throw error;
+    const { error: entryError } = await supabase
+      .from("knowledge_entries")
+      .update({ node_id: targetNodeId })
+      .eq("source_file_id", id);
+    if (entryError) throw entryError;
+    return;
+  }
+
+  if (kind === "recording") {
+    const { data: recording, error: readError } = await supabase
+      .from("recordings")
+      .select("knowledge_entry_id")
+      .eq("id", id)
+      .single();
+    if (readError) throw readError;
+
+    const { error } = await supabase.from("recordings").update({ node_id: targetNodeId }).eq("id", id);
+    if (error) throw error;
+
+    if (recording?.knowledge_entry_id) {
+      const { error: entryError } = await supabase
+        .from("knowledge_entries")
+        .update({ node_id: targetNodeId })
+        .eq("id", recording.knowledge_entry_id);
+      if (entryError) throw entryError;
+    }
+    return;
+  }
+
+  const { error } = await supabase.from("knowledge_entries").update({ node_id: targetNodeId }).eq("id", id);
+  if (error) throw error;
+}
+
+function setExplorerDragData(
+  event: any,
+  kind: "file" | "recording" | "entry",
+  id: string
+) {
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("application/x-rb-explorer-item", JSON.stringify({ kind, id }));
+}
+
 function FolderPage({
+  session,
+  user,
   current,
   children,
+  entries,
+  files,
+  recordings,
   onOpen,
   onAdd,
   onCustomize,
   onDelete,
+  onChange,
 }: {
+  session: Session;
+  user: User;
   current: StudyNode | null;
   children: StudyNode[];
+  nodes: StudyNode[];
+  entries: KnowledgeEntry[];
+  files: SourceFile[];
+  recordings: Recording[];
   onOpen: (id: string) => void;
   onAdd: () => void;
   onCustomize: (node: StudyNode) => void;
   onDelete: (node: StudyNode) => void;
+  onChange: () => void;
 }) {
+  const [dropActive, setDropActive] = useState(false);
+  const [dropBusy, setDropBusy] = useState(false);
+
+  const localFiles = current ? files.filter((item) => item.node_id === current.id) : [];
+  const localRecordings = current ? recordings.filter((item) => item.node_id === current.id) : [];
+  const recordingEntryIds = new Set(
+    localRecordings.map((item) => item.knowledge_entry_id).filter(Boolean)
+  );
+  const localEntries = current
+    ? entries.filter(
+        (item) =>
+          item.node_id === current.id &&
+          !item.source_file_id &&
+          !recordingEntryIds.has(item.id)
+      )
+    : [];
+
+  const hasAssets = !!(localFiles.length || localRecordings.length || localEntries.length);
+
+  async function uploadFiles(targetNodeId: string, list: FileList | File[]) {
+    const incoming = Array.from(list);
+    if (!incoming.length) return;
+    setDropBusy(true);
+    try {
+      for (const file of incoming) {
+        await saveRawFileToFolder(user, targetNodeId, file);
+      }
+      onChange();
+    } catch (error: any) {
+      alert(error?.message || "Gagal menyimpan file.");
+    } finally {
+      setDropBusy(false);
+      setDropActive(false);
+    }
+  }
+
+  async function moveDroppedItem(event: any, targetNodeId: string) {
+    const raw = event.dataTransfer?.getData("application/x-rb-explorer-item");
+    if (!raw) return false;
+    try {
+      const item = JSON.parse(raw);
+      if (!["file", "recording", "entry"].includes(item?.kind) || !item?.id) return false;
+      await moveExplorerItemToFolder(item.kind, String(item.id), targetNodeId);
+      onChange();
+      return true;
+    } catch (error: any) {
+      alert(error?.message || "Gagal memindahkan item.");
+      return true;
+    }
+  }
+
+  async function handlePageDrop(event: any) {
+    event.preventDefault();
+    setDropActive(false);
+    if (!current) return;
+    if (await moveDroppedItem(event, current.id)) return;
+    if (event.dataTransfer?.files?.length) {
+      await uploadFiles(current.id, event.dataTransfer.files);
+    }
+  }
+
+  async function handleFolderDrop(event: any, target: StudyNode) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isFolderLikeNode(target)) return;
+    if (await moveDroppedItem(event, target.id)) return;
+    if (event.dataTransfer?.files?.length) {
+      await uploadFiles(target.id, event.dataTransfer.files);
+    }
+  }
+
+  async function removeEntry(id: string) {
+    if (!confirm("Hapus catatan ini dari folder?")) return;
+    const { error } = await supabase.from("knowledge_entries").delete().eq("id", id);
+    if (error) alert(error.message);
+    else onChange();
+  }
+
+  async function removeFile(file: SourceFile) {
+    if (!confirm("Hapus file ini dari folder?")) return;
+    await supabase.from("knowledge_entries").delete().eq("source_file_id", file.id);
+    if (file.source_kind !== "link") {
+      await supabase.storage.from("study-files").remove([file.file_path]);
+    }
+    const { error } = await supabase.from("source_files").delete().eq("id", file.id);
+    if (error) alert(error.message);
+    else onChange();
+  }
+
+  async function removeRecording(item: Recording) {
+    if (!confirm("Hapus rekaman ini dari folder?")) return;
+    await supabase.storage.from("recordings").remove([item.file_path]);
+    if (item.knowledge_entry_id) {
+      await supabase.from("knowledge_entries").delete().eq("id", item.knowledge_entry_id);
+    }
+    const { error } = await supabase.from("recordings").delete().eq("id", item.id);
+    if (error) alert(error.message);
+    else onChange();
+  }
+
   return (
-    <section className="folderPage">
+    <section
+      className={dropActive ? "folderPage explorerDropActive" : "folderPage"}
+      onDragOver={(event) => {
+        if (!current) return;
+        event.preventDefault();
+        setDropActive(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) setDropActive(false);
+      }}
+      onDrop={handlePageDrop}
+    >
       <div className="folderTitle folderTitleRow">
         <div>
-          <p className="eyebrow">{current ? "RUANG MATERI" : "RUANG BELAJAR"}</p>
+          <p className="eyebrow">{current ? "FOLDER BELAJAR" : "RUANG BELAJAR"}</p>
           <h1>{current ? (current.emoji ? current.emoji + " " : "") + current.title : "Materi saya"}</h1>
+          {current && (
+            <p className="muted explorerHint">
+              Folder ini sekaligus Database. Drop file/foto/audio di sini, atau tekan + untuk menambah file, link, teks, rekaman, subfolder, Study, Flashcard, atau Kuis.
+            </p>
+          )}
         </div>
         {current && <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>}
       </div>
 
       {!!children.length && (
-        <div className="nodeGrid">
+        <div className="nodeGrid explorerNodeGrid">
           {children.map((node) => (
-            <article className="nodeCard" data-color={node.card_color || "default"} key={node.id}>
+            <article
+              className="nodeCard"
+              data-color={node.card_color || "default"}
+              key={node.id}
+              onDragOver={(event) => {
+                if (!isFolderLikeNode(node)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(event) => void handleFolderDrop(event, node)}
+            >
               <button className="nodeOpen" onClick={() => onOpen(node.id)}>
-                <span className="nodeIcon">{node.emoji || iconFor(node.node_type)}</span>
+                <span className="nodeIcon">{node.emoji || (isFolderLikeNode(node) ? "📁" : iconFor(node.node_type))}</span>
                 <div>
-                  <small>{labels[node.node_type]}</small>
+                  <small>{isFolderLikeNode(node) ? "Folder" : labels[node.node_type]}</small>
                   <h3>{node.title}</h3>
                 </div>
               </button>
@@ -963,9 +1228,79 @@ function FolderPage({
         </div>
       )}
 
-      {!children.length && (
+      {current && (
+        <section className="folderAssets">
+          <div className="folderAssetsHead">
+            <div>
+              <small>ISI FOLDER · RAW/ORIGINAL</small>
+              <strong>{localFiles.length + localRecordings.length + localEntries.length} item</strong>
+            </div>
+            <span>{dropBusy ? "Mengupload..." : "Tarik & drop file ke area folder"}</span>
+          </div>
+
+          {!hasAssets && (
+            <div className="explorerEmpty">
+              <span>📂</span>
+              <p>Belum ada file atau catatan. Drop file di sini atau tekan +.</p>
+            </div>
+          )}
+
+          <div className="explorerItems">
+            {localEntries.map((entry) => (
+              <article
+                className="explorerTextItem"
+                key={entry.id}
+                draggable
+                onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
+              >
+                <div className="explorerItemMain">
+                  <span className="explorerFileIcon">📝</span>
+                  <div>
+                    <small>{entry.category || "Catatan RAW"}</small>
+                    <strong>{entry.title}</strong>
+                  </div>
+                </div>
+                <details>
+                  <summary>Lihat isi</summary>
+                  <div className="dataText raw"><RichText text={entry.raw_content || entry.content} /></div>
+                </details>
+                <button className="dangerSmall" type="button" onClick={() => removeEntry(entry.id)}>Hapus</button>
+              </article>
+            ))}
+
+            {localFiles.map((file) => (
+              <DatabaseFileCard
+                key={file.id}
+                file={file}
+                draggable
+                onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
+                onDelete={() => removeFile(file)}
+              />
+            ))}
+
+            {localRecordings.map((item) => (
+              <DatabaseStoredRecording
+                key={item.id}
+                item={item}
+                draggable
+                onDragStart={(event) => setExplorerDragData(event, "recording", item.id)}
+                onDelete={() => removeRecording(item)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!children.length && !hasAssets && !current && (
         <div className="emptyFolder">
-          <p>Belum ada isi di halaman ini.</p>
+          <p>Belum ada folder. Tekan + untuk membuat folder pertama.</p>
+        </div>
+      )}
+
+      {dropActive && current && (
+        <div className="explorerDropOverlay">
+          <strong>Drop ke {current.title}</strong>
+          <small>File asli akan disimpan sebagai RAW/original.</small>
         </div>
       )}
 
@@ -975,38 +1310,54 @@ function FolderPage({
 }
 
 function AddSheet({
+  session,
   user,
   parent,
   onClose,
   onCreated,
+  onAdded,
 }: {
+  session: Session;
   user: User;
   parent: StudyNode | null;
   onClose: () => void;
   onCreated: (id: string) => void;
+  onAdded: () => void;
 }) {
-  const [kind, setKind] = useState<"folder" | "database" | "flashcards" | "quiz" | "study">("folder");
+  const [kind, setKind] = useState<
+    "folder" | "file" | "link" | "text" | "recording" | "flashcards" | "quiz" | "study"
+  >("folder");
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("");
   const [cardColor, setCardColor] = useState("default");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [textContent, setTextContent] = useState("");
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
 
   const options = [
-    { value: "folder", label: "Materi / Submateri", hint: "Contoh: Farmasi, Penjaminan Mutu, Pertemuan 1" },
-    { value: "database", label: "Database", hint: "Teks, file, rekaman audio, transkrip, gambar, dan video" },
-    ...(parent ? [{ value: "study" as const, label: "Study", hint: "Pilih beberapa Database lalu belajar bertahap dengan recall quiz" }] : []),
-    { value: "flashcards", label: "Flashcard", hint: "Latihan kartu dari database di halaman ini" },
-    { value: "quiz", label: "Kuis", hint: "Soal dari database di halaman ini" },
+    { value: "folder", label: "Folder", hint: "Buat folder / subfolder materi" },
+    ...(parent
+      ? [
+          { value: "file" as const, label: "Upload file / foto", hint: "PDF, dokumen, gambar, audio, video, atau file mentah" },
+          { value: "link" as const, label: "Masukkan link", hint: "Simpan halaman web sebagai sumber RAW" },
+          { value: "text" as const, label: "Masukkan teks", hint: "Catatan atau materi mentah langsung ke folder" },
+          { value: "recording" as const, label: "🎙️ Rekam audio", hint: "Rekaman + transkrip verbatim langsung ke folder" },
+          { value: "study" as const, label: "Study", hint: "Belajar bertahap dari isi folder" },
+        ]
+      : []),
+    { value: "flashcards", label: "Flashcard", hint: "Latihan kartu dari isi folder" },
+    { value: "quiz", label: "Kuis", hint: "Soal dari isi folder" },
   ] as const;
 
-  async function create(e: FormEvent) {
+  async function createNode(e: FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-
     const nodeType: NodeType =
       kind === "folder"
         ? parent ? "submaterial" : "material"
-        : kind;
+        : kind as "flashcards" | "quiz" | "study";
 
     setBusy(true);
     const { data, error } = await supabase
@@ -1027,23 +1378,86 @@ function AddSheet({
     onCreated(data.id);
   }
 
+  async function addFile(e: FormEvent) {
+    e.preventDefault();
+    if (!parent || !selectedFile) return;
+    setBusy(true);
+    setStatus("Menyimpan file asli...");
+    try {
+      await saveRawFileToFolder(user, parent.id, selectedFile);
+      setStatus("File RAW/original sudah masuk folder.");
+      onAdded();
+    } catch (error: any) {
+      setStatus("");
+      alert(error?.message || "Gagal menyimpan file.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addLink(e: FormEvent) {
+    e.preventDefault();
+    if (!parent || !linkUrl.trim()) return;
+    setBusy(true);
+    setStatus("Membaca link RAW...");
+    const response = await fetch("/api/import-link", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({ nodeId: parent.id, url: linkUrl.trim() }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (!response.ok) {
+      setStatus("");
+      return alert(result.error || "Gagal membaca link.");
+    }
+    setStatus("Link RAW sudah masuk folder.");
+    onAdded();
+  }
+
+  async function addText(e: FormEvent) {
+    e.preventDefault();
+    if (!parent || !textContent.trim()) return;
+    setBusy(true);
+    const finalTitle = title.trim() || "Catatan - " + new Date().toLocaleString("id-ID");
+    const { error } = await supabase.from("knowledge_entries").insert({
+      user_id: user.id,
+      node_id: parent.id,
+      title: finalTitle,
+      category: "Catatan RAW",
+      content: textContent.trim(),
+      raw_content: textContent.trim(),
+      source_type: "manual",
+    });
+    setBusy(false);
+    if (error) return alert(error.message);
+    onAdded();
+  }
+
   return (
     <div className="sheetBackdrop" onMouseDown={onClose}>
-      <section className="addSheet" onMouseDown={(e) => e.stopPropagation()}>
+      <section className="addSheet explorerAddSheet" onMouseDown={(e) => e.stopPropagation()}>
         <div className="sheetHead">
           <div>
             <p className="eyebrow">TAMBAH</p>
-            <h2>{parent ? "Isi di " + parent.title : "Isi di Beranda"}</h2>
+            <h2>{parent ? "Tambahkan ke " + parent.title : "Buat di Beranda"}</h2>
           </div>
           <button className="closeBtn" onClick={onClose}>×</button>
         </div>
 
-        <div className="typeChoices">
+        <div className="typeChoices explorerTypeChoices">
           {options.map((option) => (
             <button
+              type="button"
               key={option.value}
               className={kind === option.value ? "typeChoice active" : "typeChoice"}
-              onClick={() => setKind(option.value)}
+              onClick={() => {
+                setKind(option.value as typeof kind);
+                setStatus("");
+              }}
             >
               <strong>{option.label}</strong>
               <small>{option.hint}</small>
@@ -1051,38 +1465,110 @@ function AddSheet({
           ))}
         </div>
 
-        <form className="stack" onSubmit={create}>
-          <label>
-            Nama
-            <input
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={kind === "folder" ? "Contoh: Pertemuan 1" : "Contoh: " + options.find((item) => item.value === kind)?.label}
+        {kind === "file" && parent && (
+          <form className="stack" onSubmit={addFile}>
+            <label>
+              Pilih file
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.csv,.json,.xml,.mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.webm,.mp4,.mov,.png,.jpg,.jpeg,.webp"
+                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+              />
+            </label>
+            <p className="muted">File asli disimpan apa adanya. AI membaca RAW/original saat menjawab.</p>
+            <button className="primary" disabled={busy || !selectedFile}>
+              {busy ? "Menyimpan..." : "Upload ke folder"}
+            </button>
+          </form>
+        )}
+
+        {kind === "link" && parent && (
+          <form className="stack" onSubmit={addLink}>
+            <label>
+              Link
+              <input
+                type="url"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                placeholder="https://..."
+                required
+              />
+            </label>
+            <button className="primary" disabled={busy || !linkUrl.trim()}>
+              {busy ? "Membaca..." : "Masukkan link"}
+            </button>
+          </form>
+        )}
+
+        {kind === "text" && parent && (
+          <form className="stack" onSubmit={addText}>
+            <label>
+              Judul (opsional)
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Judul catatan" />
+            </label>
+            <label>
+              Teks RAW
+              <textarea
+                rows={10}
+                value={textContent}
+                onChange={(e) => setTextContent(e.target.value)}
+                placeholder="Paste atau ketik materi apa adanya..."
+                required
+              />
+            </label>
+            <button className="primary" disabled={busy || !textContent.trim()}>
+              {busy ? "Menyimpan..." : "Masukkan ke folder"}
+            </button>
+          </form>
+        )}
+
+        {kind === "recording" && parent && (
+          <div className="explorerRecorderSheet">
+            <DatabaseAudioRecorder
+              session={session}
+              user={user}
+              node={parent}
+              onChange={onAdded}
             />
-          </label>
-          <div className="customizeMini">
-            <div>
-              <span className="fieldLabel">Emoji (opsional)</span>
-              <div className="emojiRow compact">
-                {nodeEmojis.slice(0, 8).map((item) => (
-                  <button type="button" key={item} className={emoji === item ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji(item)}>{item}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <span className="fieldLabel">Warna</span>
-              <div className="colorRow compact">
-                {nodeColors.map((item) => (
-                  <button type="button" key={item.value} title={item.label} className={cardColor === item.value ? "colorChoice active" : "colorChoice"} data-color={item.value} onClick={() => setCardColor(item.value)} />
-                ))}
-              </div>
-            </div>
           </div>
-          <button className="primary" disabled={busy || !title.trim()}>
-            {busy ? "Membuat..." : "Buat & buka"}
-          </button>
-        </form>
+        )}
+
+        {(kind === "folder" || kind === "study" || kind === "flashcards" || kind === "quiz") && (
+          <form className="stack" onSubmit={createNode}>
+            <label>
+              Nama
+              <input
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={kind === "folder" ? "Contoh: Pertemuan 1" : "Nama " + options.find((item) => item.value === kind)?.label}
+              />
+            </label>
+            <div className="customizeMini">
+              <div>
+                <span className="fieldLabel">Emoji (opsional)</span>
+                <div className="emojiRow compact">
+                  {nodeEmojis.slice(0, 8).map((item) => (
+                    <button type="button" key={item} className={emoji === item ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji(item)}>{item}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="fieldLabel">Warna</span>
+                <div className="colorRow compact">
+                  {nodeColors.map((item) => (
+                    <button type="button" key={item.value} title={item.label} className={cardColor === item.value ? "colorChoice active" : "colorChoice"} data-color={item.value} onClick={() => setCardColor(item.value)} />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button className="primary" disabled={busy || !title.trim()}>
+              {busy ? "Membuat..." : "Buat & buka"}
+            </button>
+          </form>
+        )}
+
+        {status && <div className="notice">{status}</div>}
       </section>
     </div>
   );
@@ -1343,7 +1829,7 @@ function DatabasePage({
       <div className="toolGrid">
         <article className="panel">
           <h2>Masukkan teks</h2>
-          <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti Database serta jalur materi yang sedang dibuka.</p>
+          <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti folder serta jalur materi yang sedang dibuka.</p>
           <form className="stack" onSubmit={saveText}>
             <textarea
               required
@@ -1469,9 +1955,13 @@ async function downloadStorageObject(bucket: string, path: string, fileName: str
 function DatabaseFileCard({
   file,
   onDelete,
+  draggable = false,
+  onDragStart,
 }: {
   file: SourceFile;
   onDelete: () => void;
+  draggable?: boolean;
+  onDragStart?: (event: any) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -1507,7 +1997,7 @@ function DatabaseFileCard({
   }
 
   return (
-    <article className="dataCard mediaDataCard">
+    <article className="dataCard mediaDataCard" draggable={draggable} onDragStart={onDragStart}>
       <div className="dataHead">
         <div>
           <small>
@@ -1588,9 +2078,13 @@ function DatabaseFileCard({
 function DatabaseStoredRecording({
   item,
   onDelete,
+  draggable = false,
+  onDragStart,
 }: {
   item: Recording;
   onDelete: () => void;
+  draggable?: boolean;
+  onDragStart?: (event: any) => void;
 }) {
   const [audioUrl, setAudioUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1618,7 +2112,7 @@ function DatabaseStoredRecording({
   const fileName = item.title.replace(/[^a-zA-Z0-9._-]+/g, "_") + "." + ext;
 
   return (
-    <article className="dataCard mediaDataCard recordingInDatabase">
+    <article className="dataCard mediaDataCard recordingInDatabase" draggable={draggable} onDragStart={onDragStart}>
       <div className="dataHead">
         <div>
           <small>Rekaman audio · {formatTime(item.duration_seconds || 0)}</small>
@@ -1680,7 +2174,7 @@ function DatabaseAudioRecorder({
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [liveText, setLiveText] = useState("");
-  const [status, setStatus] = useState("Rekam audio langsung ke Database.");
+  const [status, setStatus] = useState("Rekam audio langsung ke folder.");
 
   useEffect(() => {
     return () => {
@@ -1858,7 +2352,7 @@ function DatabaseAudioRecorder({
     const browserDraft = liveDraftRef.current.trim() || transcriptRef.current.trim() || liveText.trim();
     let raw = browserDraft;
 
-    setStatus("Mendengarkan audio asli secara verbatim · tanpa koreksi Database...");
+    setStatus("Mendengarkan audio asli secara verbatim · tanpa koreksi atau penyesuaian...");
     const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
     const response = await fetch("/api/transcribe", {
       method: "POST",
@@ -1913,8 +2407,8 @@ function DatabaseAudioRecorder({
     transcriptRef.current = "";
     setStatus(
       raw
-        ? "Rekaman + transkrip mentah sudah masuk Database. Belum dirapikan atau dikoreksi."
-        : "Audio sudah masuk Database. Transkrip belum tersedia; audio tetap bisa didengar ulang."
+        ? "Rekaman + transkrip mentah sudah masuk folder. Belum dirapikan atau dikoreksi."
+        : "Audio sudah masuk folder. Transkrip belum tersedia; audio tetap bisa didengar ulang."
     );
     onChange();
   }
@@ -1991,7 +2485,7 @@ function StudyPage({
     [nodes, node.parent_id]
   );
   const sourceDatabases = nodes.filter(
-    (item) => branchIds.includes(item.id) && item.node_type === "database"
+    (item) => branchIds.includes(item.id) && isFolderLikeNode(item)
   );
 
   useEffect(() => {
@@ -2062,7 +2556,7 @@ function StudyPage({
   }
 
   async function buildStudy() {
-    if (!selectedSources.length) return alert("Pilih minimal satu Database.");
+    if (!selectedSources.length) return alert("Pilih minimal satu folder sumber.");
     if (aiSelection.model === "local") return alert("Study terarah membutuhkan model Gemini.");
 
     setBuilding(true);
@@ -2099,7 +2593,7 @@ function StudyPage({
       return null;
     }
     if (!quickDbName.trim()) {
-      alert("Isi nama Database terlebih dahulu.");
+      alert("Isi nama folder terlebih dahulu.");
       return null;
     }
 
@@ -2109,15 +2603,15 @@ function StudyPage({
         user_id: user.id,
         parent_id: node.parent_id,
         title: quickDbName.trim(),
-        node_type: "database",
-        emoji: "🗂️",
+        node_type: "submaterial",
+        emoji: "📁",
         card_color: "sage",
       })
       .select("id")
       .single();
 
     if (error || !created) {
-      alert(error?.message || "Gagal membuat Database.");
+      alert(error?.message || "Gagal membuat folder.");
       return null;
     }
 
@@ -2152,7 +2646,7 @@ function StudyPage({
     if (error) return alert(error.message);
 
     setQuickDbContent("");
-    setQuickDbStatus("Teks sudah ditambahkan. Database otomatis dipilih sebagai sumber Study.");
+    setQuickDbStatus("Teks sudah ditambahkan. Folder otomatis dipilih sebagai sumber Study.");
     onChange();
   }
 
@@ -2264,7 +2758,7 @@ function StudyPage({
 
       setQuickDbFile(null);
       setQuickFileBusy(false);
-      setQuickDbStatus("Selesai dengan Local · tanpa API. Database otomatis dipilih sebagai sumber Study.");
+      setQuickDbStatus("Selesai dengan Local · tanpa API. Folder otomatis dipilih sebagai sumber Study.");
       onChange();
       return;
     }
@@ -2292,7 +2786,7 @@ function StudyPage({
     }
 
     setQuickDbFile(null);
-    setQuickDbStatus("Selesai. File sudah menjadi isi Database dan otomatis dipilih sebagai sumber Study.");
+    setQuickDbStatus("Selesai. File sudah masuk folder dan otomatis dipilih sebagai sumber Study.");
     onChange();
   }
 
@@ -2351,7 +2845,7 @@ function StudyPage({
         <p className="eyebrow">STUDY</p>
         <h1>{node.emoji ? node.emoji + " " : ""}{node.title}</h1>
         <p className="muted">
-          Pilih Database yang ingin dipelajari. Model Gemini yang dipilih menyusun urutan belajar,
+          Pilih folder yang ingin dipelajari. Model Gemini yang dipilih menyusun urutan belajar,
           membagi bab/subbab sesuai kompleksitas, lalu membuka materi berikutnya setelah recall benar.
         </p>
 
@@ -2371,8 +2865,8 @@ function StudyPage({
           <div className="studySetupHead">
             <div>
               <p className="eyebrow">SUMBER STUDY</p>
-              <h2>Pilih Database</h2>
-              <p className="muted">Bisa pilih lebih dari satu Database dalam cabang materi ini.</p>
+              <h2>Pilih folder</h2>
+              <p className="muted">Bisa pilih lebih dari satu folder dalam cabang materi ini.</p>
             </div>
             {path?.status === "ready" && (
               <button className="ghost" onClick={() => setSetupOpen(false)}>Batal</button>
@@ -2394,13 +2888,13 @@ function StudyPage({
                   <span className="studySourceIcon">{database.emoji || "🗂️"}</span>
                   <span className="studySourceCopy">
                     <strong>{database.title}</strong>
-                    <small>{count ? count + " isi Database" : "Belum ada isi"}</small>
+                    <small>{count ? count + " item teks/transkrip" : "Belum ada isi"}</small>
                   </span>
                 </button>
               );
             })}
             {!sourceDatabases.length && (
-              <div className="emptyStudySource">Belum ada Database di cabang ini.</div>
+              <div className="emptyStudySource">Belum ada folder sumber di cabang ini.</div>
             )}
           </div>
 
@@ -2410,7 +2904,7 @@ function StudyPage({
               rows={3}
               value={studyInstruction}
               onChange={(e) => setStudyInstruction(e.target.value)}
-              placeholder='Contoh: "Saya mau fokus mempelajari aspek CPOB 2024 saja." Kosongkan jika ingin mempelajari seluruh materi dari Database terpilih.'
+              placeholder='Contoh: "Saya mau fokus mempelajari aspek CPOB 2024 saja." Kosongkan jika ingin mempelajari seluruh materi dari folder terpilih.'
             />
             <small className="muted">
               Jika diisi, model Gemini yang aktif akan memakai instruksi ini saat memilih urutan bab/subbab dan merangkum materi.
@@ -2419,7 +2913,7 @@ function StudyPage({
 
           <div className="studySetupTools">
             <button className="ghost" onClick={() => setQuickDbOpen((current) => !current)}>
-              + Tambah Database dari sini
+              + Tambah folder sumber dari sini
             </button>
             <AiModePicker value={aiSelection} onChange={setAiSelection} action="study" allowLocal={false} />
             <button className="primary" disabled={building || !selectedSources.length} onClick={buildStudy}>
@@ -2431,15 +2925,15 @@ function StudyPage({
             <section className="quickDatabaseShortcut">
               <div className="quickDatabaseHead">
                 <div>
-                  <p className="eyebrow">DATABASE BARU</p>
-                  <h2>Tambah Database dari Study</h2>
-                  <p className="muted">Shortcut ini sama seperti halaman Database. Setelah ada isi, Database otomatis terpilih sebagai sumber Study.</p>
+                  <p className="eyebrow">FOLDER SUMBER BARU</p>
+                  <h2>Tambah folder dari Study</h2>
+                  <p className="muted">Folder baru ini langsung menjadi sumber Study. Semua file/catatan di dalamnya adalah Database folder tersebut.</p>
                 </div>
                 <button className="ghost" type="button" onClick={closeQuickDatabase}>Tutup</button>
               </div>
 
               <label className="quickDatabaseName">
-                Nama Database
+                Nama folder
                 <input
                   value={quickDbName}
                   onChange={(e) => setQuickDbName(e.target.value)}
@@ -2452,7 +2946,7 @@ function StudyPage({
               <div className="toolGrid quickDatabaseGrid">
                 <article className="panel">
                   <h2>Masukkan teks</h2>
-                  <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti Database serta jalur materi yang sedang dibuka.</p>
+                  <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti folder serta jalur materi yang sedang dibuka.</p>
                   <form className="stack" onSubmit={saveQuickDatabaseText}>
                     <textarea
                       required
@@ -2462,7 +2956,7 @@ function StudyPage({
                       placeholder="Paste teks materi di sini..."
                     />
                     <button className="primary" disabled={quickBusy || !quickDbName.trim() || !quickDbContent.trim()}>
-                      {quickBusy ? "Menyimpan..." : "Tambahkan ke Database"}
+                      {quickBusy ? "Menyimpan..." : "Tambahkan ke folder"}
                     </button>
                   </form>
                 </article>
@@ -2491,8 +2985,8 @@ function StudyPage({
 
               {quickDbCreatedId && (
                 <div className="quickDatabaseCreated">
-                  <span>✓ Database <strong>{quickDbName}</strong> sudah dibuat dan dipilih untuk Study.</span>
-                  <button className="ghost" type="button" onClick={() => onOpen(quickDbCreatedId)}>Buka halaman Database</button>
+                  <span>✓ Folder <strong>{quickDbName}</strong> sudah dibuat dan dipilih untuk Study.</span>
+                  <button className="ghost" type="button" onClick={() => onOpen(quickDbCreatedId)}>Buka folder</button>
                 </div>
               )}
             </section>
@@ -2521,7 +3015,7 @@ function StudyPage({
               <small>SUMBER</small>
               <div className="studySourceChips">
                 {(path.source_node_ids || []).map((id) => (
-                  <span key={id}>{sourceNameMap.get(id) || "Database"}</span>
+                  <span key={id}>{sourceNameMap.get(id) || "Folder"}</span>
                 ))}
               </div>
             </div>
@@ -2633,7 +3127,7 @@ function StudyPage({
             <section className="studyComplete">
               <div>🏆</div>
               <h2>Study selesai</h2>
-              <p>Kamu sudah melewati seluruh bab/subbab dan recall dari Database yang dipilih.</p>
+              <p>Kamu sudah melewati seluruh bab/subbab dan recall dari folder yang dipilih.</p>
               <button className="ghost" onClick={() => setSetupOpen(true)}>Pelajari sumber lain / susun ulang</button>
             </section>
           )}
@@ -2705,7 +3199,9 @@ function RecordingPage({
 
   const localRecordings = recordings.filter((item) => item.node_id === node.id);
   const siblingDatabases = nodes.filter(
-    (item) => item.parent_id === node.parent_id && item.node_type === "database"
+    (item) =>
+      isFolderLikeNode(item) &&
+      (item.id === node.parent_id || item.parent_id === node.parent_id)
   );
 
   useEffect(() => {
@@ -3486,7 +3982,7 @@ function RecordingPage({
 
             <div className="addDbBox">
               <select value={targetDbId} onChange={(e) => setTargetDbId(e.target.value)}>
-                <option value="">Pilih Database tujuan</option>
+                <option value="">Pilih folder tujuan</option>
                 {siblingDatabases.map((database) => (
                   <option key={database.id} value={database.id}>{database.title}</option>
                 ))}
@@ -3711,7 +4207,7 @@ function PracticePage({
   const scorePercent = gradedCount ? Math.round(totalScorePoints / gradedCount) : 0;
 
   async function generate() {
-    if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada database sumber.");
+    if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada folder sumber.");
 
     if (aiSelection.model === "local") {
       setBusy(true);
@@ -4617,11 +5113,14 @@ function BottomAskBar({
   const [pendingTextSave, setPendingTextSave] = useState<string | null>(null);
 
   const askVoiceDatabases = useMemo(() => {
-    const all = nodes.filter((item) => item.node_type === "database");
+    const all = nodes.filter(isFolderLikeNode);
     if (!scopeNodeId) return all;
-    const ids = new Set(collectSubtreeIds(nodes, scopeNodeId));
-    const scoped = all.filter((item) => ids.has(item.id));
-    return scoped.length ? scoped : all;
+
+    const currentFolder = all.find((item) => item.id === scopeNodeId);
+    const subtreeIds = new Set(collectSubtreeIds(nodes, scopeNodeId));
+    const scoped = all.filter((item) => subtreeIds.has(item.id));
+    const ordered = [currentFolder, ...scoped, ...all].filter(Boolean) as StudyNode[];
+    return Array.from(new Map(ordered.map((item) => [item.id, item])).values());
   }, [nodes, scopeNodeId]);
 
   useEffect(() => {
@@ -4677,7 +5176,7 @@ function BottomAskBar({
   function wantsDatabaseSave(value: string) {
     const text = value.toLowerCase();
     const saveWord = /(masukin|masukkan|masukkin|simpan|save|tambahkan|tambahin)/i.test(text);
-    return saveWord && /(database|\bdb\b)/i.test(text);
+    return saveWord && /(database|\bdb\b|folder|materi)/i.test(text);
   }
 
   function suggestedDatabaseId(value: string) {
@@ -4720,7 +5219,7 @@ function BottomAskBar({
     setLinkDraft("");
     setLinkInputOpen(false);
     setAttachMenuOpen(false);
-    setLinkStatus("Link RAW siap dipakai AI. Belum disimpan ke Database.");
+    setLinkStatus("Link RAW siap dipakai AI. Belum disimpan ke folder.");
   }
 
   function discardPendingLink() {
@@ -4734,7 +5233,7 @@ function BottomAskBar({
     if (!target) return;
 
     setLinkBusy(true);
-    setLinkStatus("Menyimpan link RAW ke Database...");
+    setLinkStatus("Menyimpan link RAW ke folder...");
     const response = await fetch("/api/import-link", {
       method: "POST",
       headers: {
@@ -4752,7 +5251,7 @@ function BottomAskBar({
     }
 
     setPendingLink(null);
-    setLinkStatus("Link RAW sudah masuk Database: " + target.title + ".");
+    setLinkStatus("Link RAW sudah masuk folder: " + target.title + ".");
     onChange();
   }
 
@@ -4776,7 +5275,7 @@ function BottomAskBar({
 
     if (error) return alert(error.message);
     setPendingTextSave(null);
-    setAttachmentStatus("Teks sudah masuk Database: " + target.title + ".");
+    setAttachmentStatus("Teks sudah masuk folder: " + target.title + ".");
     onChange();
   }
 
@@ -4920,7 +5419,7 @@ function BottomAskBar({
       "Anda adalah tutor Ruang Belajar.",
       "Sumber dipilih user:",
       "- AI: " + (useAi ? "AKTIF" : "TIDAK"),
-      "- Database: " + (useDatabase ? "AKTIF" : "TIDAK"),
+      "- folder: " + (useDatabase ? "AKTIF" : "TIDAK"),
       "- Web: TIDAK",
       "",
       useAi
@@ -5307,7 +5806,7 @@ function BottomAskBar({
     setAskVoiceBusy(false);
     setAskVoiceStatus(
       transcript
-        ? "Transkrip mentah sudah masuk ke teks pertanyaan. Silakan edit sendiri bila perlu, lalu Abaikan atau Simpan ke Database."
+        ? "Transkrip mentah sudah masuk ke teks pertanyaan. Silakan edit sendiri bila perlu, lalu Abaikan atau Simpan ke folder."
         : "Audio siap. Transkrip otomatis belum tersedia; ketik/koreksi pertanyaan lalu simpan atau abaikan."
     );
   }
@@ -5358,7 +5857,7 @@ function BottomAskBar({
     if (error) return alert(error.message);
 
     setPendingVoice(null);
-    setAskVoiceStatus("Audio dan transkrip sudah masuk Database: " + target.title + ".");
+    setAskVoiceStatus("Audio dan transkrip sudah masuk folder: " + target.title + ".");
     onChange();
   }
 
@@ -5420,7 +5919,7 @@ function BottomAskBar({
     });
     setAttachMenuOpen(false);
     setAttachmentStatus(
-      "File asli + RAW siap dibaca AI. Belum disimpan ke Database."
+      "File asli + RAW siap dibaca AI. Belum disimpan ke folder."
     );
   }
 
@@ -5440,7 +5939,7 @@ function BottomAskBar({
     if (!target) return;
 
     setAttachmentBusy(true);
-    setAttachmentStatus("Menyimpan file asli ke Database dan menyiapkan versi tertata...");
+    setAttachmentStatus("Menyimpan file asli ke folder dan menyiapkan versi tertata...");
 
     const file = pendingAttachment.file;
     const mimeType = pendingAttachment.mimeType || inferMime(file);
@@ -5512,7 +6011,7 @@ function BottomAskBar({
           source_file_id: row.id,
         });
         setAttachmentStatus(
-          "File asli sudah masuk Database; versi tertata belum selesai."
+          "File asli sudah masuk folder; versi tertata belum selesai."
         );
         setPendingAttachment(null);
         onChange();
@@ -5521,7 +6020,7 @@ function BottomAskBar({
     }
 
     setAttachmentStatus(
-      "File asli + RAW sudah masuk Database: " + target.title + "."
+      "File asli + RAW sudah masuk folder: " + target.title + "."
     );
     setPendingAttachment(null);
     if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
@@ -5844,7 +6343,7 @@ function BottomAskBar({
             {pendingVoice && (
               <div className="askVoiceSaveRow">
                 <select value={askVoiceDbId} onChange={(e) => setAskVoiceDbId(e.target.value)}>
-                  <option value="">Pilih Database</option>
+                  <option value="">Pilih folder</option>
                   {askVoiceDatabases.map((database) => (
                     <option key={database.id} value={database.id}>{database.title}</option>
                   ))}
@@ -5863,7 +6362,7 @@ function BottomAskBar({
                   disabled={askVoiceBusy || !askVoiceDbId}
                   onClick={savePendingVoiceToDatabase}
                 >
-                  Simpan ke Database
+                  Simpan ke folder
                 </button>
               </div>
             )}
@@ -5881,7 +6380,7 @@ function BottomAskBar({
                 </div>
                 <div className="askVoiceSaveRow">
                   <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
-                    <option value="">Pilih Database</option>
+                    <option value="">Pilih folder</option>
                     {askVoiceDatabases.map((database) => (
                       <option key={database.id} value={database.id}>{database.title}</option>
                     ))}
@@ -5900,7 +6399,7 @@ function BottomAskBar({
                     disabled={attachmentBusy || !attachmentDbId}
                     onClick={() => void savePendingAttachmentToDatabase()}
                   >
-                    Simpan ke Database
+                    Simpan ke folder
                   </button>
                 </div>
               </>
@@ -5919,7 +6418,7 @@ function BottomAskBar({
                 </div>
                 <div className="askVoiceSaveRow">
                   <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
-                    <option value="">Pilih Database</option>
+                    <option value="">Pilih folder</option>
                     {askVoiceDatabases.map((database) => (
                       <option key={database.id} value={database.id}>{database.title}</option>
                     ))}
@@ -5938,7 +6437,7 @@ function BottomAskBar({
                     disabled={linkBusy || !attachmentDbId}
                     onClick={() => void savePendingLinkToDatabase()}
                   >
-                    Simpan ke Database
+                    Simpan ke folder
                   </button>
                 </div>
               </>
@@ -5955,7 +6454,7 @@ function BottomAskBar({
             </div>
             <div className="askVoiceSaveRow">
               <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
-                <option value="">Pilih Database</option>
+                <option value="">Pilih folder</option>
                 {askVoiceDatabases.map((database) => (
                   <option key={database.id} value={database.id}>{database.title}</option>
                 ))}
@@ -5974,7 +6473,7 @@ function BottomAskBar({
                 disabled={attachmentBusy || !attachmentDbId}
                 onClick={() => void saveQuestionTextToDatabase()}
               >
-                Simpan ke Database
+                Simpan ke folder
               </button>
             </div>
           </div>

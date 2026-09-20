@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     const studyInstruction = String(body.studyInstruction || "").trim().slice(0, 2000);
 
     if (!studyNodeId || !sourceNodeIds.length) {
-      return NextResponse.json({ error: "Pilih minimal satu Database untuk Study." }, { status: 400 });
+      return NextResponse.json({ error: "Pilih minimal satu folder sumber untuk Study." }, { status: 400 });
     }
     if (aiMode === "simple") {
       return NextResponse.json(
@@ -86,23 +86,27 @@ export async function POST(req: NextRequest) {
 
     if (
       selectedNodes.length !== sourceNodeIds.length ||
-      selectedNodes.some((node: any) => node.node_type !== "database" || !allowedIds.has(node.id))
+      selectedNodes.some(
+        (node: any) =>
+          !["material", "submaterial", "database"].includes(node.node_type) ||
+          !allowedIds.has(node.id)
+      )
     ) {
       return NextResponse.json(
-        { error: "Ada Database yang tidak berada di dalam cabang materi Study ini." },
+        { error: "Ada folder sumber yang tidak berada di dalam cabang materi Study ini." },
         { status: 400 }
       );
     }
 
     const { data: entries, error: entriesError } = await supabase
       .from("knowledge_entries")
-      .select("id,node_id,title,category,content")
+      .select("id,node_id,title,category,content,raw_content")
       .in("node_id", sourceNodeIds)
       .order("created_at", { ascending: true });
 
     if (entriesError) throw entriesError;
     if (!entries?.length) {
-      return NextResponse.json({ error: "Database yang dipilih belum memiliki isi." }, { status: 400 });
+      return NextResponse.json({ error: "Folder yang dipilih belum memiliki isi teks/transkrip." }, { status: 400 });
     }
 
     const modeLimit = aiMode === "high" ? 140000 : aiMode === "medium" ? 100000 : 70000;
@@ -113,9 +117,9 @@ export async function POST(req: NextRequest) {
 
     for (const entry of entries) {
       if (used >= modeLimit) break;
-      const dbTitle = titles.get(entry.node_id) || "Database";
-      const bodyText = String(entry.content || "").slice(0, perEntryLimit);
-      const part = `[DATABASE: ${dbTitle} | ${entry.title || "Materi"}]
+      const folderTitle = titles.get(entry.node_id) || "Folder";
+      const bodyText = String(entry.raw_content || entry.content || "").slice(0, perEntryLimit);
+      const part = `[FOLDER RAW: ${folderTitle} | ${entry.title || "Materi"}]
 ${bodyText}`;
       contextParts.push(part);
       used += part.length;
@@ -123,7 +127,7 @@ ${bodyText}`;
 
     const sourceContext = contextParts.join("\n\n---\n\n");
     if (!sourceContext.trim()) {
-      return NextResponse.json({ error: "Tidak ada isi Database yang dapat dipakai." }, { status: 400 });
+      return NextResponse.json({ error: "Tidak ada isi folder yang dapat dipakai." }, { status: 400 });
     }
 
     const { data: pathRow, error: pathError } = await supabase
@@ -171,11 +175,11 @@ ${bodyText}`;
         text: `NAMA STUDY:
 ${studyNode.title}
 
-SUMBER DATABASE YANG DIPILIH:
+SUMBER FOLDER YANG DIPILIH:
 ${sourceContext}
 
 INSTRUKSI KHUSUS USER:
-${studyInstruction || "(Tidak ada. Pelajari seluruh materi relevan dari Database yang dipilih.)"}
+${studyInstruction || "(Tidak ada. Pelajari seluruh materi relevan dari folder yang dipilih.)"}
 
 Susun jalur belajar dari konsep paling mendasar ke yang lebih kompleks.
 ${aiModeInstruction(aiMode)}
@@ -197,11 +201,11 @@ Keluarkan JSON valid tanpa markdown:
 }
 
 Aturan wajib:
-- Gunakan HANYA SUMBER DATABASE di atas. Jangan gunakan internet atau pengetahuan di luar sumber.
+- Gunakan HANYA SUMBER FOLDER di atas. Jangan gunakan internet atau pengetahuan di luar sumber.
 - Jika INSTRUKSI KHUSUS USER tidak kosong, jadikan instruksi itu sebagai fokus/scope utama Study.
 - Jika instruksi user meminta fokus tertentu (misalnya hanya CPOB 2024), prioritaskan hanya materi yang sesuai fokus itu. Materi di luar fokus boleh disebut hanya bila benar-benar diperlukan sebagai konteks atau perbandingan agar fokus utama dipahami.
-- Jika INSTRUKSI KHUSUS USER kosong, pelajari seluruh materi relevan dari Database terpilih secara proporsional.
-- Jangan mengabaikan instruksi user selama masih dapat dipenuhi dari Database yang dipilih.
+- Jika INSTRUKSI KHUSUS USER kosong, pelajari seluruh materi relevan dari folder terpilih secara proporsional.
+- Jangan mengabaikan instruksi user selama masih dapat dipenuhi dari folder yang dipilih.
 - Tentukan sendiri kompleksitas materi:
   - materi sederhana boleh dipecah per BAB saja (unit_level="chapter");
   - materi kompleks boleh dipecah lebih kecil menjadi SUBBAB (unit_level="subchapter").
@@ -260,7 +264,7 @@ ${raw.slice(0, 50000)}`,
       try {
         parsed = parseJsonSafely(repair.text);
       } catch {
-        throw new Error("AI belum berhasil menghasilkan struktur Study yang lengkap. Coba lagi; Database dan pilihan Study tetap tersimpan.");
+        throw new Error("AI belum berhasil menghasilkan struktur Study yang lengkap. Coba lagi; folder dan pilihan Study tetap tersimpan.");
       }
     }
 
