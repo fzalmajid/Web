@@ -40,6 +40,13 @@ export async function POST(req: NextRequest) {
           )
         ).slice(0, 4)
       : ["mcq-fixed"];
+    const quizCreationMode = body.quizCreationMode === "answer-ai" ? "answer-ai" : "auto";
+    const manualQuestions = Array.isArray(body.manualQuestions)
+      ? body.manualQuestions
+          .map((value: unknown) => String(value || "").trim().slice(0, 1200))
+          .filter(Boolean)
+          .slice(0, 20)
+      : [];
     const rawCount = Number(body.count || 0);
     const requestedCount =
       Number.isFinite(rawCount) && rawCount > 0
@@ -55,6 +62,9 @@ export async function POST(req: NextRequest) {
 
     if (!sourceNodeId || !targetNodeId) {
       return NextResponse.json({ error: "Scope materi belum dipilih." }, { status: 400 });
+    }
+    if (mode === "quiz" && quizCreationMode === "answer-ai" && !manualQuestions.length) {
+      return NextResponse.json({ error: "Tulis minimal satu pertanyaan yang ingin dijawab AI." }, { status: 400 });
     }
 
     const supabase = createServerSupabase(token);
@@ -108,7 +118,12 @@ export async function POST(req: NextRequest) {
           : { cards: 4, quiz: 3 };
     const counts = {
       cards: mode === "flashcards" && requestedCount ? requestedCount : defaultCounts.cards,
-      quiz: mode === "quiz" && requestedCount ? requestedCount : defaultCounts.quiz,
+      quiz:
+        mode === "quiz"
+          ? quizCreationMode === "answer-ai"
+            ? manualQuestions.length
+            : requestedCount || defaultCounts.quiz
+          : defaultCounts.quiz,
     };
     const requested = mode === "flashcards"
       ? "Buat flashcards saja. quizzes harus berupa array kosong."
@@ -129,6 +144,19 @@ export async function POST(req: NextRequest) {
           ].join("\n")
         : "";
 
+    const answerAiInstruction =
+      mode === "quiz" && quizCreationMode === "answer-ai"
+        ? [
+            "MODE PEMBUATAN: PERTANYAAN DARI USER, JAWABAN DARI AI.",
+            "Jangan membuat pertanyaan baru dan jangan mengubah teks pertanyaan user.",
+            "Pertanyaan user berikut wajib dipakai berurutan:",
+            ...manualQuestions.map((question: string, index: number) => (index + 1) + ". " + question),
+            "Jika jenisnya PG: buat minimal 4 pilihan yang masuk akal dan isi correct_answer persis sama dengan salah satu pilihan.",
+            "Jika jenisnya Essay: choices harus [] dan isi correct_answer dengan jawaban acuan yang benar.",
+            "Semua jawaban harus mengikuti sumber AI / Database / Web yang diaktifkan user.",
+          ].join("\n")
+        : "";
+
     const geminiResult = await geminiGenerateDetailed([{
       text: `KONFIGURASI SUMBER:
 ${sourcePolicy}
@@ -139,7 +167,7 @@ ${context || "(Database tidak aktif.)"}
 INSTRUKSI USER:
 ${instruction || "(Tidak ada instruksi tambahan.)"}
 
-${requested}\n${quizKindInstruction}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdown:
+${requested}\n${quizKindInstruction}\n${answerAiInstruction}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdown:
 {
   "flashcards":[{"front":"...","back":"..."}],
   "quizzes":[{"kind":"mcq-fixed|essay-fixed|mcq-ai|essay-ai","question":"...","choices":["A","B","C","D"],"correct_answer":"...","explanation":"..."}]
@@ -191,7 +219,10 @@ Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? c
             kind,
             quiz_type: isMcq ? "mcq" as const : "essay" as const,
             grading_mode: isAi ? "ai" as const : "fixed" as const,
-            question: String(x.question || "").trim(),
+            question:
+              quizCreationMode === "answer-ai"
+                ? String(manualQuestions[index] || "").trim()
+                : String(x.question || "").trim(),
             choices,
             correct_answer: isAi ? "" : correctAnswer,
             explanation: String(x.explanation || "").trim(),
