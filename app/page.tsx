@@ -1602,7 +1602,7 @@ function FolderPage({
           </h1>
           {current && (
             <p className="muted explorerHint">
-              Folder ini sekaligus Database. Drop file/foto/audio di sini, atau tekan + untuk menambah file, link, teks, rekaman, subfolder, Study, Flashcard, atau Kuis.
+              Folder ini sekaligus Database. Drop file/foto/audio di sini, atau tekan + untuk menambah file, link, teks, rekaman, subfolder, Study, Flashcard, Kuis, atau Tugas.
             </p>
           )}
         </div>
@@ -9742,6 +9742,7 @@ function iconFor(type: NodeType) {
   if (type === "flashcards") return "FC";
   if (type === "quiz") return "Q";
   if (type === "study") return "ST";
+  if (type === "task") return "TD";
   return "M";
 }
 
