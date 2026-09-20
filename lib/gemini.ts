@@ -223,6 +223,7 @@ export async function geminiGenerateDetailed(
     responseLength?: AiResponseLength;
     responseMimeType?: "application/json";
     maxOutputTokens?: number;
+    outputBudgetMultiplier?: number;
   }
 ) {
   const lengthInstruction = options?.responseLength
@@ -232,7 +233,12 @@ export async function geminiGenerateDetailed(
     .filter(Boolean)
     .join("\n\n");
   const requestedOutputBudget = Number(options?.maxOutputTokens || 8192);
-  const boostedOutputBudget = Math.ceil(requestedOutputBudget * 1.5);
+  const outputBudgetMultiplier = Math.max(
+    0.25,
+    Math.min(2, Number(options?.outputBudgetMultiplier ?? 1.5))
+  );
+  const boostedOutputBudget = Math.ceil(requestedOutputBudget * outputBudgetMultiplier);
+  const minimumOutputBudget = outputBudgetMultiplier < 1 ? 512 : 1536;
 
   const accessToken = String(options?.accessToken || "").trim();
   const projectId = String(options?.projectId || "").trim();
@@ -286,7 +292,7 @@ export async function geminiGenerateDetailed(
                 model === "gemini-3.5-transcribe" || model.startsWith("gemini-3")
                   ? undefined
                   : 0.2,
-              maxOutputTokens: Math.max(1536, Math.min(boostedOutputBudget, 32768)),
+              maxOutputTokens: Math.max(minimumOutputBudget, Math.min(boostedOutputBudget, 32768)),
               responseMimeType: options?.responseMimeType,
               thinkingConfig: thinkingConfigForModel(model, options?.effort || "none"),
               audioTranscriptionConfig:
