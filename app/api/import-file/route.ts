@@ -87,6 +87,12 @@ export async function POST(req: NextRequest) {
     const fileName = String(body.fileName || "File");
     const mimeType = normalizeMime(String(body.mimeType || "application/octet-stream"));
     const aiMode = normalizeAiMode(body.aiMode);
+    const operation = body.operation === "ai-copy" ? "ai-copy" : "raw";
+    const aiCopyMode =
+      body.aiCopyMode === "compact" || body.aiCopyMode === "complex"
+        ? body.aiCopyMode
+        : "medium";
+    const aiCopyRatio = aiCopyMode === "compact" ? 30 : aiCopyMode === "complex" ? 90 : 50;
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const geminiAuth = geminiUserAuthFromHeaders(req.headers);
     const ownGemini = geminiAuth.ownGemini;
@@ -101,24 +107,28 @@ export async function POST(req: NextRequest) {
 
     const { data: row, error: rowError } = await supabase
       .from("source_files")
-      .select("id,node_id,file_path,file_name,mime_type")
+      .select("id,node_id,file_path,file_name,mime_type,raw_text")
       .eq("id", sourceFileId)
       .single();
     if (rowError || !row || row.file_path !== filePath || row.node_id !== nodeId) {
       return NextResponse.json({ error: "File tidak ditemukan." }, { status: 404 });
     }
 
-    const { data: blob, error: downloadError } = await supabase.storage
-      .from("study-files")
-      .download(filePath);
-    if (downloadError || !blob) throw downloadError || new Error("File tidak dapat dibaca.");
+    let rawText = operation === "ai-copy" ? String(row.raw_text || "").trim() : "";
+    let buffer: Buffer | null = null;
 
-    if (blob.size > 50 * 1024 * 1024) {
-      throw new Error("File maksimal 50 MB untuk pemrosesan ini.");
+    if (!rawText) {
+      const { data: blob, error: downloadError } = await supabase.storage
+        .from("study-files")
+        .download(filePath);
+      if (downloadError || !blob) throw downloadError || new Error("File tidak dapat dibaca.");
+
+      if (blob.size > 50 * 1024 * 1024) {
+        throw new Error("File maksimal 50 MB untuk pemrosesan ini.");
+      }
+
+      buffer = Buffer.from(await blob.arrayBuffer());
     }
-
-    const buffer = Buffer.from(await blob.arrayBuffer());
-    let rawText = "";
 
     const heavyFile =
       isMediaMime(mimeType) ||
@@ -137,15 +147,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
-    if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.toLowerCase().endsWith(".docx")) {
-      const extracted = await mammoth.extractRawText({ buffer });
+    if (!rawText && (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.toLowerCase().endsWith(".docx"))) {
+      const extracted = await mammoth.extractRawText({ buffer: buffer! });
       rawText = extracted.value.trim();
-    } else if (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || fileName.toLowerCase().endsWith(".pptx")) {
-      rawText = (await extractPptxText(buffer)).trim();
-    } else if (isTextMime(mimeType)) {
-      rawText = buffer.toString("utf8").trim();
-    } else {
-      const base64 = buffer.toString("base64");
+    } else if (!rawText && (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || fileName.toLowerCase().endsWith(".pptx"))) {
+      rawText = (await extractPptxText(buffer!)).trim();
+    } else if (!rawText && isTextMime(mimeType)) {
+      rawText = buffer!.toString("utf8").trim();
+    } else if (!rawText) {
+      const base64 = buffer!.toString("base64");
       const prompt = isMediaMime(mimeType)
         ? "Transkripsikan seluruh ucapan dari file ini secara VERBATIM, sedekat mungkin kata demi kata. Jangan merangkum, jangan mengoreksi istilah, jangan menambah isi. Gunakan paragraf dan tanda baca secukupnya."
         : mimeType === "application/pdf"
@@ -171,9 +181,65 @@ export async function POST(req: NextRequest) {
 
     if (!rawText.trim()) throw new Error("Tidak ada teks yang berhasil diekstrak.");
 
+    const media = isMediaMime(mimeType);
+
+    if (operation === "raw") {
+      const { data: existingEntry } = await supabase
+        .from("knowledge_entries")
+        .select("id")
+        .eq("source_file_id", sourceFileId)
+        .maybeSingle();
+
+      if (existingEntry?.id) {
+        const { error: entryUpdateError } = await supabase
+          .from("knowledge_entries")
+          .update({
+            title: fileName,
+            category: media ? "RAW transkrip file" : "RAW file",
+            content: rawText,
+            raw_content: rawText,
+            source_type: "file",
+          })
+          .eq("id", existingEntry.id);
+        if (entryUpdateError) throw entryUpdateError;
+      } else {
+        const { error: entryInsertError } = await supabase
+          .from("knowledge_entries")
+          .insert({
+            user_id: userData.user.id,
+            node_id: nodeId,
+            title: fileName,
+            category: media ? "RAW transkrip file" : "RAW file",
+            content: rawText,
+            raw_content: rawText,
+            source_type: "file",
+            source_file_id: sourceFileId,
+          });
+        if (entryInsertError) throw entryInsertError;
+      }
+
+      const { error: rawUpdateError } = await supabase
+        .from("source_files")
+        .update({
+          processing_status: "ready",
+          raw_text: rawText,
+          structured_text: null,
+          corrections: [],
+          error_message: null,
+          ai_copy_mode: null,
+          ai_copy_ratio: null,
+          ai_copy_model: null,
+          ai_copy_updated_at: null,
+        })
+        .eq("id", sourceFileId);
+      if (rawUpdateError) throw rawUpdateError;
+
+      const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, guardAction, aiMode);
+      return NextResponse.json({ rawText, aiUsage, operation: "raw" });
+    }
+
     const knowledge = await getScopeKnowledge(supabase, nodeId, 40);
     const context = buildKnowledgeContext(knowledge.filter(k => k.title !== fileName), 26000);
-    const media = isMediaMime(mimeType);
 
     const structuredResult = await geminiGenerateDetailed(
       [{
@@ -191,7 +257,9 @@ Keluarkan JSON valid tanpa markdown:
 }
 
 Aturan:
-- ${media ? "Sumber mentah adalah transkrip verbatim. structured_text harus menata ulang ucapan menjadi transkrip terstruktur." : "structured_text harus menyusun isi dokumen menjadi catatan terstruktur yang tetap mempertahankan informasi penting."}
+- ${media ? "Sumber mentah adalah transkrip verbatim. structured_text harus membuat SALINAN versi AI yang lebih rapi, bukan mengganti RAW." : "structured_text harus membuat SALINAN versi AI dari dokumen RAW, bukan mengganti RAW."}
+- Target panjang structured_text kira-kira ${aiCopyRatio}% dari jumlah karakter SUMBER MENTAH. Boleh sedikit meleset agar kalimat tetap utuh.
+- Mode panjang: ${aiCopyMode === "compact" ? "RINGKAS / 30%: hanya inti, poin utama, definisi penting." : aiCopyMode === "complex" ? "KOMPLEKS / 90%: hampir seluruh informasi dipertahankan, hanya dirapikan dan sedikit dipadatkan." : "MEDIUM / 50%: pertahankan poin penting dan penjelasan utama, buang repetisi/detail sekunder."}
 - Jangan menambah fakta yang tidak ada di SUMBER MENTAH.
 - DATABASE REFERENSI hanya boleh dipakai untuk menyelesaikan istilah/nama/singkatan yang keliru atau ambigu.
 - Koreksi hanya dilakukan jika database benar-benar mendukungnya; semua koreksi harus dicatat.
@@ -234,21 +302,43 @@ Aturan:
       `SUMBER MENTAH:\n${rawText}`,
     ].filter(Boolean).join("\n\n---\n\n");
 
-    const { data: entry, error: entryError } = await supabase
+    const { data: existingEntry } = await supabase
       .from("knowledge_entries")
-      .insert({
-        user_id: userData.user.id,
-        node_id: nodeId,
-        title: fileName,
-        category: media ? "Transkrip file" : "File",
-        content: combined,
-        raw_content: rawText,
-        source_type: "file",
-        source_file_id: sourceFileId,
-      })
       .select("id")
-      .single();
-    if (entryError) throw entryError;
+      .eq("source_file_id", sourceFileId)
+      .maybeSingle();
+
+    let entryId = existingEntry?.id || "";
+    if (entryId) {
+      const { error: entryUpdateError } = await supabase
+        .from("knowledge_entries")
+        .update({
+          title: fileName,
+          category: media ? "RAW + Salinan AI transkrip" : "RAW + Salinan AI",
+          content: structuredText + (summary ? `\n\nRingkasan:\n${summary}` : ""),
+          raw_content: rawText,
+          source_type: "file",
+        })
+        .eq("id", entryId);
+      if (entryUpdateError) throw entryUpdateError;
+    } else {
+      const { data: insertedEntry, error: entryError } = await supabase
+        .from("knowledge_entries")
+        .insert({
+          user_id: userData.user.id,
+          node_id: nodeId,
+          title: fileName,
+          category: media ? "RAW + Salinan AI transkrip" : "RAW + Salinan AI",
+          content: structuredText + (summary ? `\n\nRingkasan:\n${summary}` : ""),
+          raw_content: rawText,
+          source_type: "file",
+          source_file_id: sourceFileId,
+        })
+        .select("id")
+        .single();
+      if (entryError) throw entryError;
+      entryId = insertedEntry.id;
+    }
 
     const { error: updateError } = await supabase
       .from("source_files")
@@ -258,6 +348,10 @@ Aturan:
         structured_text: structuredText + (summary ? `\n\nRingkasan:\n${summary}` : ""),
         corrections,
         error_message: null,
+        ai_copy_mode: aiCopyMode,
+        ai_copy_ratio: aiCopyRatio,
+        ai_copy_model: structuredResult.model,
+        ai_copy_updated_at: new Date().toISOString(),
       })
       .eq("id", sourceFileId);
     if (updateError) throw updateError;
@@ -265,7 +359,7 @@ Aturan:
     const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, guardAction, aiMode);
 
     return NextResponse.json({
-      entryId: entry.id,
+      entryId,
       rawText,
       structuredText,
       summary,
