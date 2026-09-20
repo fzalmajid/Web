@@ -1,6 +1,12 @@
 import type { AiEffort } from "./aiModels";
 import type { GeminiUsage, GeminiWebSource } from "./gemini";
 
+export type ExternalAiAttachment = {
+  name: string;
+  mimeType: string;
+  data: string;
+};
+
 export class ExternalAiError extends Error {
   code: string;
   statusCode: number;
@@ -67,6 +73,7 @@ export async function openaiGenerateDetailed(options: {
   system?: string;
   effort?: AiEffort;
   web?: boolean;
+  attachments?: ExternalAiAttachment[];
 }) {
   const key = String(options.apiKey || "").trim();
   if (!key) throw new ExternalAiError("OpenAI belum terhubung.", 400, "OPENAI_KEY_MISSING");
@@ -90,7 +97,26 @@ export async function openaiGenerateDetailed(options: {
     body: JSON.stringify({
       model: options.model,
       instructions: options.system || undefined,
-      input: options.prompt,
+      input: options.attachments?.length
+        ? [{
+            role: "user",
+            content: [
+              { type: "input_text", text: options.prompt },
+              ...options.attachments.map((attachment) =>
+                attachment.mimeType.startsWith("image/")
+                  ? {
+                      type: "input_image",
+                      image_url: `data:${attachment.mimeType};base64,${attachment.data}`,
+                    }
+                  : {
+                      type: "input_file",
+                      filename: attachment.name || "lampiran",
+                      file_data: `data:${attachment.mimeType};base64,${attachment.data}`,
+                    }
+              ),
+            ],
+          }]
+        : options.prompt,
       reasoning: effort === "none" ? undefined : { effort },
       tools: options.web ? [{ type: "web_search" }] : undefined,
     }),
@@ -154,6 +180,7 @@ export async function anthropicGenerateDetailed(options: {
   system?: string;
   effort?: AiEffort;
   web?: boolean;
+  attachments?: ExternalAiAttachment[];
 }) {
   const key = String(options.apiKey || "").trim();
   if (!key) throw new ExternalAiError("Claude belum terhubung.", 400, "ANTHROPIC_KEY_MISSING");
@@ -176,7 +203,39 @@ export async function anthropicGenerateDetailed(options: {
       model: options.model,
       max_tokens: supportsEffort && (options.effort === "xhigh" || options.effort === "max") ? 32768 : 8192,
       system: options.system || undefined,
-      messages: [{ role: "user", content: options.prompt }],
+      messages: [{
+        role: "user",
+        content: options.attachments?.length
+          ? [
+              { type: "text", text: options.prompt },
+              ...options.attachments
+                .filter((attachment) =>
+                  attachment.mimeType.startsWith("image/") ||
+                  attachment.mimeType === "application/pdf"
+                )
+                .map((attachment) =>
+                  attachment.mimeType === "application/pdf"
+                    ? {
+                        type: "document",
+                        source: {
+                          type: "base64",
+                          media_type: "application/pdf",
+                          data: attachment.data,
+                        },
+                        title: attachment.name || "Lampiran",
+                      }
+                    : {
+                        type: "image",
+                        source: {
+                          type: "base64",
+                          media_type: attachment.mimeType,
+                          data: attachment.data,
+                        },
+                      }
+                ),
+            ]
+          : options.prompt,
+      }],
       output_config: supportsEffort ? { effort: options.effort } : undefined,
       tools: options.web
         ? [{ type: "web_search_20260318", name: "web_search", max_uses: 5 }]
