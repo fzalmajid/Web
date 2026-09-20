@@ -4598,9 +4598,11 @@ function PracticePage({
     if (aiSelection.model === "local") {
       setBusy(true);
       const scopeIds = collectSubtreeIds(nodes, node.parent_id);
-      const sourceEntries = entries.filter((item) => scopeIds.includes(item.node_id));
+      const sourceEntries = entries.filter(
+        (item) => scopeIds.includes(item.node_id) && item.source_type !== "transcript"
+      );
       const sentences = sourceEntries
-        .flatMap((entry) => entry.content.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
+        .flatMap((entry) => (entry.raw_content || entry.content).replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
         .map((sentence) => sentence.trim())
         .filter((sentence) => sentence.length >= 35 && sentence.length <= 260)
         .slice(0, 12);
