@@ -1207,6 +1207,14 @@ function FolderPage({
 }) {
   const [dropActive, setDropActive] = useState(false);
   const [dropBusy, setDropBusy] = useState(false);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const folderHoverTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (folderHoverTimerRef.current) window.clearTimeout(folderHoverTimerRef.current);
+    };
+  }, []);
 
   const localFiles = current ? files.filter((item) => item.node_id === current.id) : [];
   const localRecordings = current ? recordings.filter((item) => item.node_id === current.id) : [];
@@ -1223,6 +1231,21 @@ function FolderPage({
     : [];
 
   const hasAssets = !!(localFiles.length || localRecordings.length || localEntries.length);
+
+  function clearFolderHover() {
+    if (folderHoverTimerRef.current) {
+      window.clearTimeout(folderHoverTimerRef.current);
+      folderHoverTimerRef.current = null;
+    }
+  }
+
+  function springOpenFolder(nodeId: string) {
+    clearFolderHover();
+    folderHoverTimerRef.current = window.setTimeout(() => {
+      onOpen(nodeId);
+      folderHoverTimerRef.current = null;
+    }, 700);
+  }
 
   async function uploadFiles(targetNodeId: string, list: FileList | File[]) {
     const incoming = Array.from(list);
@@ -1241,45 +1264,13 @@ function FolderPage({
     }
   }
 
-  async function moveDroppedItem(event: any, targetNodeId: string) {
-    const raw = event.dataTransfer?.getData("application/x-rb-explorer-item");
-    if (!raw) return false;
+  async function moveDroppedItem(event: any, targetNodeId: string | null) {
+    const item = readExplorerDragItem(event);
+    if (!item) return false;
     try {
-      const item = JSON.parse(raw);
-      if (!["file", "recording", "entry", "node"].includes(item?.kind) || !item?.id) return false;
-
-      if (item.kind === "node") {
-        const nodeId = String(item.id);
-        const movingNode = nodes.find((node) => node.id === nodeId);
-        const targetNode = nodes.find((node) => node.id === targetNodeId);
-
-        if (!movingNode || !targetNode || !isFolderLikeNode(targetNode)) return false;
-        if (movingNode.id === targetNode.id) {
-          alert("Folder tidak bisa dimasukkan ke dirinya sendiri.");
-          return true;
-        }
-
-        const movingTreeIds = new Set(collectSubtreeIds(nodes, movingNode.id));
-        if (movingTreeIds.has(targetNode.id)) {
-          alert("Folder tidak bisa dipindahkan ke dalam anak/subfolder-nya sendiri.");
-          return true;
-        }
-
-        if (movingNode.parent_id === targetNode.id) return true;
-
-        const { error } = await supabase
-          .from("study_nodes")
-          .update({ parent_id: targetNode.id })
-          .eq("id", movingNode.id);
-
-        if (error) throw error;
-        onChange();
-        return true;
-      }
-
-      await moveExplorerItemToFolder(item.kind, String(item.id), targetNodeId);
-      onChange();
-      return true;
+      const moved = await moveExplorerDraggedItem(nodes, item, targetNodeId);
+      if (moved) onChange();
+      return moved;
     } catch (error: any) {
       alert(error?.message || "Gagal memindahkan item.");
       return true;
@@ -1289,9 +1280,11 @@ function FolderPage({
   async function handlePageDrop(event: any) {
     event.preventDefault();
     setDropActive(false);
-    if (!current) return;
-    if (await moveDroppedItem(event, current.id)) return;
-    if (event.dataTransfer?.files?.length) {
+    setDropTargetId(null);
+    clearFolderHover();
+
+    if (await moveDroppedItem(event, current?.id || null)) return;
+    if (current && event.dataTransfer?.files?.length) {
       await uploadFiles(current.id, event.dataTransfer.files);
     }
   }
@@ -1299,6 +1292,8 @@ function FolderPage({
   async function handleFolderDrop(event: any, target: StudyNode) {
     event.preventDefault();
     event.stopPropagation();
+    clearFolderHover();
+    setDropTargetId(null);
     if (!isFolderLikeNode(target)) return;
     if (await moveDroppedItem(event, target.id)) return;
     if (event.dataTransfer?.files?.length) {
@@ -1339,9 +1334,10 @@ function FolderPage({
     <section
       className={dropActive ? "folderPage explorerDropActive" : "folderPage"}
       onDragOver={(event) => {
-        if (!current) return;
+        const acceptsRootMove = !current && event.dataTransfer?.types?.includes("application/x-rb-explorer-item");
+        if (!current && !acceptsRootMove) return;
         event.preventDefault();
-        setDropActive(true);
+        if (!dropTargetId) setDropActive(true);
       }}
       onDragLeave={(event) => {
         if (event.currentTarget === event.target) setDropActive(false);
@@ -1365,7 +1361,10 @@ function FolderPage({
         <div className="nodeGrid explorerNodeGrid">
           {children.map((node) => (
             <article
-              className="nodeCard draggableFolderCard"
+              className={
+                "nodeCard draggableFolderCard" +
+                (dropTargetId === node.id ? " folderDropTarget active" : "")
+              }
               data-color={node.card_color || "default"}
               key={node.id}
               draggable
@@ -1373,10 +1372,29 @@ function FolderPage({
                 event.stopPropagation();
                 setExplorerDragData(event, "node", node.id);
               }}
+              onDragEnd={() => {
+                clearFolderHover();
+                setDropTargetId(null);
+                setDropActive(false);
+              }}
+              onDragEnter={(event) => {
+                if (!isFolderLikeNode(node)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setDropActive(false);
+                setDropTargetId(node.id);
+                springOpenFolder(node.id);
+              }}
               onDragOver={(event) => {
                 if (!isFolderLikeNode(node)) return;
                 event.preventDefault();
+                event.stopPropagation();
                 event.dataTransfer.dropEffect = "move";
+              }}
+              onDragLeave={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                clearFolderHover();
+                setDropTargetId(null);
               }}
               onDrop={(event) => void handleFolderDrop(event, node)}
             >
@@ -1397,78 +1415,67 @@ function FolderPage({
       )}
 
       {current && (
-        <section className="folderAssets">
-          <div className="folderAssetsHead">
-            <div>
-              <small>ISI FOLDER · RAW/ORIGINAL</small>
-              <strong>{children.length + localFiles.length + localRecordings.length + localEntries.length} item</strong>
-            </div>
-            <span>{dropBusy ? "Mengupload..." : "Folder, file, foto, audio, dan catatan bisa di-drag ke folder lain"}</span>
-          </div>
-
-          {!children.length && !hasAssets && (
-            <div className="explorerEmpty">
-              <span>📂</span>
-              <p>Belum ada isi folder. Drop file di sini atau tekan +.</p>
+        <>
+          {dropActive && (
+            <div className="folderDropChip">
+              {dropBusy ? "Mengupload..." : "Drop di sini → " + current.title}
             </div>
           )}
-
+          {!children.length && !hasAssets && (
+            <div className="explorerEmpty compact">
+              <span>📂</span>
+              <p>Belum ada isi. Drop file di halaman ini atau tekan +.</p>
+            </div>
+          )}
           <div className="explorerItems">
-            {localEntries.map((entry) => (
-              <article
-                className="explorerTextItem"
-                key={entry.id}
-                draggable
-                onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
-              >
-                <div className="explorerItemMain">
-                  <span className="explorerFileIcon">📝</span>
-                  <div>
-                    <small>{entry.category || "Catatan RAW"}</small>
-                    <strong>{entry.title}</strong>
+              {localEntries.map((entry) => (
+                <article
+                  className="explorerTextItem"
+                  key={entry.id}
+                  draggable
+                  onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
+                >
+                  <div className="explorerItemMain">
+                    <span className="explorerFileIcon">📝</span>
+                    <div>
+                      <small>{entry.category || "Catatan RAW"}</small>
+                      <strong>{entry.title}</strong>
+                    </div>
                   </div>
-                </div>
-                <details>
-                  <summary>Lihat isi</summary>
-                  <div className="dataText raw"><RichText text={entry.raw_content || entry.content} /></div>
-                </details>
-                <button className="dangerSmall" type="button" onClick={() => removeEntry(entry.id)}>Hapus</button>
-              </article>
-            ))}
+                  <details>
+                    <summary>Lihat isi</summary>
+                    <div className="dataText raw"><RichText text={entry.raw_content || entry.content} /></div>
+                  </details>
+                  <button className="dangerSmall" type="button" onClick={() => removeEntry(entry.id)}>Hapus</button>
+                </article>
+              ))}
 
-            {localFiles.map((file) => (
-              <DatabaseFileCard
-                key={file.id}
-                file={file}
-                draggable
-                onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
-                onDelete={() => removeFile(file)}
-              />
-            ))}
+              {localFiles.map((file) => (
+                <DatabaseFileCard
+                  key={file.id}
+                  file={file}
+                  draggable
+                  onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
+                  onDelete={() => removeFile(file)}
+                />
+              ))}
 
-            {localRecordings.map((item) => (
-              <DatabaseStoredRecording
-                key={item.id}
-                item={item}
-                draggable
-                onDragStart={(event) => setExplorerDragData(event, "recording", item.id)}
-                onDelete={() => removeRecording(item)}
-              />
-            ))}
-          </div>
-        </section>
+              {localRecordings.map((item) => (
+                <DatabaseStoredRecording
+                  key={item.id}
+                  item={item}
+                  draggable
+                  onDragStart={(event) => setExplorerDragData(event, "recording", item.id)}
+                  onDelete={() => removeRecording(item)}
+                />
+              ))}
+            </div>
+        </>
       )}
 
       {!children.length && !hasAssets && !current && (
         <div className="emptyFolder">
           <p>Belum ada folder. Tekan + untuk membuat folder pertama.</p>
-        </div>
-      )}
-
-      {dropActive && current && (
-        <div className="explorerDropOverlay">
-          <strong>Drop ke {current.title}</strong>
-          <small>File asli akan disimpan sebagai RAW/original.</small>
         </div>
       )}
 
