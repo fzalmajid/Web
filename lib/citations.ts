@@ -23,44 +23,120 @@ export function normalizeCitationOptions(body: any) {
   };
 }
 
+function bibliographyHeading(style: Exclude<CitationStyle, "none">) {
+  if (style === "mla") return "Works Cited";
+  return "References";
+}
+
+/**
+ * Citation rules are deliberately explicit so the model does not leak rules
+ * from one style into another. Where bibliographic metadata is unavailable,
+ * the model must use the style's authorless/undated fallback rather than
+ * inventing author, date, publisher, DOI, URL, issue, volume, or page data.
+ *
+ * Primary guides used when encoding these rules:
+ * - APA Style, 7th ed. guidance (APA Style)
+ * - MLA Handbook, 9th ed. / MLA Style Center
+ * - Leeds Harvard (chosen deterministic Harvard variant)
+ * - ICMJE Recommendations + NLM Citing Medicine (Vancouver implementation)
+ * - IEEE Reference Guide
+ * - Chicago Manual of Style, Author-Date
+ */
 export function citationInstruction(
   citationStyle: CitationStyle,
   citationOutputs: CitationOutput[]
 ) {
-  if (citationStyle === "none") return "SITASI: tidak ada format sitasi khusus yang diminta user.";
+  if (citationStyle === "none") {
+    return [
+      "SITASI: user memilih Tanpa sitasi.",
+      "Jangan menambahkan marker sitasi atau daftar pustaka formal kecuali user memintanya langsung di pertanyaan.",
+    ].join("\n");
+  }
 
-  const styleRule: Record<Exclude<CitationStyle, "none">, string> = {
-    apa:
-      "APA 7: gunakan author-date berbentuk (Nama, Tahun), tambahkan halaman untuk kutipan langsung: (Nama, Tahun, p. Halaman). Untuk 3+ penulis gunakan (Nama et al., Tahun). Bedakan karya penulis dan tahun sama dengan a/b. Hanya untuk terjemahan, cetak ulang, terbit ulang, atau terbit kembali gunakan (Nama, TahunAsli/TahunVersi); jangan memakai dua tahun hanya karena edisinya baru.",
-    mla:
-      "MLA 9: gunakan author-page, bukan author-year. Bentuk umum (Nama Halaman), atau cukup (Halaman) jika nama sudah disebut. Untuk tanpa halaman gunakan penanda lokasi yang tersedia seperti (Nama Bab) atau (Nama Paragraf), jangan mengarang nomor halaman. Works Cited harus memuat penulis, judul, versi/edisi, penerbit, tanggal, container, dan DOI/URL bila metadata tersedia.",
-    harvard:
-      "Harvard author-date: gunakan bentuk (Nama Tahun) atau (Nama, Tahun) sesuai varian institusi yang dipilih; aplikasi ini memakai (Nama, Tahun). Tambahkan halaman sebagai (Nama, Tahun, p. Halaman) untuk kutipan langsung. Untuk 3+ penulis gunakan (Nama et al., Tahun). Untuk terjemahan/cetak ulang/terbit ulang gunakan TahunAsli/TahunVersi hanya bila dua metadata itu tersedia; Harvard memiliki variasi institusional, jadi jangan mengarang aturan yang tidak didukung pedoman target.",
-    vancouver:
-      "Vancouver/NLM: beri nomor Arab sesuai urutan pertama kali sumber muncul, berbentuk (1), (2), dan seterusnya; sumber yang sama mengulang nomor yang sama. Daftar referensi mengikuti urutan kemunculan, bukan alfabet. Tambahkan locator seperti p. Halaman hanya bila tersedia. Untuk gaya ICMJE, gunakan hingga enam penulis lalu et al. bila lebih dari enam, tanpa mengarang data.",
-    ieee:
-      "IEEE: beri nomor sesuai urutan kemunculan dan letakkan di dalam tanda kurung siku pada baris yang sama, misalnya [1] atau [1], [2]; rentang harus ditulis sebagai nomor terpisah, bukan rentang otomatis. Sumber yang sama mengulang nomor yang sama. Daftar referensi mengikuti nomor, memakai inisial nama, mencantumkan hingga enam penulis IEEE lalu et al. bila lebih dari enam, dan mempertahankan DOI/URL yang benar-benar tersedia.",
-    chicago:
-      "Chicago Author-Date: gunakan (Nama Tahun) dan tambahkan locator sebagai (Nama Tahun, Halaman). Untuk 3+ penulis gunakan (Nama et al. Tahun); daftar referensi disusun alfabetis. Gunakan n.d. bila tanggal memang tidak tersedia, bukan menebak. Untuk terjemahan/cetak ulang/terbit ulang, pertahankan informasi versi yang dibaca dan tahun karya asli hanya bila pedoman serta metadata sumber mendukungnya; jangan otomatis membuat TahunAsli/TahunVersi.",
+  const styleRules: Record<Exclude<CitationStyle, "none">, string[]> = {
+    apa: [
+      "GAYA: APA 7th edition.",
+      "IN-TEXT: gunakan author-date. Satu penulis: (Surname, 2020). Dua penulis parenthetical: (Surname & Surname, 2020); narrative memakai 'and'. Tiga atau lebih: (Surname et al., 2020) sejak sitasi pertama.",
+      "LOCATOR: kutipan langsung wajib memakai locator bila tersedia: p. 12 untuk satu halaman, pp. 12–14 untuk rentang. Parafrasa tidak wajib halaman. Jangan membuat nomor halaman yang tidak tersedia.",
+      "SAME AUTHOR/YEAR: bedakan 2020a, 2020b, dst. secara konsisten di in-text dan References bila memang ada beberapa karya penulis yang sama pada tahun yang sama.",
+      "NO AUTHOR: pindahkan judul ke posisi author pada References; in-text gunakan short title yang cocok dengan entri References. NO DATE: gunakan n.d.",
+      "REFERENCES: alfabetis berdasarkan author/authorless-title. Cantumkan semua penulis sampai 20; bila 21+, tulis 19 pertama, ellipsis, lalu penulis terakhir. Gunakan DOI dalam bentuk https://doi.org/... bila DOI benar-benar tersedia. Jangan menambahkan kota penerbit untuk buku.",
+      "Hanya masukkan sumber yang benar-benar disitasi ke bagian References.",
+    ],
+    mla: [
+      "GAYA: MLA 9th edition.",
+      "IN-TEXT: gunakan author-location, BUKAN author-year. Umumnya (Surname 42); bila nama sudah disebut di kalimat, cukup (42). Jangan sisipkan koma antara nama dan nomor halaman.",
+      "UNPAGINATED: bila sumber tidak memiliki page/part locator, jangan mengarang nomor. Jika author sudah disebut dan tidak ada locator, tidak perlu parenthetical citation tambahan. Jika tidak ada author, gunakan short title yang mengarah jelas ke Works Cited.",
+      "THREE+ AUTHORS: gunakan surname penulis pertama + et al. sesuai entri Works Cited.",
+      "WORKS CITED: susun alfabetis berdasarkan elemen pertama entri. Bangun entri dari core elements yang benar-benar tersedia: author, title of source, title of container, contributors, version, number, publisher, publication date, location/DOI/URL.",
+      "Judul bagian akhir harus 'Works Cited'. Hanya masukkan karya yang benar-benar dirujuk.",
+    ],
+    harvard: [
+      "GAYA: Leeds Harvard. Harvard memiliki banyak varian; aplikasi ini WAJIB mengikuti varian University of Leeds agar format deterministik.",
+      "IN-TEXT: gunakan (Surname, 2020). Jika author disebut dalam kalimat: Surname (2020). Tiga atau lebih penulis: (Surname et al., 2020).",
+      "LOCATOR: untuk kutipan langsung atau bagian spesifik gunakan p. untuk satu halaman dan pp. untuk rentang, misalnya (Surname, 2020, p. 33).",
+      "CORPORATE AUTHOR: organisasi diperlakukan sebagai author bila memang merupakan author sumber.",
+      "REFERENCE LIST: alfabetis menurut author/corporate author. Jangan memakai ibid.; ulangi citation yang diperlukan.",
+      "TRANSLATION/VERSION: cite versi yang benar-benar dibaca. Jangan otomatis membuat pasangan tahun asli/tahun terjemahan.",
+      "Jika metadata tidak lengkap, gunakan hanya elemen yang benar-benar tersedia; jangan mengarang author, tahun, publisher, DOI, atau URL.",
+    ],
+    vancouver: [
+      "GAYA: Vancouver yang diimplementasikan sebagai ICMJE citation-sequence + NLM Citing Medicine.",
+      "IN-TEXT: nomor Arab dalam tanda kurung sesuai urutan PERTAMA kali sumber disebut: (1), (2), dst. Sumber yang sama selalu memakai nomor yang sama.",
+      "REFERENCE ORDER: References harus berurutan berdasarkan kemunculan pertama, BUKAN alfabetis.",
+      "JOURNAL REFERENCES: ikuti urutan dan format NLM Citing Medicine; nama jurnal memakai singkatan MEDLINE bila singkatan tersebut benar-benar diketahui dari metadata. Jangan menebak singkatan.",
+      "AUTHORS: format NLM adalah surname diikuti initials. Jangan mengarang author. Bila tidak ada person/organization author, mulai entri dengan title, sesuai aturan NLM.",
+      "Jangan menambahkan sumber hanya untuk memperbanyak nomor; setiap reference harus mendukung pernyataan yang terkait.",
+    ],
+    ieee: [
+      "GAYA: IEEE Reference Guide.",
+      "IN-TEXT: nomor referensi berada pada baris yang sama dalam square brackets dan di dalam punctuation, misalnya [1]. Sumber yang sama mengulang nomor yang sama.",
+      "MULTIPLE REFERENCES: tulis masing-masing nomor, misalnya [1], [2], [3], [4]; jangan otomatis memadatkan menjadi [1]–[4].",
+      "REFERENCE ORDER: daftar References mengikuti nomor/urutan kemunculan pertama, bukan alfabetis. Satu nomor hanya untuk satu reference.",
+      "AUTHORS: initials nama depan/tengah mendahului surname. Daftar semua author sampai enam; bila lebih dari enam, gunakan nama author pertama diikuti et al., sesuai IEEE Reference Guide.",
+      "LOCATOR: bila mengutip bagian spesifik dan locator tersedia, bentuk seperti [3, pp. 5–10] dapat digunakan. Jangan mengarang locator.",
+    ],
+    chicago: [
+      "GAYA: Chicago Manual of Style — Author-Date, bukan Notes and Bibliography.",
+      "IN-TEXT: gunakan (Surname 2020) tanpa koma antara author dan year. Locator mengikuti koma, misalnya (Surname 2020, 45) atau (Surname 2020, 45–47).",
+      "Tiga atau lebih author dalam in-text: gunakan surname author pertama + et al. + year.",
+      "REFERENCE LIST: alfabetis; year ditempatkan segera setelah author. Judul bagian akhir: References.",
+      "SAME AUTHOR/YEAR: gunakan suffix a, b, dst. secara konsisten bila memang diperlukan.",
+      "BOOKS: place of publication tidak diperlukan dalam Chicago edisi terbaru. Jangan menambahkannya hanya karena template lama.",
+      "NO DATE: gunakan n.d. hanya bila tanggal memang tidak tersedia. Jangan menebak.",
+    ],
   };
 
   const wantsInText = citationOutputs.includes("in-text");
   const wantsBibliography = citationOutputs.includes("bibliography");
-  const outputRule =
-    wantsInText && wantsBibliography
-      ? "Gunakan sitasi dalam teks DAN tambahkan bagian Daftar Pustaka/References di akhir."
-      : wantsBibliography
-        ? "Jangan sisipkan marker sitasi dalam teks; tambahkan hanya Daftar Pustaka/References di akhir."
-        : "Gunakan sitasi dalam teks; jangan tambahkan daftar pustaka terpisah.";
+  const style = citationStyle as Exclude<CitationStyle, "none">;
+  const heading = bibliographyHeading(style);
+
+  const outputRules: string[] = [];
+  if (wantsInText) {
+    outputRules.push("OUTPUT IN-TEXT: aktif. Letakkan marker citation tepat setelah klaim/parafrasa/kutipan yang didukung, bukan dikumpulkan sembarang di akhir paragraf bila dukungannya tidak jelas.");
+  } else {
+    outputRules.push("OUTPUT IN-TEXT: nonaktif. Jangan tampilkan marker citation dalam teks.");
+  }
+
+  if (wantsBibliography) {
+    outputRules.push(`OUTPUT ${heading.toUpperCase()}: aktif. Tambahkan bagian '${heading}' di akhir dan hanya masukkan sumber yang benar-benar dipakai mendukung jawaban.`);
+  } else {
+    outputRules.push(`OUTPUT ${heading.toUpperCase()}: nonaktif. Jangan tambahkan daftar referensi terpisah.`);
+  }
 
   return [
-    "FORMAT SITASI USER:",
-    styleRule[citationStyle as Exclude<CitationStyle, "none">],
-    outputRule,
-    "Jangan mengarang nama penulis, tahun, judul, DOI, URL, atau metadata bibliografi. Gunakan hanya metadata yang benar-benar tersedia dari sumber. Jika penulis/tahun tidak tersedia, gunakan identitas sumber yang tersedia secara jujur dan jangan menebak.",
-    "ATURAN TAHUN: jangan menambahkan dua tahun hanya karena sebuah buku memiliki edisi baru. Gunakan pasangan TahunAsli/TahunVersi hanya bila sumber yang dipakai adalah terjemahan, cetak ulang, terbitan ulang, atau terbitan kembali dari karya yang sama, dan hanya jika kedua tahun benar-benar tersedia. Tahun asli ditulis lebih dahulu. Untuk MLA, tahun biasanya berada di Works Cited dan tidak masuk marker author-page. Untuk Vancouver/IEEE, tahun berada di entri bernomor, bukan marker numeriknya. Ikuti gaya yang dipilih, bukan aturan APA secara global.",
-    "ATURAN LOKASI: jangan mengarang halaman, bab, paragraf, timestamp, DOI, URL, nomor referensi, atau nama penulis. Gunakan locator hanya jika sumber atau metadata ekstraksi menyediakannya.",
-    "Untuk sumber Database pribadi tanpa metadata bibliografi lengkap, gunakan judul dokumen/folder yang tersedia sebagai identitas sumber secara konsisten.",
+    "FORMAT SITASI USER — PATUHI STYLE SECARA TERPISAH:",
+    ...styleRules[style],
+    ...outputRules,
+    "",
+    "ATURAN AKURASI METADATA:",
+    "- Jangan pernah mengarang author, editor, year, edition, publisher, journal, volume, issue, DOI, URL, page, chapter, paragraph, timestamp, atau nomor reference.",
+    "- Gunakan metadata bibliografis hanya jika benar-benar tersedia di konteks/sumber. Nama file bukan bukti author, publisher, atau year.",
+    "- Jika metadata style tidak lengkap, gunakan fallback authorless/undated yang sah untuk style tersebut atau hilangkan elemen opsional yang tidak tersedia. Jangan 'melengkapi' dari tebakan.",
+    "- Untuk file Database lokal yang hanya memiliki title dan page metadata, identifikasi dengan title yang tersedia dan locator halaman bila relevan; jangan membuat DOI/URL/publisher.",
+    "- Nomor halaman PDF dari label HALAMAN PDF boleh dipakai sebagai locator karena berasal dari metadata ekstraksi. Jangan menyamakan nomor halaman PDF dengan page cetak bila sumber menunjukkan keduanya berbeda.",
+    "- Satu klaim boleh memakai beberapa citation bila beberapa sumber benar-benar mendukungnya. Jangan mencantumkan sumber yang tidak mendukung klaim hanya untuk memperbanyak referensi.",
+    "- Citation dan reference list harus konsisten satu-ke-satu: setiap marker harus dapat dipetakan ke entri/identitas sumber yang sama, dan nomor numeric tidak boleh berubah di tengah jawaban.",
   ].join("\n");
 }
-
