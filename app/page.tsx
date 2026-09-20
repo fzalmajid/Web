@@ -2514,6 +2514,7 @@ function AiDatabaseSourcePicker({
   fileIds,
   onChange,
   currentNodeId,
+  disabled = false,
 }: {
   nodes: StudyNode[];
   files: SourceFile[];
@@ -2521,9 +2522,15 @@ function AiDatabaseSourcePicker({
   fileIds: string[];
   onChange: (next: { nodeIds: string[]; fileIds: string[] }) => void;
   currentNodeId?: string | null;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
   const folderNodes = useMemo(() => nodes.filter(isFolderLikeNode), [nodes]);
   const selectedCount = nodeIds.length + fileIds.length;
 
@@ -2640,8 +2647,14 @@ function AiDatabaseSourcePicker({
     <div className="aiDatabaseSourcePicker">
       <button
         type="button"
-        className={selectedCount ? "chooseSourcesTrigger active" : "chooseSourcesTrigger"}
+        className={
+          (selectedCount ? "chooseSourcesTrigger active" : "chooseSourcesTrigger") +
+          (disabled ? " disabled" : "")
+        }
         onClick={() => setOpen((current) => !current)}
+        disabled={disabled}
+        aria-disabled={disabled}
+        title={disabled ? "Aktifkan Database untuk memilih folder atau file sumber." : "Pilih folder atau file sumber"}
       >
         <span>☷</span>
         <span>
@@ -8182,7 +8195,7 @@ function AiModePicker({
         aria-expanded={open}
       >
         <span>
-          <strong>Model</strong>
+          <strong>Choose Model</strong>
           <small>
             {selected?.label || "Local"}
             {selected?.id !== "local" && selectedEffort ? " · " + selectedEffort.label : ""}
@@ -8316,7 +8329,7 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
         aria-expanded={open}
       >
         <span>
-          <strong>Sitasi</strong>
+          <strong>Choose Citation</strong>
           <small>{selected.label}{prefs.style !== "none" ? " · " + selected.preview : ""}</small>
         </span>
         <b>⌄</b>
@@ -9938,6 +9951,7 @@ function BottomAskBar({
               nodeIds={selectedSourceNodeIds}
               fileIds={selectedSourceFileIds}
               currentNodeId={scopeNodeId}
+              disabled={!selectedSources.includes("database")}
               onChange={(next) => {
                 setSelectedSourceNodeIds(next.nodeIds);
                 setSelectedSourceFileIds(next.fileIds);
