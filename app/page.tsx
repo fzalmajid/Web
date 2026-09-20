@@ -434,7 +434,7 @@ async function checkLeakedPassword(password: string) {
 const labels: Record<NodeType, string> = {
   material: "Materi",
   submaterial: "Materi",
-  database: "Database",
+  database: "Folder",
   recording: "Rekaman",
   flashcards: "Flashcard",
   quiz: "Kuis",
@@ -752,12 +752,19 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
         {!current || current.node_type === "material" || current.node_type === "submaterial" ? (
           <FolderPage
+            session={session}
+            user={user}
             current={current}
             children={children}
+            nodes={nodes}
+            entries={entries}
+            files={files}
+            recordings={recordings}
             onOpen={setCurrentId}
             onAdd={() => setAddOpen(true)}
             onCustomize={setCustomizeNode}
             onDelete={removeNode}
+            onChange={refresh}
           />
         ) : null}
 
@@ -904,9 +911,14 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
       {addOpen && (
         <AddSheet
+          session={session}
           user={user}
           parent={current}
           onClose={() => setAddOpen(false)}
+          onAdded={() => {
+            setAddOpen(false);
+            refresh();
+          }}
           onCreated={(id) => {
             setAddOpen(false);
             setCurrentId(id);
@@ -916,6 +928,132 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
       )}
     </div>
   );
+}
+
+
+function isFolderLikeNode(node: StudyNode) {
+  return node.node_type === "material" || node.node_type === "submaterial" || node.node_type === "database";
+}
+
+function clientReadableTextFile(file: File) {
+  const mime = inferMime(file);
+  return (
+    mime.startsWith("text/") ||
+    mime === "application/json" ||
+    mime === "application/xml" ||
+    /\.(txt|md|csv|json|xml)$/i.test(file.name)
+  );
+}
+
+async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
+  const mimeType = inferMime(file) || "application/octet-stream";
+  if (file.size > 50 * 1024 * 1024) throw new Error("File maksimal 50 MB.");
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const path = user.id + "/" + nodeId + "/" + crypto.randomUUID() + "-" + safeName;
+
+  const upload = await supabase.storage.from("study-files").upload(path, file, { contentType: mimeType });
+  if (upload.error) throw upload.error;
+
+  let rawText = "";
+  if (clientReadableTextFile(file)) {
+    try { rawText = (await file.text()).trim(); } catch {}
+  }
+
+  const { data: row, error } = await supabase
+    .from("source_files")
+    .insert({
+      user_id: user.id,
+      node_id: nodeId,
+      file_path: path,
+      file_name: file.name,
+      mime_type: mimeType,
+      size_bytes: file.size,
+      processing_status: "ready",
+      raw_text: rawText || null,
+      structured_text: null,
+      corrections: [],
+      error_message: null,
+      source_kind: "file",
+      source_url: null,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    await supabase.storage.from("study-files").remove([path]);
+    throw error;
+  }
+
+  if (rawText) {
+    const { error: entryError } = await supabase.from("knowledge_entries").insert({
+      user_id: user.id,
+      node_id: nodeId,
+      title: file.name,
+      category: "RAW file",
+      content: rawText,
+      raw_content: rawText,
+      source_type: "file",
+      source_file_id: row.id,
+    });
+    if (entryError) {
+      await supabase.from("source_files").delete().eq("id", row.id);
+      await supabase.storage.from("study-files").remove([path]);
+      throw entryError;
+    }
+  }
+
+  return row as SourceFile;
+}
+
+async function moveExplorerItemToFolder(
+  kind: "file" | "recording" | "entry",
+  id: string,
+  targetNodeId: string
+) {
+  if (kind === "file") {
+    const { error } = await supabase.from("source_files").update({ node_id: targetNodeId }).eq("id", id);
+    if (error) throw error;
+    const { error: entryError } = await supabase
+      .from("knowledge_entries")
+      .update({ node_id: targetNodeId })
+      .eq("source_file_id", id);
+    if (entryError) throw entryError;
+    return;
+  }
+
+  if (kind === "recording") {
+    const { data: recording, error: readError } = await supabase
+      .from("recordings")
+      .select("knowledge_entry_id")
+      .eq("id", id)
+      .single();
+    if (readError) throw readError;
+
+    const { error } = await supabase.from("recordings").update({ node_id: targetNodeId }).eq("id", id);
+    if (error) throw error;
+
+    if (recording?.knowledge_entry_id) {
+      const { error: entryError } = await supabase
+        .from("knowledge_entries")
+        .update({ node_id: targetNodeId })
+        .eq("id", recording.knowledge_entry_id);
+      if (entryError) throw entryError;
+    }
+    return;
+  }
+
+  const { error } = await supabase.from("knowledge_entries").update({ node_id: targetNodeId }).eq("id", id);
+  if (error) throw error;
+}
+
+function setExplorerDragData(
+  event: React.DragEvent,
+  kind: "file" | "recording" | "entry",
+  id: string
+) {
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("application/x-rb-explorer-item", JSON.stringify({ kind, id }));
 }
 
 function FolderPage({
