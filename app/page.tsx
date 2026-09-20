@@ -5749,11 +5749,11 @@ function BottomAskBar({
           />
           <button
             type="button"
-            className="askAttach"
+            className={attachMenuOpen ? "askAttach active" : "askAttach"}
             disabled={attachmentBusy}
-            onClick={() => askAttachmentInputRef.current?.click()}
-            aria-label="Tambahkan file atau foto"
-            title="Tambahkan file atau foto"
+            onClick={() => setAttachMenuOpen((value) => !value)}
+            aria-label="Tambahkan file, foto, atau link"
+            title="Tambahkan sumber"
           >
             {attachmentBusy ? "…" : "+"}
           </button>
@@ -5782,6 +5782,61 @@ function BottomAskBar({
             {busy ? "..." : "↑"}
           </button>
         </div>
+
+        {attachMenuOpen && (
+          <div className="askAttachMenu">
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setAttachMenuOpen(false);
+                askAttachmentInputRef.current?.click();
+              }}
+            >
+              📎 File / Foto
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setLinkInputOpen(true);
+                setAttachMenuOpen(false);
+              }}
+            >
+              🔗 Link
+            </button>
+          </div>
+        )}
+
+        {linkInputOpen && (
+          <div className="askLinkInputRow">
+            <input
+              type="url"
+              value={linkDraft}
+              onChange={(e) => setLinkDraft(e.target.value)}
+              placeholder="https://..."
+              autoFocus
+            />
+            <button
+              type="button"
+              className="primary"
+              disabled={linkBusy || !linkDraft.trim()}
+              onClick={() => void prepareAskLink(linkDraft)}
+            >
+              {linkBusy ? "Membaca..." : "Tambahkan"}
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setLinkInputOpen(false);
+                setLinkDraft("");
+              }}
+            >
+              Batal
+            </button>
+          </div>
+        )}
 
         {(askVoiceStatus || pendingVoice) && (
           <div className="askVoicePanel">
@@ -5822,7 +5877,7 @@ function BottomAskBar({
               <>
                 <div className="askAttachmentName">
                   <strong>{pendingAttachment.fileName}</strong>
-                  <small>{formatBytes(pendingAttachment.file.size)} · RAW siap dibaca AI</small>
+                  <small>{formatBytes(pendingAttachment.file.size)} · file asli + RAW siap dibaca AI</small>
                 </div>
                 <div className="askVoiceSaveRow">
                   <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
@@ -5835,7 +5890,7 @@ function BottomAskBar({
                     type="button"
                     className="ghost"
                     disabled={attachmentBusy}
-                    onClick={discardPendingAttachment}
+                    onClick={() => void discardPendingAttachment()}
                   >
                     Abaikan
                   </button>
@@ -5843,13 +5898,85 @@ function BottomAskBar({
                     type="button"
                     className="primary"
                     disabled={attachmentBusy || !attachmentDbId}
-                    onClick={savePendingAttachmentToDatabase}
+                    onClick={() => void savePendingAttachmentToDatabase()}
                   >
                     Simpan ke Database
                   </button>
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {(linkStatus || pendingLink) && (
+          <div className="askAttachmentPanel">
+            {linkStatus && <small>{linkStatus}</small>}
+            {pendingLink && (
+              <>
+                <div className="askAttachmentName">
+                  <strong>🔗 {pendingLink.title}</strong>
+                  <small>{pendingLink.url} · sumber link RAW dibaca langsung</small>
+                </div>
+                <div className="askVoiceSaveRow">
+                  <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
+                    <option value="">Pilih Database</option>
+                    {askVoiceDatabases.map((database) => (
+                      <option key={database.id} value={database.id}>{database.title}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={linkBusy}
+                    onClick={discardPendingLink}
+                  >
+                    Abaikan
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={linkBusy || !attachmentDbId}
+                    onClick={() => void savePendingLinkToDatabase()}
+                  >
+                    Simpan ke Database
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {pendingTextSave && (
+          <div className="askAttachmentPanel">
+            <small>Instruksi menyimpan ke Database terdeteksi. Teks tidak disimpan sebelum user menekan Simpan.</small>
+            <div className="askAttachmentName">
+              <strong>📝 Teks dari AI Bar</strong>
+              <small>{pendingTextSave.slice(0, 180)}{pendingTextSave.length > 180 ? "…" : ""}</small>
+            </div>
+            <div className="askVoiceSaveRow">
+              <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
+                <option value="">Pilih Database</option>
+                {askVoiceDatabases.map((database) => (
+                  <option key={database.id} value={database.id}>{database.title}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="ghost"
+                disabled={attachmentBusy}
+                onClick={() => setPendingTextSave(null)}
+              >
+                Abaikan
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={attachmentBusy || !attachmentDbId}
+                onClick={() => void saveQuestionTextToDatabase()}
+              >
+                Simpan ke Database
+              </button>
+            </div>
           </div>
         )}
       </form>
