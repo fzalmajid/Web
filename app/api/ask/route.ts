@@ -484,7 +484,8 @@ function buildPrompt({
     "",
     "Aturan:",
     "- Jika ada LAMPIRAN RAW/ORIGINAL, baca sumber mentah itu secara langsung dan jadikan isi literalnya sebagai konteks utama lampiran.",
-    "- Untuk Database, prioritaskan RAW/ORIGINAL content. Versi tertata/ringkasan tidak boleh menggantikan fakta yang ada pada raw.",
+    "- Untuk Database, prioritaskan RAW/ORIGINAL content. Versi tertata/ringkasan hanya bantuan dan tidak boleh menggantikan fakta yang ada pada raw.",
+    "- Jika user meminta memasukkan/menyimpan sesuatu ke Database, jangan pernah mengklaim bahwa penyimpanan sudah dilakukan. Jawab isi pertanyaannya seperlunya; aplikasi akan meminta konfirmasi lewat tombol Simpan ke Database.",
   ];
 
   if (useDatabase) {
@@ -581,7 +582,14 @@ export async function POST(req: NextRequest) {
       data = await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
       if (!data.length) data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
 
-      if (!data.length && !useAi && !useWeb) {
+      if (
+        !data.length &&
+        !useAi &&
+        !useWeb &&
+        !body.attachmentPath &&
+        !body.attachmentUrl &&
+        !attachmentRaw
+      ) {
         return NextResponse.json({
           answer: "Materi ini belum tersedia di database.",
           sources: [],
@@ -598,7 +606,21 @@ export async function POST(req: NextRequest) {
     const databaseRawAssets = useDatabase
       ? await loadDatabaseRawAssets(supabase, data, userData.user.id)
       : [];
-    const rawAssets = [...currentRawAssets, ...databaseRawAssets].slice(0, 6);
+
+    let rawBinaryBudget = 18 * 1024 * 1024;
+    const rawAssets: RawAsset[] = [];
+    for (const asset of [...currentRawAssets, ...databaseRawAssets]) {
+      if (rawAssets.length >= 5) break;
+      if (asset.data) {
+        const approximateBytes = Math.floor(asset.data.length * 0.75);
+        if (approximateBytes > rawBinaryBudget) {
+          if (asset.rawText) rawAssets.push({ ...asset, data: undefined });
+          continue;
+        }
+        rawBinaryBudget -= approximateBytes;
+      }
+      rawAssets.push(asset);
+    }
     const directRawText = rawAssetText(rawAssets);
 
     const contextLimit = aiMode === "high" ? 42000 : aiMode === "medium" ? 32000 : 22000;
