@@ -13,7 +13,7 @@ export type GeminiUsage = {
 export type GeminiTask = "standard" | "web" | "audio";
 
 export const WHATSAPP_FORMAT_INSTRUCTION =
-  "Untuk teks yang akan dibaca user: bold WAJIB memakai *teks*, italic WAJIB memakai _teks_. Setiap penanda * untuk bold harus punya pasangan penutup pada baris yang sama. Untuk daftar/poin WAJIB gunakan '- ' di awal baris, JANGAN gunakan '* ' sebagai bullet. Jangan memakai **teks** atau __teks__. Jangan gunakan markdown heading dengan #.";
+  "Untuk teks yang akan dibaca user: bold WAJIB memakai *teks*, italic WAJIB memakai _teks_. Setiap penanda * untuk bold harus punya pasangan penutup pada baris yang sama. Untuk daftar/poin WAJIB gunakan '- ' di awal baris, JANGAN gunakan '* ' sebagai bullet. Jangan memakai **teks** atau __teks__. Jangan gunakan markdown heading dengan #. Untuk rumus, JANGAN gunakan * sebagai operator perkalian; gunakan simbol ×. Gunakan subscript ilmiah dengan underscore pada variabel tanpa spasi, misalnya D_oral, AUC_iv, C_2, k_e. Gunakan pangkat dengan ^{...} atau ^(...), misalnya e^{−k_e × Δt}; jangan biarkan tanda ^ berdiri sebagai teks biasa jika maksudnya pangkat.";
 
 export class GeminiApiError extends Error {
   code: string;
