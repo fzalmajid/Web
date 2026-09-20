@@ -9625,6 +9625,12 @@ function BottomAskBar({
       existingSourceFileId: source.id,
       sizeBytes: Number(source.size_bytes || 0),
     });
+    setSelectedSourceFileIds((current) =>
+      current.includes(source.id) ? current : [...current, source.id]
+    );
+    setSelectedSources((current) =>
+      current.includes("database") ? current : [...current, "database"]
+    );
     setAttachMenuOpen(false);
     setAttachmentBusy(false);
     setAttachmentStatus("File dari Database siap dipakai langsung oleh Tanya AI.");
