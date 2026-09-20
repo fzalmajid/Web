@@ -632,6 +632,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [customizeNode, setCustomizeNode] = useState<StudyNode | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const breadcrumbHoverTimerRef = useRef<number | null>(null);
+  const [breadcrumbDropId, setBreadcrumbDropId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadAll();
@@ -696,6 +698,40 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     setCurrentId(current.parent_id);
   }
 
+  function clearBreadcrumbHover() {
+    if (breadcrumbHoverTimerRef.current) {
+      window.clearTimeout(breadcrumbHoverTimerRef.current);
+      breadcrumbHoverTimerRef.current = null;
+    }
+  }
+
+  function springOpenBreadcrumb(targetNodeId: string | null) {
+    clearBreadcrumbHover();
+    breadcrumbHoverTimerRef.current = window.setTimeout(() => {
+      setCurrentId(targetNodeId);
+      breadcrumbHoverTimerRef.current = null;
+    }, 650);
+  }
+
+  async function dropOnBreadcrumb(event: any, targetNodeId: string | null) {
+    event.preventDefault();
+    event.stopPropagation();
+    clearBreadcrumbHover();
+    setBreadcrumbDropId(null);
+
+    const item = readExplorerDragItem(event);
+    if (!item) return;
+
+    try {
+      const moved = await moveExplorerDraggedItem(nodes, item, targetNodeId);
+      if (!moved) return;
+      setCurrentId(targetNodeId);
+      refresh();
+    } catch (error: any) {
+      alert(error?.message || "Gagal memindahkan item.");
+    }
+  }
+
   async function removeNode(node: StudyNode) {
     if (!confirm('Hapus "' + node.title + '" beserta semua isi di dalamnya?')) return;
 
@@ -739,11 +775,53 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           <div className="pageNav">
             <button className="backBtn" onClick={goBack}>←</button>
             <div className="crumbs">
-              <button onClick={() => setCurrentId(null)}>Beranda</button>
+              <button
+                className={breadcrumbDropId === "__root__" ? "crumbDropTarget active" : "crumbDropTarget"}
+                onClick={() => setCurrentId(null)}
+                onDragEnter={(event) => {
+                  if (!readExplorerDragItem(event)) return;
+                  event.preventDefault();
+                  setBreadcrumbDropId("__root__");
+                  springOpenBreadcrumb(null);
+                }}
+                onDragOver={(event) => {
+                  if (!readExplorerDragItem(event)) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDragLeave={() => {
+                  clearBreadcrumbHover();
+                  setBreadcrumbDropId(null);
+                }}
+                onDrop={(event) => void dropOnBreadcrumb(event, null)}
+              >
+                Beranda
+              </button>
               {path.map((item) => (
                 <span key={item.id}>
                   <b>/</b>
-                  <button onClick={() => setCurrentId(item.id)}>{item.title}</button>
+                  <button
+                    className={breadcrumbDropId === item.id ? "crumbDropTarget active" : "crumbDropTarget"}
+                    onClick={() => setCurrentId(item.id)}
+                    onDragEnter={(event) => {
+                      if (!readExplorerDragItem(event)) return;
+                      event.preventDefault();
+                      setBreadcrumbDropId(item.id);
+                      springOpenBreadcrumb(item.id);
+                    }}
+                    onDragOver={(event) => {
+                      if (!readExplorerDragItem(event)) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }}
+                    onDragLeave={() => {
+                      clearBreadcrumbHover();
+                      setBreadcrumbDropId(null);
+                    }}
+                    onDrop={(event) => void dropOnBreadcrumb(event, item.id)}
+                  >
+                    {item.title}
+                  </button>
                 </span>
               ))}
             </div>
@@ -902,6 +980,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           session={session}
           user={user}
           parent={current}
+          nodes={nodes}
           onClose={() => setAddOpen(false)}
           onAdded={() => {
             setAddOpen(false);
