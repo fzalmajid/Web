@@ -8,6 +8,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import {
   AI_MODEL_CATALOG,
+  AI_RESPONSE_LENGTHS,
   defaultSelection,
   legacyModeForSelection,
   modelCapability,
@@ -16,6 +17,7 @@ import {
   selectionFromLegacyMode,
   type AiEffort,
   type AiModelId,
+  type AiResponseLength,
   type AiSelection,
 } from "@/lib/aiModels";
 
@@ -474,7 +476,11 @@ function aiRequestHeaders(session: Session, selection?: AiSelection) {
         : {}),
     ...(openAIKey ? { "X-RB-OpenAI-Key": openAIKey } : {}),
     ...(anthropicKey ? { "X-RB-Anthropic-Key": anthropicKey } : {}),
-    ...(selection ? { "X-RB-AI-Model": selection.model, "X-RB-AI-Effort": selection.effort } : {}),
+    ...(selection ? {
+      "X-RB-AI-Model": selection.model,
+      "X-RB-AI-Effort": selection.effort,
+      "X-RB-AI-Length": selection.length || "medium",
+    } : {}),
   };
 }
 
@@ -8201,6 +8207,9 @@ function AiModePicker({
     visibleModels.find((item) => item.id !== "local") ||
     visibleModels[0];
   const selectedEffort = selected?.efforts.find((item) => item.value === value.effort);
+  const selectedLength =
+    AI_RESPONSE_LENGTHS.find((item) => item.value === (value.length || "medium")) ||
+    AI_RESPONSE_LENGTHS[1];
 
   function modelRouteLabel(item: (typeof visibleModels)[number]) {
     if (item.provider === "gemini") {
@@ -8230,13 +8239,15 @@ function AiModePicker({
 
   function chooseModel(model: AiModelId) {
     const next = defaultSelection(model, context);
-    onChange(next);
-    if (!modelCapability(model).efforts.length) setOpen(false);
+    onChange({ ...next, length: value.length || "medium" });
   }
 
   function chooseEffort(effort: AiEffort) {
-    onChange({ model: selected.id, effort });
-    setOpen(false);
+    onChange({ model: selected.id, effort, length: value.length || "medium" });
+  }
+
+  function chooseLength(length: AiResponseLength) {
+    onChange({ model: selected.id, effort: value.effort, length });
   }
 
   return (
@@ -8252,6 +8263,7 @@ function AiModePicker({
           <small>
             {selected?.label || "Local"}
             {selected?.id !== "local" && selectedEffort ? " · " + selectedEffort.label : ""}
+            {" · " + selectedLength.label}
           </small>
         </span>
         <b>⌄</b>
@@ -8292,8 +8304,8 @@ function AiModePicker({
           {!!selected?.efforts.length && (
             <div className="modelEffortPanel">
               <div>
-                <span className="aiModeSectionLabel">REASONING · {selected.label}</span>
-                <small>Pilih tingkat penalaran untuk model ini.</small>
+                <span className="aiModeSectionLabel">TINGKAT PENALARAN · {selected.label}</span>
+                <small>Pilih tingkat kecerdasan/penalaran yang tersedia untuk model ini.</small>
               </div>
               <div className="aiEffortGrid">
                 {selected.efforts.map((effort) => (
@@ -8310,6 +8322,27 @@ function AiModePicker({
               </div>
             </div>
           )}
+
+          <div className="modelLengthPanel">
+            <div>
+              <span className="aiModeSectionLabel">PANJANG JAWABAN</span>
+              <small>Atur seberapa ringkas atau lengkap jawaban, Study, Quiz, dan hasil AI.</small>
+            </div>
+            <div className="aiLengthGrid">
+              {AI_RESPONSE_LENGTHS.map((length) => (
+                <button
+                  type="button"
+                  key={length.value}
+                  className={(value.length || "medium") === length.value ? "aiLengthOption active" : "aiLengthOption"}
+                  onClick={() => chooseLength(length.value)}
+                >
+                  <strong>{length.label}</strong>
+                  <small>{length.hint}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button
             type="button"
             className="modelPluginButton modelPluginButtonBottom"
