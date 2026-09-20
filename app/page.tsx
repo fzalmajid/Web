@@ -21,7 +21,7 @@ import {
 
 const AUTH_REDIRECT_URL = "https://web-fzalmajid.vercel.app";
 
-type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study";
+type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
 type AiSourceKind = "ai" | "database" | "web";
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
@@ -101,6 +101,22 @@ type Quiz = {
   scope_node_id: string | null;
   quiz_type: "mcq" | "essay";
   grading_mode: "fixed" | "ai";
+};
+type StudyTask = {
+  id: string;
+  user_id: string;
+  node_id: string;
+  task_type: "quiz" | "todo";
+  submission_url: string;
+  submission_format: "none" | "pptx" | "docx" | "pdf" | "other";
+  submission_format_other: string;
+  notes: string;
+  quiz_items: Array<{ type: "mcq" | "essay"; question: string; choices: string[] }>;
+  todo_items: Array<{ id: string; text: string; done: boolean }>;
+  responses: Record<string, string>;
+  completed: boolean;
+  created_at: string;
+  updated_at: string;
 };
 type StudyPath = {
   id: string;
@@ -506,6 +522,7 @@ const labels: Record<NodeType, string> = {
   flashcards: "Flashcard",
   quiz: "Kuis",
   study: "Study",
+  task: "Tugas",
 };
 
 export default function Home() {
@@ -694,6 +711,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [cards, setCards] = useState<Flashcard[]>([]);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [tasks, setTasks] = useState<StudyTask[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [customizeNode, setCustomizeNode] = useState<StudyNode | null>(null);
@@ -720,6 +738,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
       supabase.from("recordings").select("*").order("created_at", { ascending: false }),
       supabase.from("flashcards").select("*").order("created_at", { ascending: false }),
       supabase.from("quizzes").select("*").order("created_at", { ascending: false }),
+      supabase.from("study_tasks").select("*").order("created_at", { ascending: false }),
     ]);
 
     setNodes((result[0].data || []) as StudyNode[]);
@@ -728,6 +747,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     setRecordings((result[3].data || []) as Recording[]);
     setCards((result[4].data || []) as Flashcard[]);
     setQuizzes((result[5].data || []) as Quiz[]);
+    setTasks((result[6].data || []) as StudyTask[]);
 
     if (currentId && !(result[0].data || []).some((item: any) => item.id === currentId)) {
       setCurrentId(null);
@@ -941,6 +961,15 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             nodes={nodes}
             entries={entries}
             onOpen={setCurrentId}
+            onChange={refresh}
+          />
+        )}
+
+        {current?.node_type === "task" && (
+          <TaskPage
+            user={user}
+            node={current}
+            task={tasks.find((item) => item.node_id === current.id) || null}
             onChange={refresh}
           />
         )}
