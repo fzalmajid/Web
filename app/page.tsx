@@ -5693,6 +5693,13 @@ function StudyPage({
   }
 
   const completedCount = units.filter((unit) => unit.completed_at).length;
+  const wrongRecallCount = units.filter(
+    (unit) => !unit.completed_at && recallFeedback[unit.id] === "wrong"
+  ).length;
+  const studyGradedCount = completedCount + wrongRecallCount;
+  const studyScorePercent = studyGradedCount
+    ? Math.round((completedCount * 100) / studyGradedCount)
+    : 0;
   const visibleUnits = units.filter((unit) => unit.completed_at || unit.is_unlocked);
   const isFinished = units.length > 0 && completedCount === units.length;
   const sourceNameMap = new Map(nodes.map((item) => [item.id, item.title]));
@@ -5959,6 +5966,26 @@ function StudyPage({
             )}
           </section>
 
+          {path?.quiz_per_chapter !== false && (
+            <section className="studyScoreSummary">
+              <div className="studyScoreNumber">
+                <strong>{studyGradedCount ? studyScorePercent : "—"}</strong>
+                <small>/100</small>
+              </div>
+              <div>
+                <small>{isFinished ? "NILAI AKHIR" : "NILAI SEMENTARA"}</small>
+                <strong>
+                  {studyGradedCount
+                    ? studyGradedCount + " recall sudah dinilai"
+                    : "Belum ada recall yang dinilai"}
+                </strong>
+                <span>
+                  Nilai keseluruhan dihitung dari nilai per soal yang sudah dinilai.
+                </span>
+              </div>
+            </section>
+          )}
+
           <div className="studyTimeline">
             {visibleUnits.map((unit) => {
               const completed = Boolean(unit.completed_at);
@@ -6064,6 +6091,12 @@ function StudyPage({
             <section className="studyComplete">
               <div>🏆</div>
               <h2>Study selesai</h2>
+              {path?.quiz_per_chapter !== false && (
+                <div className="studyFinalScore">
+                  <strong>{studyScorePercent}/100</strong>
+                  <small>Nilai akhir Study</small>
+                </div>
+              )}
               <p>Kamu sudah melewati seluruh bab/subbab dan recall dari folder yang dipilih.</p>
               <button className="ghost" onClick={() => setSetupOpen(true)}>Pelajari sumber lain / susun ulang</button>
             </section>
@@ -7829,7 +7862,10 @@ function PracticePage({
 
           {submitted && !!totalQuestions && (
             <div className="quizScore">
-              <div className="scoreNumber">{scorePercent}</div>
+              <div className="scoreNumber">
+                <strong>{scorePercent}</strong>
+                <small>/100</small>
+              </div>
               <div>
                 <small>NILAI AKHIR</small>
                 <strong>{correctFixedMcq + correctAi} jawaban dinilai benar · {gradedCount} soal dinilai</strong>
