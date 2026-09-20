@@ -565,6 +565,7 @@ function buildPrompt({
     "Aturan:",
     "- Jika ada LAMPIRAN RAW/ORIGINAL, baca sumber mentah itu secara langsung dan jadikan isi literalnya sebagai konteks utama lampiran.",
     "- Untuk Database, prioritaskan RAW/ORIGINAL content. Versi tertata/ringkasan hanya bantuan dan tidak boleh menggantikan fakta yang ada pada raw.",
+    "- Jika konteks Database memuat label HALAMAN PDF, angka itu adalah nomor halaman file PDF sumber. Untuk pertanyaan halaman/lokasi monografi, gunakan metadata halaman tersebut dan jangan menebak nomor halaman.",
     "- Jika user meminta memasukkan/menyimpan sesuatu ke Database, jangan pernah mengklaim bahwa penyimpanan sudah dilakukan. Jawab isi pertanyaannya seperlunya; aplikasi akan meminta konfirmasi lewat tombol Simpan ke Database.",
   ];
 
@@ -662,7 +663,13 @@ export async function POST(req: NextRequest) {
 
     if (useDatabase) {
       data = await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
-      if (!data.length) data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
+      const broadDatabaseQuestion =
+        /\b(ringkas|rangkum|overview|gambaran|jelaskan materi|apa isi|pelajari semua|seluruh materi)\b/i.test(
+          question.trim()
+        );
+      if (!data.length && broadDatabaseQuestion) {
+        data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
+      }
 
     }
 
@@ -722,6 +729,9 @@ export async function POST(req: NextRequest) {
           node_id: m.node_id,
           title: m.title,
           category: m.category,
+          source_file_id: m.source_file_id || null,
+          page_start: m.source_page_start || null,
+          page_end: m.source_page_end || null,
         }))
       : [];
 
