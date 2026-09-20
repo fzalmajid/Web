@@ -125,7 +125,9 @@ DATABASE SUMBER:
 ${context}
 
 Nilai setiap jawaban berdasarkan DATABASE SUMBER dan konteks pertanyaan. Untuk essay, reference_answer hanya REFERENSI makna/rubrik, bukan teks yang harus disalin persis.
-Penilaian harus efisien: pikirkan secukupnya untuk menentukan level nilai dengan benar, tetapi jangan membuat analisis panjang.\n\nKeluarkan JSON valid tanpa markdown:
+Penilaian harus efisien: pikirkan secukupnya untuk menentukan level nilai dengan benar, tetapi jangan membuat analisis panjang.
+
+Keluarkan JSON valid tanpa markdown:
 {
   "results": [
     {
