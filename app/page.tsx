@@ -1546,16 +1546,16 @@ function DatabaseFileCard({
         </div>
       )}
 
-      {file.structured_text && (
+      {file.raw_text && (
+        <details open>
+          <summary>RAW / original source</summary>
+          <div className="dataText raw"><RichText text={file.raw_text} /></div>
+        </details>
+      )}
+      {file.structured_text && file.structured_text !== file.raw_text && (
         <details>
           <summary>Versi tertata</summary>
           <div className="dataText"><RichText text={file.structured_text} /></div>
-        </details>
-      )}
-      {file.raw_text && (
-        <details>
-          <summary>Sumber mentah / verbatim</summary>
-          <div className="dataText raw"><RichText text={file.raw_text} /></div>
         </details>
       )}
       {!!file.corrections?.length && <CorrectionList corrections={file.corrections} />}
