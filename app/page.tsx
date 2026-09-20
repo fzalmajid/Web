@@ -1797,7 +1797,7 @@ function AddSheet({
   const [plannerSelection, setPlannerSelection] = useState<AiSelection>(
     defaultSelection("gemini-2.5-flash")
   );
-  const [plannerAnswerSources, setPlannerAnswerSources] = useState<AiAiSourceKind[]>(["database"]);
+  const [plannerAnswerSources, setPlannerAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const plannerMode = legacyModeForSelection(plannerSelection);
 
   const plannerFolders = useMemo(
@@ -3164,7 +3164,7 @@ function StudyPage({
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [studyInstruction, setStudyInstruction] = useState("");
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-2.5-flash"));
-  const [studyAnswerSources, setStudyAnswerSources] = useState<AiAiSourceKind[]>(["database"]);
+  const [studyAnswerSources, setStudyAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [recallAnswers, setRecallAnswers] = useState<Record<string, string>>({});
   const [recallFeedback, setRecallFeedback] = useState<Record<string, "correct" | "wrong">>({});
@@ -4894,7 +4894,7 @@ function PracticePage({
   const [aiResults, setAiResults] = useState<Record<string, AiGradeResult>>({});
   const [submitted, setSubmitted] = useState(false);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
-  const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiAiSourceKind[]>(["database"]);
+  const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
@@ -5691,8 +5691,8 @@ function AiSourceModelBar({
   allowLocal = false,
   context = "general",
 }: {
-  sources: AiAiSourceKind[];
-  onSourcesChange: (sources: AiAiSourceKind[]) => void;
+  sources: AiSourceKind[];
+  onSourcesChange: (sources: AiSourceKind[]) => void;
   selection: AiSelection;
   onSelectionChange: (selection: AiSelection) => void;
   action?: "ask" | "ask_web" | "study";
@@ -5861,7 +5861,7 @@ function BottomAskBar({
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
-  const [selectedSources, setSelectedSources] = useState<AiAiSourceKind[]>(["database"]);
+  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["database"]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
