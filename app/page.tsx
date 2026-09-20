@@ -2478,6 +2478,188 @@ function FolderTreePicker({
   );
 }
 
+
+function AiDatabaseSourcePicker({
+  nodes,
+  files,
+  nodeIds,
+  fileIds,
+  onChange,
+  currentNodeId,
+}: {
+  nodes: StudyNode[];
+  files: SourceFile[];
+  nodeIds: string[];
+  fileIds: string[];
+  onChange: (next: { nodeIds: string[]; fileIds: string[] }) => void;
+  currentNodeId?: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const folderNodes = useMemo(() => nodes.filter(isFolderLikeNode), [nodes]);
+  const selectedCount = nodeIds.length + fileIds.length;
+
+  const childrenByParent = useMemo(() => {
+    const visible = new Set(folderNodes.map((node) => node.id));
+    const map = new Map<string | null, StudyNode[]>();
+    for (const node of folderNodes) {
+      const parent = node.parent_id && visible.has(node.parent_id) ? node.parent_id : null;
+      const list = map.get(parent) || [];
+      list.push(node);
+      map.set(parent, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.title.localeCompare(b.title, "id"));
+    return map;
+  }, [folderNodes]);
+
+  const filesByNode = useMemo(() => {
+    const map = new Map<string, SourceFile[]>();
+    for (const file of files) {
+      const list = map.get(file.node_id) || [];
+      list.push(file);
+      map.set(file.node_id, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.file_name.localeCompare(b.file_name, "id"));
+    return map;
+  }, [files]);
+
+  useEffect(() => {
+    if (!currentNodeId) return;
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const next = new Set<string>();
+    let cursor = byId.get(currentNodeId);
+    while (cursor) {
+      next.add(cursor.id);
+      cursor = cursor.parent_id ? byId.get(cursor.parent_id) : undefined;
+    }
+    setExpanded((current) => new Set([...current, ...next]));
+  }, [currentNodeId, nodes]);
+
+  function toggleFolder(id: string) {
+    const next = nodeIds.includes(id) ? nodeIds.filter((item) => item !== id) : [...nodeIds, id];
+    onChange({ nodeIds: next, fileIds });
+  }
+
+  function toggleFile(id: string) {
+    const next = fileIds.includes(id) ? fileIds.filter((item) => item !== id) : [...fileIds, id];
+    onChange({ nodeIds, fileIds: next });
+  }
+
+  function toggleExpanded(id: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function renderBranch(parentId: string | null, depth: number): any {
+    return (childrenByParent.get(parentId) || []).map((node) => {
+      const children = childrenByParent.get(node.id) || [];
+      const localFiles = filesByNode.get(node.id) || [];
+      const hasChildren = children.length > 0 || localFiles.length > 0;
+      const isExpanded = expanded.has(node.id);
+      const selected = nodeIds.includes(node.id);
+      return (
+        <div className="aiSourceTreeBranch" key={node.id}>
+          <div className={selected ? "aiSourceTreeRow selected" : "aiSourceTreeRow"} style={{ paddingLeft: 8 + depth * 16 }}>
+            <button
+              type="button"
+              className="aiSourceTreeExpand"
+              onClick={() => hasChildren && toggleExpanded(node.id)}
+              disabled={!hasChildren}
+              aria-label={hasChildren ? (isExpanded ? "Tutup" : "Buka") : "Kosong"}
+            >
+              {hasChildren ? (isExpanded ? "⌄" : ">") : "·"}
+            </button>
+            <button type="button" className="aiSourceTreeChoice" onClick={() => toggleFolder(node.id)}>
+              <span className={selected ? "sourceCheck checked" : "sourceCheck"}>{selected ? "✓" : ""}</span>
+              <span>{node.emoji || "📁"}</span>
+              <strong>{node.title}</strong>
+              <small>Folder</small>
+            </button>
+          </div>
+
+          {isExpanded && (
+            <>
+              {localFiles.map((file) => {
+                const fileSelected = fileIds.includes(file.id);
+                return (
+                  <button
+                    type="button"
+                    key={file.id}
+                    className={fileSelected ? "aiSourceFileRow selected" : "aiSourceFileRow"}
+                    style={{ paddingLeft: 36 + depth * 16 }}
+                    onClick={() => toggleFile(file.id)}
+                  >
+                    <span className={fileSelected ? "sourceCheck checked" : "sourceCheck"}>{fileSelected ? "✓" : ""}</span>
+                    <span>{file.mime_type === "application/pdf" ? "📕" : file.source_kind === "link" ? "🔗" : "📄"}</span>
+                    <strong>{file.file_name}</strong>
+                    <small>File</small>
+                  </button>
+                );
+              })}
+              {renderBranch(node.id, depth + 1)}
+            </>
+          )}
+        </div>
+      );
+    });
+  }
+
+  return (
+    <div className="aiDatabaseSourcePicker">
+      <button
+        type="button"
+        className={selectedCount ? "chooseSourcesTrigger active" : "chooseSourcesTrigger"}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>☷</span>
+        <span>
+          <strong>Pilih sumber</strong>
+          <small>{selectedCount ? selectedCount + " dipilih" : "Folder / file"}</small>
+        </span>
+        <b>{open ? "⌄" : ">"}</b>
+      </button>
+
+      {open && (
+        <div className="aiDatabaseSourcePopover">
+          <div className="aiDatabaseSourceHead">
+            <div>
+              <strong>Pilih sumber Database</strong>
+              <small>Klik folder atau file. Bisa pilih lebih dari satu.</small>
+            </div>
+            <button type="button" onClick={() => setOpen(false)}>×</button>
+          </div>
+          <div className="aiDatabaseSourceTools">
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => onChange({ nodeIds: [], fileIds: [] })}
+            >
+              Otomatis dari halaman aktif
+            </button>
+            {selectedCount > 0 && (
+              <button type="button" className="ghost" onClick={() => onChange({ nodeIds: [], fileIds: [] })}>
+                Hapus pilihan
+              </button>
+            )}
+          </div>
+          <div className="aiDatabaseSourceTree">
+            {renderBranch(null, 0)}
+            {!folderNodes.length && <small className="muted">Belum ada folder sumber.</small>}
+          </div>
+          <div className="aiDatabaseSourceDone">
+            <span>{selectedCount ? selectedCount + " sumber dipilih" : "Mengikuti folder/halaman yang sedang aktif"}</span>
+            <button type="button" className="primary" onClick={() => setOpen(false)}>Selesai</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddSheet({
   session,
   user,
