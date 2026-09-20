@@ -301,14 +301,14 @@ export function modelCapability(model: AiModelId): AiModelCapability {
   if (known) return known;
   if (model.startsWith("openai:")) {
     const id=model.slice("openai:".length);
-    return { id:model, provider:"openai", label:id, subtitle:"OpenAI · tersedia di account user", contexts:["chat"], efforts:[], defaultEffort:"none", freeTier:false, freeWeb:false };
+    return { id:model, provider:"openai", label:id, subtitle:"OpenAI · tersedia di account user", contexts:["general","chat"], efforts:[], defaultEffort:"none", freeTier:false, freeWeb:false };
   }
   if (model.startsWith("anthropic:")) {
     const id=model.slice("anthropic:".length);
-    return { id:model, provider:"anthropic", label:id, subtitle:"Claude · tersedia di account user", contexts:["chat"], efforts:[], defaultEffort:"none", freeTier:false, freeWeb:false };
+    return { id:model, provider:"anthropic", label:id, subtitle:"Claude · tersedia di account user", contexts:["general","chat"], efforts:[], defaultEffort:"none", freeTier:false, freeWeb:false };
   }
   if (model.startsWith("gemini-")) {
-    return { id:model, provider:"gemini", label:model.replace(/^gemini-/,"Gemini ").replaceAll("-"," "), subtitle:"Gemini · tersedia di provider aktif", contexts:["chat"], efforts:[], defaultEffort:"none", freeTier:true, freeWeb:false };
+    return { id:model, provider:"gemini", label:model.replace(/^gemini-/,"Gemini ").replaceAll("-"," "), subtitle:"Gemini · tersedia di provider aktif", contexts:["general","chat"], efforts:[], defaultEffort:"none", freeTier:true, freeWeb:false };
   }
   return AI_MODEL_CATALOG[0];
 }
