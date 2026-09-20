@@ -4221,3 +4221,89 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     min-height:96px!important;
   }
 }
+
+
+/* Mobile folder explorer fix: no native drag ghost, smaller clean hero */
+.folderHeroTitle{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+.folderHeroTitle>span:last-child{
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.folderHeroEmoji{
+  flex:0 0 auto;
+  line-height:1;
+}
+
+@media (hover:none), (pointer:coarse){
+  .draggableFolderCard,
+  .explorerTextItem,
+  .mediaDataCard{
+    -webkit-user-drag:none!important;
+  }
+  .draggableFolderCard .nodeOpen{
+    -webkit-user-select:none;
+    user-select:none;
+    touch-action:pan-y;
+  }
+  .draggableFolderCard .nodeIcon{
+    -webkit-user-select:none;
+    user-select:none;
+    -webkit-user-drag:none;
+    touch-action:none;
+  }
+}
+
+@media (max-width:767px){
+  .pageNav{
+    margin-bottom:12px!important;
+  }
+
+  .folderTitle.folderTitleRow{
+    margin-bottom:14px!important;
+  }
+
+  .folderHeroTitle{
+    display:flex!important;
+    align-items:center!important;
+    gap:9px!important;
+    width:100%!important;
+    max-width:100%!important;
+    margin:0!important;
+    font-size:clamp(1.62rem,7.2vw,1.95rem)!important;
+    line-height:1.08!important;
+    letter-spacing:-.025em!important;
+  }
+
+  .folderHeroEmoji{
+    width:42px;
+    height:42px;
+    display:grid;
+    place-items:center;
+    font-size:2rem!important;
+    line-height:1!important;
+  }
+
+  .folderTitle .explorerHint{
+    margin-top:10px!important;
+  }
+
+  .nodeGrid.explorerNodeGrid .nodeCard[draggable="false"]{
+    transform:none!important;
+  }
+}
+
+@media (max-width:430px){
+  .folderHeroTitle{
+    font-size:1.72rem!important;
+  }
+  .folderHeroEmoji{
+    width:38px;
+    height:38px;
+    font-size:1.8rem!important;
+  }
+}
