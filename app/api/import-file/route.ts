@@ -298,56 +298,32 @@ Aturan:
       structuredText = structuredRaw || rawText;
     }
 
-    const combined = [
-      structuredText,
-      summary ? `Ringkasan:\n${summary}` : "",
-      `SUMBER MENTAH:\n${rawText}`,
-    ].filter(Boolean).join("\n\n---\n\n");
-
-    const { data: existingEntry } = await supabase
+    const copyContent = structuredText + (summary ? `\n\nRingkasan:\n${summary}` : "");
+    const { data: insertedEntry, error: entryError } = await supabase
       .from("knowledge_entries")
+      .insert({
+        user_id: userData.user.id,
+        node_id: nodeId,
+        title: `Copy by AI - ${fileName}`,
+        category: media
+          ? `Salinan AI transkrip · sekitar ${aiCopyRatio}% · ${structuredResult.model}`
+          : `Salinan AI · sekitar ${aiCopyRatio}% · ${structuredResult.model}`,
+        content: copyContent,
+        raw_content: copyContent,
+        source_type: "generated",
+        source_file_id: null,
+      })
       .select("id")
-      .eq("source_file_id", sourceFileId)
-      .maybeSingle();
-
-    let entryId = existingEntry?.id || "";
-    if (entryId) {
-      const { error: entryUpdateError } = await supabase
-        .from("knowledge_entries")
-        .update({
-          title: fileName,
-          category: media ? "RAW + Salinan AI transkrip" : "RAW + Salinan AI",
-          content: structuredText + (summary ? `\n\nRingkasan:\n${summary}` : ""),
-          raw_content: rawText,
-          source_type: "file",
-        })
-        .eq("id", entryId);
-      if (entryUpdateError) throw entryUpdateError;
-    } else {
-      const { data: insertedEntry, error: entryError } = await supabase
-        .from("knowledge_entries")
-        .insert({
-          user_id: userData.user.id,
-          node_id: nodeId,
-          title: fileName,
-          category: media ? "RAW + Salinan AI transkrip" : "RAW + Salinan AI",
-          content: structuredText + (summary ? `\n\nRingkasan:\n${summary}` : ""),
-          raw_content: rawText,
-          source_type: "file",
-          source_file_id: sourceFileId,
-        })
-        .select("id")
-        .single();
-      if (entryError) throw entryError;
-      entryId = insertedEntry.id;
-    }
+      .single();
+    if (entryError) throw entryError;
+    const entryId = insertedEntry.id;
 
     const { error: updateError } = await supabase
       .from("source_files")
       .update({
         processing_status: "ready",
         raw_text: rawText,
-        structured_text: structuredText + (summary ? `\n\nRingkasan:\n${summary}` : ""),
+        structured_text: null,
         corrections,
         error_message: null,
         ai_copy_mode: aiCopyMode,
@@ -390,3 +366,4 @@ Aturan:
     );
   }
 }
+
