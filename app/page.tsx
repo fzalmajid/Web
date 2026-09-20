@@ -2521,9 +2521,9 @@ function AddSheet({
   ]);
   const [answerAiQuestions, setAnswerAiQuestions] = useState<string[]>([""]);
   const [plannerSelection, setPlannerSelection] = useState<AiSelection>(
-    defaultSelection("gemini-2.5-flash")
+    defaultSelection("gemini-3.8-flash")
   );
-  const [plannerAnswerSources, setPlannerAnswerSources] = useState<AiSourceKind[]>(["database"]);
+  const [plannerAnswerSources, setPlannerAnswerSources] = useState<AiSourceKind[]>(["ai", "database"]);
   const [plannerStudyDepth, setPlannerStudyDepth] = useState<"simple" | "medium" | "complex">("medium");
   const [plannerStudyQuizPerChapter, setPlannerStudyQuizPerChapter] = useState(true);
   const [plannerStudyChapterTitles, setPlannerStudyChapterTitles] = useState("");
@@ -5019,8 +5019,8 @@ function StudyPage({
   const [studyDepth, setStudyDepth] = useState<"simple" | "medium" | "complex">("medium");
   const [quizPerChapter, setQuizPerChapter] = useState(true);
   const [chapterTitlesText, setChapterTitlesText] = useState("");
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-2.5-flash"));
-  const [studyAnswerSources, setStudyAnswerSources] = useState<AiSourceKind[]>(["database"]);
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash"));
+  const [studyAnswerSources, setStudyAnswerSources] = useState<AiSourceKind[]>(["ai", "database"]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [recallAnswers, setRecallAnswers] = useState<Record<string, string>>({});
   const [recallFeedback, setRecallFeedback] = useState<Record<string, "correct" | "wrong">>({});
@@ -7064,8 +7064,8 @@ function PracticePage({
   const [essayAnswers, setEssayAnswers] = useState<Record<string, string>>({});
   const [aiResults, setAiResults] = useState<Record<string, AiGradeResult>>({});
   const [submitted, setSubmitted] = useState(false);
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
-  const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["database"]);
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash"));
+  const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["ai", "database"]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
@@ -8166,10 +8166,10 @@ function BottomAskBar({
   }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
-  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["database"]);
+  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["ai", "database"]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
   const [composerBottom, setComposerBottom] = useState(16);
   const [composerHeight, setComposerHeight] = useState(118);
