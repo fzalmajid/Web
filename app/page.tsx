@@ -2129,8 +2129,14 @@ function ExplorerActionMenu({
         <button type="button" onClick={onCopy}>Copy</button>
         {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
         {canDownload && <button type="button" onClick={onDownload}>Download</button>}
-        {file?.processing_status === "error" && <button type="button" onClick={onRetryRaw}>Proses ulang file</button>}
-        {file?.raw_text && <button type="button" onClick={onAiCopy}>Buat versi AI</button>}
+        {file && (file.processing_status === "error" || file.processing_status === "processing") && (
+          <button type="button" onClick={onRetryRaw}>
+            {file.processing_status === "processing" ? "Lanjutkan proses file" : "Proses ulang file"}
+          </button>
+        )}
+        {file && (Boolean(file.raw_text) || (file.mime_type === "application/pdf" && file.processing_status === "ready")) && (
+          <button type="button" onClick={onAiCopy}>Buat versi AI</button>
+        )}
         <button type="button" className="dangerMenuItem" onClick={onDelete}>Hapus</button>
       </div>
     </div>
@@ -4272,9 +4278,8 @@ function DatabaseFileCard({
   useEffect(() => {
     if (
       !compact ||
-      file.processing_status !== "error" ||
       file.mime_type !== "application/pdf" ||
-      file.raw_text?.trim()
+      (file.processing_status !== "error" && file.processing_status !== "processing")
     ) return;
 
     const key = "rb-auto-retry-pdf-" + file.id;
@@ -4288,35 +4293,30 @@ function DatabaseFileCard({
   }, [compact, file.id, file.processing_status, file.mime_type, file.raw_text]);
 
   async function retryRawProcessing(showSuccess = true) {
-    const selection = defaultSelection("gemini-2.5-flash");
-    const response = await fetch("/api/import-file", {
-      method: "POST",
-      headers: aiRequestHeaders(session, selection),
-      body: JSON.stringify({
-        sourceFileId: file.id,
-        filePath: file.file_path,
-        fileName: file.file_name,
-        mimeType: file.mime_type,
-        nodeId: file.node_id,
-        aiMode: legacyModeForSelection(selection),
-        operation: "raw",
-      }),
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) return alert(result.error || "Gagal memproses ulang file.");
-    onChange();
-    if (showSuccess) {
-      alert(
-        result.indexedChunks
-          ? `File berhasil diproses dan diindeks menjadi ${result.indexedChunks} bagian.`
-          : "File berhasil diproses ulang."
-      );
+    try {
+      const result = await processRawFileUntilReady(session, file, {
+        reset: file.processing_status === "error" && Number(file.processing_page || 0) === 0,
+      });
+      onChange();
+      if (showSuccess) {
+        alert(
+          result.totalPages
+            ? `File berhasil diproses penuh: ${result.totalPages} halaman · ${result.indexedChunks || 0} bagian terindeks.`
+            : result.indexedChunks
+              ? `File berhasil diproses dan diindeks menjadi ${result.indexedChunks} bagian.`
+              : "File berhasil diproses ulang."
+        );
+      }
+    } catch (error: any) {
+      onChange();
+      alert(error?.message || "Gagal memproses ulang file.");
     }
   }
 
   async function createAiCopy() {
-    if (!file.raw_text?.trim()) {
-      return alert("RAW belum siap. Tunggu proses pembacaan file selesai.");
+    const indexedPdfReady = file.mime_type === "application/pdf" && file.processing_status === "ready";
+    if (!file.raw_text?.trim() && !indexedPdfReady) {
+      return alert("File belum selesai diproses. Tunggu indexing selesai.");
     }
     if (copySelection.model === "local") {
       return alert("Versi AI membutuhkan model cloud.");
