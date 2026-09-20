@@ -99,6 +99,7 @@ export async function POST(req: NextRequest) {
         {
           models: modelPlanForSelection(selection.model, aiMode, isMedia ? "audio" : "standard"),
           effort: selection.effort,
+          responseLength: selection.length,
           apiKey: auth.apiKey,
           accessToken: auth.accessToken,
           projectId: auth.projectId,
