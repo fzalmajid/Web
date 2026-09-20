@@ -4570,6 +4570,16 @@ function BottomAskBar({
     duration: number;
     transcript: string;
   } | null>(null);
+  const askAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [attachmentStatus, setAttachmentStatus] = useState("");
+  const [attachmentDbId, setAttachmentDbId] = useState("");
+  const [pendingAttachment, setPendingAttachment] = useState<{
+    file: File;
+    fileName: string;
+    mimeType: string;
+    rawText: string;
+  } | null>(null);
 
   const askVoiceDatabases = useMemo(() => {
     const all = nodes.filter((item) => item.node_type === "database");
@@ -4588,6 +4598,10 @@ function BottomAskBar({
   useEffect(() => {
     if (!askVoiceDbId && askVoiceDatabases[0]) setAskVoiceDbId(askVoiceDatabases[0].id);
   }, [askVoiceDatabases, askVoiceDbId]);
+
+  useEffect(() => {
+    if (!attachmentDbId && askVoiceDatabases[0]) setAttachmentDbId(askVoiceDatabases[0].id);
+  }, [askVoiceDatabases, attachmentDbId]);
 
   useEffect(() => {
     return () => {
@@ -4657,7 +4671,7 @@ function BottomAskBar({
     ));
     const ranked = scopedLocalEntries()
       .map((entry) => {
-        const haystack = (entry.title + " " + entry.category + " " + entry.content).toLowerCase();
+        const haystack = (entry.title + " " + entry.category + " " + (entry.raw_content || entry.content)).toLowerCase();
         const score = words.reduce((total, word) => total + (haystack.includes(word) ? 1 : 0), 0);
         return { entry, score };
       })
@@ -4673,7 +4687,7 @@ function BottomAskBar({
     }
 
     const snippets = ranked.map(({ entry }) => {
-      const sentences = entry.content
+      const sentences = (entry.raw_content || entry.content)
         .replace(/\s+/g, " ")
         .split(/(?<=[.!?])\s+/)
         .filter(Boolean);
@@ -4686,7 +4700,7 @@ function BottomAskBar({
         .slice(0, 2)
         .map((item) => item.sentence)
         .join(" ");
-      return matching || entry.content.slice(0, 420);
+      return matching || (entry.raw_content || entry.content).slice(0, 420);
     });
 
     return {
@@ -4702,7 +4716,7 @@ function BottomAskBar({
     ));
     const ranked = scopedLocalEntries()
       .map((entry) => {
-        const haystack = (entry.title + " " + entry.category + " " + entry.content).toLowerCase();
+        const haystack = (entry.title + " " + entry.category + " " + (entry.raw_content || entry.content)).toLowerCase();
         const score = words.reduce((total, word) => total + (haystack.includes(word) ? 1 : 0), 0);
         return { entry, score };
       })
@@ -4715,7 +4729,7 @@ function BottomAskBar({
     const refs: Array<{ id: string; title: string; category: string }> = [];
 
     for (const { entry } of ranked) {
-      const chunk = ("[" + entry.title + " · " + entry.category + "]\n" + entry.content).trim();
+      const chunk = ("[" + entry.title + " · " + entry.category + " · RAW/ORIGINAL]\n" + (entry.raw_content || entry.content)).trim();
       if (!chunk) continue;
       const remaining = 18000 - used;
       if (remaining <= 0) break;
@@ -4774,7 +4788,10 @@ function BottomAskBar({
       "",
       "PERTANYAAN:",
       query,
-      useDatabase ? "\nDATABASE PRIBADI:\n" + (database.context || "(kosong)") : "",
+      useDatabase ? "\nDATABASE PRIBADI RAW/ORIGINAL:\n" + (database.context || "(kosong)") : "",
+      pendingAttachment?.rawText
+        ? "\nLAMPIRAN RAW/ORIGINAL · " + pendingAttachment.fileName + ":\n" + pendingAttachment.rawText
+        : "",
     ].join("\n");
 
     const base = config.endpoint.replace(/\/+$/, "");
@@ -5189,6 +5206,115 @@ function BottomAskBar({
     onChange();
   }
 
+  async function processAskAttachment(file: File) {
+    if (file.size > 50 * 1024 * 1024) {
+      alert("File maksimal 50 MB.");
+      return;
+    }
+
+    setAttachmentBusy(true);
+    setAttachmentStatus("Membaca sumber RAW...");
+    const form = new FormData();
+    form.append("file", file);
+    form.append("aiMode", aiMode);
+
+    const headers = aiRequestHeaders(session, aiSelection) as Record<string, string>;
+    delete headers["Content-Type"];
+    delete headers["content-type"];
+
+    const response = await fetch("/api/ask-attachment", {
+      method: "POST",
+      headers,
+      body: form,
+    });
+    const result = await response.json().catch(() => ({}));
+    setAttachmentBusy(false);
+
+    if (!response.ok) {
+      setAttachmentStatus("");
+      alert(result.error || "Gagal membaca lampiran.");
+      return;
+    }
+
+    setPendingAttachment({
+      file,
+      fileName: String(result.fileName || file.name),
+      mimeType: String(result.mimeType || inferMime(file)),
+      rawText: String(result.rawText || ""),
+    });
+    setAttachmentStatus("Lampiran RAW siap dipakai AI. Belum disimpan ke Database.");
+  }
+
+  function discardPendingAttachment() {
+    setPendingAttachment(null);
+    setAttachmentStatus("Lampiran diabaikan.");
+    if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
+  }
+
+  async function savePendingAttachmentToDatabase() {
+    if (!pendingAttachment || !attachmentDbId) return;
+    const target = askVoiceDatabases.find((item) => item.id === attachmentDbId);
+    if (!target) return;
+
+    setAttachmentBusy(true);
+    setAttachmentStatus("Menyimpan file asli + RAW ke Database...");
+
+    const file = pendingAttachment.file;
+    const mimeType = pendingAttachment.mimeType || inferMime(file);
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+    const path = session.user.id + "/" + target.id + "/" + crypto.randomUUID() + "-" + safeName;
+
+    const upload = await supabase.storage.from("study-files").upload(path, file, { contentType: mimeType });
+    if (upload.error) {
+      setAttachmentBusy(false);
+      setAttachmentStatus("");
+      return alert(upload.error.message);
+    }
+
+    const { data: row, error: fileError } = await supabase
+      .from("source_files")
+      .insert({
+        user_id: session.user.id,
+        node_id: target.id,
+        file_path: path,
+        file_name: file.name,
+        mime_type: mimeType,
+        size_bytes: file.size,
+        processing_status: "ready",
+        raw_text: pendingAttachment.rawText,
+        structured_text: pendingAttachment.rawText,
+        corrections: [],
+      })
+      .select("id")
+      .single();
+
+    if (fileError) {
+      await supabase.storage.from("study-files").remove([path]);
+      setAttachmentBusy(false);
+      setAttachmentStatus("");
+      return alert(fileError.message);
+    }
+
+    const { error: entryError } = await supabase.from("knowledge_entries").insert({
+      user_id: session.user.id,
+      node_id: target.id,
+      title: file.name,
+      category: "Lampiran RAW",
+      content: pendingAttachment.rawText,
+      raw_content: pendingAttachment.rawText,
+      source_type: "file",
+      source_file_id: row.id,
+    });
+
+    setAttachmentBusy(false);
+    if (entryError) return alert(entryError.message);
+
+    setAttachmentStatus("File asli + RAW sudah masuk Database: " + target.title + ".");
+    setPendingAttachment(null);
+    if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
+    onChange();
+  }
+
   function toggleSource(source: SourceKind) {
     const provider = modelProvider(aiSelection.model);
     if (source !== "database" && aiSelection.model === "local") {
@@ -5229,6 +5355,13 @@ function BottomAskBar({
     setWarning("");
 
     if (aiSelection.model === "local") {
+      if (pendingAttachment?.rawText) {
+        setAnswer(pendingAttachment.rawText);
+        setAnswerModel("Lampiran RAW / Local");
+        setSources([]);
+        setBusy(false);
+        return;
+      }
       const local = answerLocally(question.trim());
       setAnswer(local.text);
       setAnswerModel("Browser / Local");
@@ -5254,7 +5387,14 @@ function BottomAskBar({
     const response = await fetch("/api/ask", {
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
-      body: JSON.stringify({ question, scopeNodeId, aiMode, sources: selectedSources }),
+      body: JSON.stringify({
+        question,
+        scopeNodeId,
+        aiMode,
+        sources: selectedSources,
+        attachmentTitle: pendingAttachment?.fileName || "",
+        attachmentRaw: pendingAttachment?.rawText || "",
+      }),
     });
 
     const data = await response.json();
@@ -5353,6 +5493,26 @@ function BottomAskBar({
           </div>
         </div>
         <div className="askInputRow">
+          <input
+            ref={askAttachmentInputRef}
+            className="askAttachmentInput"
+            type="file"
+            accept=".pdf,.docx,.pptx,.txt,.md,.csv,.json,.xml,.mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.webm,.mp4,.mov,.png,.jpg,.jpeg,.webp"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void processAskAttachment(file);
+            }}
+          />
+          <button
+            type="button"
+            className="askAttach"
+            disabled={attachmentBusy}
+            onClick={() => askAttachmentInputRef.current?.click()}
+            aria-label="Tambahkan file atau foto"
+            title="Tambahkan file atau foto"
+          >
+            {attachmentBusy ? "…" : "+"}
+          </button>
           <button
             type="button"
             className={askVoiceRecording ? "askMic recording" : "askMic"}
@@ -5407,6 +5567,44 @@ function BottomAskBar({
                   Simpan ke Database
                 </button>
               </div>
+            )}
+          </div>
+        )}
+
+        {(attachmentStatus || pendingAttachment) && (
+          <div className="askAttachmentPanel">
+            {attachmentStatus && <small>{attachmentStatus}</small>}
+            {pendingAttachment && (
+              <>
+                <div className="askAttachmentName">
+                  <strong>{pendingAttachment.fileName}</strong>
+                  <small>{formatBytes(pendingAttachment.file.size)} · RAW siap dibaca AI</small>
+                </div>
+                <div className="askVoiceSaveRow">
+                  <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
+                    <option value="">Pilih Database</option>
+                    {askVoiceDatabases.map((database) => (
+                      <option key={database.id} value={database.id}>{database.title}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={attachmentBusy}
+                    onClick={discardPendingAttachment}
+                  >
+                    Abaikan
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={attachmentBusy || !attachmentDbId}
+                    onClick={savePendingAttachmentToDatabase}
+                  >
+                    Simpan ke Database
+                  </button>
+                </div>
+              </>
             )}
           </div>
         )}
