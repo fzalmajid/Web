@@ -5527,3 +5527,83 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     max-width:120px!important;
   }
 }
+
+
+/* POPUP ANCHOR FIX — keep model/citation attached to their triggers inside Study/Quiz/Flashcard sheets */
+.sheetBackdrop .citationPicker,
+.sheetBackdrop .aiModeSelect{
+  position:relative!important;
+  overflow:visible!important;
+}
+
+.sheetBackdrop .citationPopover{
+  position:absolute!important;
+  top:auto!important;
+  bottom:calc(100% + 7px)!important;
+  left:auto!important;
+  right:0!important;
+  transform:none!important;
+  width:min(430px,calc(100vw - 36px))!important;
+  max-width:430px!important;
+  max-height:min(390px,58dvh)!important;
+  overflow:auto!important;
+  z-index:260!important;
+}
+
+.sheetBackdrop .aiModePopover.aiModelPopover{
+  position:absolute!important;
+  top:auto!important;
+  bottom:calc(100% + 7px)!important;
+  left:auto!important;
+  right:0!important;
+  transform:none!important;
+  width:min(520px,calc(100vw - 36px))!important;
+  max-width:520px!important;
+  max-height:min(470px,64dvh)!important;
+  overflow:auto!important;
+  z-index:260!important;
+}
+
+/* The AI strip itself must not become a giant positioning box. */
+.sheetBackdrop .aiSourceModelBar{
+  position:relative!important;
+  overflow:visible!important;
+}
+.sheetBackdrop .instructionAiBar,
+.sheetBackdrop .studyInstructionAiBar{
+  position:relative!important;
+  overflow:visible!important;
+}
+
+/* Slightly tighten the planner around the shared AI strip. */
+.toolPlanner{
+  gap:13px!important;
+}
+.toolPlanner .aiSourceModelBar{
+  margin:1px 0 0!important;
+}
+.toolPlanner .customizeMini.plannerStyle{
+  margin-top:0!important;
+}
+.toolPlanner>.primary{
+  margin-top:1px!important;
+}
+
+/* Mobile keeps both menus attached to their own half of the AI row.
+   Citation grows rightward from the left control; model grows leftward from the right control. */
+@media(max-width:620px){
+  .sheetBackdrop .citationPopover{
+    left:0!important;
+    right:auto!important;
+    width:min(430px,calc(100vw - 24px))!important;
+    max-width:calc(100vw - 24px)!important;
+    max-height:58dvh!important;
+  }
+  .sheetBackdrop .aiModePopover.aiModelPopover{
+    left:auto!important;
+    right:0!important;
+    width:min(520px,calc(100vw - 24px))!important;
+    max-width:calc(100vw - 24px)!important;
+    max-height:64dvh!important;
+  }
+}
