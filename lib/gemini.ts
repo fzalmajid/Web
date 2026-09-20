@@ -1,7 +1,7 @@
 import { GEMINI_MODEL } from "./config";
 import { thinkingConfigForModel, type AiEffort } from "./aiModels";
 
-type GeminiPart = { text?: string; inlineData?: { mimeType: string; data: string } };
+export type GeminiPart = { text?: string; inlineData?: { mimeType: string; data: string } };
 export type GeminiWebSource = { title: string; uri: string };
 export type GeminiUsage = {
   inputTokens: number;
