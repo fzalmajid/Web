@@ -1,3 +1,5 @@
+import { getDocumentProxy } from "unpdf";
+
 export type PdfIndexedPage = {
   page: number;
   text: string;
@@ -27,7 +29,13 @@ function normalizePageText(items: any[]) {
     }
   }
   if (current.trim()) lines.push(current.trim());
-  return lines.join("\n").replace(/[ \t]+\n/g, "\n").replace(/\n{4,}/g, "\n\n\n").trim();
+
+  return lines
+    .join("\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .replace(/\u0000/g, "")
+    .trim();
 }
 
 export async function extractPdfPageBatch(
@@ -35,21 +43,18 @@ export async function extractPdfPageBatch(
   startPage: number,
   options?: { maxPages?: number; maxMs?: number }
 ): Promise<PdfIndexBatch> {
-  const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  const loadingTask = pdfjs.getDocument({
-    data,
+  const doc: any = await getDocumentProxy(data, {
     useSystemFonts: true,
-    isEvalSupported: false,
+    disableFontFace: true,
     stopAtErrors: false,
-    useWorkerFetch: false,
+    maxImageSize: 16_777_216,
   });
-  const doc = await loadingTask.promise;
 
   const totalPages = Number(doc.numPages || 0);
   const firstPage = Math.max(1, Math.min(Number(startPage || 1), Math.max(1, totalPages)));
-  const maxPages = Math.max(1, Math.min(Number(options?.maxPages || 72), 160));
-  const maxMs = Math.max(5000, Math.min(Number(options?.maxMs || 36000), 45000));
+  const maxPages = Math.max(1, Math.min(Number(options?.maxPages || 64), 120));
+  const maxMs = Math.max(5000, Math.min(Number(options?.maxMs || 32000), 42000));
   const startedAt = Date.now();
 
   const pages: PdfIndexedPage[] = [];
@@ -152,7 +157,7 @@ export function packPdfPages(
             chunkIndex: page.page * 1000 + part,
             pageStart: page.page,
             pageEnd: page.page,
-            text: piece,
+            text: `[Halaman ${page.page}]\n${piece}`,
           });
           part++;
         }
