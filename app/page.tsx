@@ -1938,6 +1938,18 @@ function FolderPage({
     else onChange();
   }
 
+  if (previewItem) {
+    return (
+      <ExplorerPreviewPage
+        item={previewItem}
+        onBack={() => {
+          setPreviewItem(null);
+          window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+        }}
+      />
+    );
+  }
+
   return (
     <section
       className={dropActive ? "folderPage explorerDropActive" : "folderPage"}
@@ -2173,10 +2185,6 @@ function FolderPage({
         />
       )}
 
-      {previewItem && (
-        <ExplorerPreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />
-      )}
-
       <button className="bigPlus" onClick={onAdd} aria-label="Tambah">+</button>
     </section>
   );
@@ -2225,7 +2233,7 @@ function ExplorerActionMenu({
         }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button type="button" onClick={onPreview}>Preview</button>
+        <button type="button" onClick={onPreview}>Buka</button>
         <button type="button" onClick={onCopy}>Copy</button>
         {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
         {canDownload && <button type="button" onClick={onDownload}>Download</button>}
@@ -2243,40 +2251,57 @@ function ExplorerActionMenu({
   );
 }
 
-function ExplorerPreviewModal({
+function ExplorerPreviewPage({
   item,
-  onClose,
+  onBack,
 }: {
   item: ExplorerPreviewItem;
-  onClose: () => void;
+  onBack: () => void;
 }) {
+  const title =
+    item.kind === "file"
+      ? item.file.file_name
+      : item.kind === "recording"
+        ? item.recording.title
+        : item.title;
+  const label =
+    item.kind === "file"
+      ? "FILE"
+      : item.kind === "recording"
+        ? "REKAMAN"
+        : item.label;
+
   return (
-    <div className="sheetBackdrop previewBackdrop" onMouseDown={onClose}>
-      <section className="addSheet explorerPreviewSheet" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="sheetHead">
-          <div>
-            <p className="eyebrow">
-              {item.kind === "file" ? "FILE" : item.kind === "recording" ? "REKAMAN" : item.label}
-            </p>
-            <h2>{item.kind === "file" ? item.file.file_name : item.kind === "recording" ? item.recording.title : item.title}</h2>
-          </div>
-          <button className="closeBtn" type="button" onClick={onClose}>×</button>
+    <section className="explorerPreviewPage">
+      <div className="explorerPreviewPageHead">
+        <button type="button" className="backBtn" onClick={onBack}>←</button>
+        <div>
+          <p className="eyebrow">{label}</p>
+          <h1>{title}</h1>
         </div>
-        {item.kind === "file" && (
-          <FilePreviewBody file={item.file} />
-        )}
+      </div>
+
+      <div className="explorerPreviewPageBody">
+        {item.kind === "file" && <FilePreviewBody file={item.file} />}
         {item.kind === "recording" && (
-          <div className="dataText raw">
-            <RichText text={item.recording.raw_transcript || item.recording.transcript || item.recording.structured_transcript || "Belum ada transkrip."} />
+          <div className="dataText raw explorerPreviewText">
+            <RichText
+              text={
+                item.recording.raw_transcript ||
+                item.recording.transcript ||
+                item.recording.structured_transcript ||
+                "Belum ada transkrip."
+              }
+            />
           </div>
         )}
         {item.kind === "entry" && (
-          <div className="dataText raw">
+          <div className="dataText raw explorerPreviewText">
             <RichText text={item.text || "Belum ada isi."} />
           </div>
         )}
-      </section>
-    </div>
+      </div>
+    </section>
   );
 }
 
