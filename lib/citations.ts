@@ -31,15 +31,15 @@ export function citationInstruction(
 
   const styleRule: Record<Exclude<CitationStyle, "none">, string> = {
     apa:
-      "APA 7: sitasi dalam teks berbentuk (Nama, Tahun); untuk 3+ penulis gunakan (Nama et al., Tahun).",
+      "APA 7: sitasi dalam teks berbentuk (Nama, Tahun); untuk 3+ penulis gunakan (Nama et al., Tahun). Jika sumber punya tahun asli dan tahun terjemahan/edisi, wajib tulis tahun asli/tahun terjemahan, misalnya (Jung, 1921/2025), bukan (Jung, 2025).",
     harvard:
-      "Harvard author-date: sitasi dalam teks berbentuk (Nama, Tahun); untuk 3+ penulis gunakan (Nama et al., Tahun).",
+      "Harvard author-date: sitasi dalam teks berbentuk (Nama, Tahun); untuk 3+ penulis gunakan (Nama et al., Tahun). Jika sumber punya tahun asli dan tahun terjemahan/edisi, wajib tulis tahun asli/tahun terjemahan, misalnya (Jung, 1921/2025), bukan (Jung, 2025).",
     vancouver:
       "Vancouver: sitasi dalam teks memakai nomor urut berbentuk (1), (2), dan seterusnya.",
     ieee:
       "IEEE: sitasi dalam teks memakai nomor urut berbentuk [1], [2], dan seterusnya.",
     chicago:
-      "Chicago Author-Date: sitasi dalam teks berbentuk (Nama Tahun); untuk 4+ penulis boleh gunakan et al.",
+      "Chicago Author-Date: sitasi dalam teks berbentuk (Nama Tahun); untuk 4+ penulis boleh gunakan et al. Jika sumber punya tahun asli dan tahun terjemahan/edisi, wajib tulis tahun asli/tahun terjemahan, misalnya (Jung 1921/2025), bukan (Jung 2025).",
   };
 
   const wantsInText = citationOutputs.includes("in-text");
@@ -56,6 +56,8 @@ export function citationInstruction(
     styleRule[citationStyle as Exclude<CitationStyle, "none">],
     outputRule,
     "Jangan mengarang nama penulis, tahun, judul, DOI, URL, atau metadata bibliografi. Gunakan hanya metadata yang benar-benar tersedia dari sumber. Jika penulis/tahun tidak tersedia, gunakan identitas sumber yang tersedia secara jujur dan jangan menebak.",
+    "STRICT YEAR RULE: jangan pernah membuang tahun publikasi asli ketika sumber juga memuat tahun terjemahan, cetak ulang, atau edisi. Pertahankan pasangan tahun dengan format original/edisi (contoh: 1921/2025). Di daftar pustaka, tulis tahun asli dan detail edisi/terjemahan yang tersedia.",
     "Untuk sumber Database pribadi tanpa metadata bibliografi lengkap, gunakan judul dokumen/folder yang tersedia sebagai identitas sumber secara konsisten.",
   ].join("\n");
 }
+
