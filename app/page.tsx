@@ -3031,6 +3031,342 @@ function AddSheet({
 }
 
 
+function TaskPage({
+  user,
+  node,
+  task,
+  onChange,
+}: {
+  user: User;
+  node: StudyNode;
+  task: StudyTask | null;
+  onChange: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(node.title);
+  const [submissionUrl, setSubmissionUrl] = useState(task?.submission_url || "");
+  const [submissionFormat, setSubmissionFormat] = useState<StudyTask["submission_format"]>(task?.submission_format || "none");
+  const [submissionOther, setSubmissionOther] = useState(task?.submission_format_other || "");
+  const [notes, setNotes] = useState(task?.notes || "");
+  const [quizItems, setQuizItems] = useState<StudyTask["quiz_items"]>(task?.quiz_items || []);
+  const [todoItems, setTodoItems] = useState<StudyTask["todo_items"]>(task?.todo_items || []);
+  const [responses, setResponses] = useState<Record<string, string>>(task?.responses || {});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setTitle(node.title);
+    setSubmissionUrl(task?.submission_url || "");
+    setSubmissionFormat(task?.submission_format || "none");
+    setSubmissionOther(task?.submission_format_other || "");
+    setNotes(task?.notes || "");
+    setQuizItems(task?.quiz_items || []);
+    setTodoItems(task?.todo_items || []);
+    setResponses(task?.responses || {});
+  }, [node.id, node.title, task?.updated_at]);
+
+  if (!task) {
+    return (
+      <section className="toolPage">
+        <div className="toolHeader">
+          <p className="eyebrow">TUGAS</p>
+          <h1>{node.title}</h1>
+          <p className="muted">Data Tugas belum tersedia.</p>
+        </div>
+      </section>
+    );
+  }
+
+  const formatLabel =
+    submissionFormat === "pptx"
+      ? "PPT / PPTX"
+      : submissionFormat === "docx"
+        ? "Word / DOCX"
+        : submissionFormat === "pdf"
+          ? "PDF"
+          : submissionFormat === "other"
+            ? submissionOther || "Lainnya"
+            : "Tidak ditentukan";
+
+  async function persist(patch: Partial<StudyTask>, refresh = false) {
+    const { error } = await supabase
+      .from("study_tasks")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", task.id)
+      .eq("user_id", user.id);
+    if (error) {
+      alert(error.message);
+      return false;
+    }
+    if (refresh) onChange();
+    return true;
+  }
+
+  async function saveSettings() {
+    if (!title.trim()) return;
+    setSaving(true);
+    const cleanedQuiz = quizItems
+      .filter((item) => item.question.trim())
+      .map((item) => ({
+        type: item.type,
+        question: item.question.trim(),
+        choices: item.type === "mcq" ? item.choices.map((choice) => choice.trim()).filter(Boolean) : [],
+      }));
+    const cleanedTodo = todoItems
+      .filter((item) => item.text.trim())
+      .map((item) => ({ ...item, text: item.text.trim() }));
+
+    const { error: nodeError } = await supabase
+      .from("study_nodes")
+      .update({ title: title.trim(), updated_at: new Date().toISOString() })
+      .eq("id", node.id)
+      .eq("user_id", user.id);
+    if (nodeError) {
+      setSaving(false);
+      return alert(nodeError.message);
+    }
+
+    const ok = await persist({
+      submission_url: submissionUrl.trim(),
+      submission_format: submissionFormat,
+      submission_format_other: submissionFormat === "other" ? submissionOther.trim() : "",
+      notes: notes.trim(),
+      quiz_items: task.task_type === "quiz" ? cleanedQuiz : [],
+      todo_items: task.task_type === "todo" ? cleanedTodo : [],
+    }, true);
+    setSaving(false);
+    if (ok) setEditing(false);
+  }
+
+  async function toggleTodo(id: string) {
+    const next = todoItems.map((item) => item.id === id ? { ...item, done: !item.done } : item);
+    setTodoItems(next);
+    const allDone = next.length > 0 && next.every((item) => item.done);
+    await persist({ todo_items: next, completed: allDone }, true);
+  }
+
+  async function saveResponse(index: number, value: string) {
+    const next = { ...responses, [String(index)]: value };
+    setResponses(next);
+    await persist({ responses: next });
+  }
+
+  async function toggleComplete() {
+    await persist({ completed: !task.completed }, true);
+  }
+
+  return (
+    <section className="toolPage taskPage">
+      <div className="toolHeader taskHeader">
+        <div>
+          <p className="eyebrow">TUGAS · {task.task_type === "quiz" ? "SOAL / QUIZ" : "TO-DO LIST"}</p>
+          <h1>{node.title}</h1>
+          {notes && !editing && <p className="muted">{notes}</p>}
+        </div>
+        <div className="taskHeaderActions">
+          <button className="ghost" type="button" onClick={() => setEditing((current) => !current)}>
+            {editing ? "Tutup edit" : "Edit Tugas"}
+          </button>
+          <button className={task.completed ? "primary" : "ghost"} type="button" onClick={toggleComplete}>
+            {task.completed ? "✓ Selesai" : "Tandai selesai"}
+          </button>
+        </div>
+      </div>
+
+      <section className="taskMetaStrip">
+        <div>
+          <small>PENGUMPULAN</small>
+          {task.submission_url ? (
+            <button type="button" className="taskLinkButton" onClick={() => window.open(task.submission_url, "_blank", "noopener,noreferrer")}>
+              Buka link pengumpulan ↗
+            </button>
+          ) : (
+            <strong>Belum ada link</strong>
+          )}
+        </div>
+        <div>
+          <small>FORMAT FILE</small>
+          <strong>{formatLabel}</strong>
+        </div>
+        <div>
+          <small>STATUS</small>
+          <strong>{task.completed ? "Selesai" : "Belum selesai"}</strong>
+        </div>
+      </section>
+
+      {editing && (
+        <section className="panel taskEditPanel">
+          <div className="stack">
+            <label>
+              Nama Tugas
+              <input value={title} onChange={(e) => setTitle(e.target.value)} />
+            </label>
+            <label>
+              Link pengumpulan
+              <input
+                type="url"
+                value={submissionUrl}
+                onChange={(e) => setSubmissionUrl(e.target.value)}
+                placeholder="Google Classroom, Google Drive, LMS, atau link lain"
+              />
+            </label>
+            <div className="taskSubmissionBlock">
+              <span className="fieldLabel">File yang dikumpulkan</span>
+              <div className="taskFormatChoices">
+                {[
+                  { value: "none" as const, label: "Tidak ditentukan" },
+                  { value: "pptx" as const, label: "PPT / PPTX" },
+                  { value: "docx" as const, label: "Word / DOCX" },
+                  { value: "pdf" as const, label: "PDF" },
+                  { value: "other" as const, label: "Lainnya" },
+                ].map((item) => (
+                  <button
+                    type="button"
+                    key={item.value}
+                    className={submissionFormat === item.value ? "active" : ""}
+                    onClick={() => setSubmissionFormat(item.value)}
+                  >{item.label}</button>
+                ))}
+              </div>
+              {submissionFormat === "other" && (
+                <input value={submissionOther} onChange={(e) => setSubmissionOther(e.target.value)} placeholder="Format lainnya" />
+              )}
+            </div>
+
+            {task.task_type === "quiz" ? (
+              <div className="taskBuilderList">
+                {quizItems.map((item, index) => (
+                  <article className="taskBuilderCard" key={index}>
+                    <div className="taskBuilderHead">
+                      <strong>Soal {index + 1}</strong>
+                      <div className="quizKindTabs compactKinds">
+                        <button
+                          type="button"
+                          className={item.type === "mcq" ? "active" : ""}
+                          onClick={() => setQuizItems((current) => current.map((entry, i) => i === index ? { ...entry, type: "mcq" } : entry))}
+                        >PG</button>
+                        <button
+                          type="button"
+                          className={item.type === "essay" ? "active" : ""}
+                          onClick={() => setQuizItems((current) => current.map((entry, i) => i === index ? { ...entry, type: "essay" } : entry))}
+                        >Essay</button>
+                      </div>
+                      {quizItems.length > 1 && (
+                        <button type="button" className="dangerSmall" onClick={() => setQuizItems((current) => current.filter((_, i) => i !== index))}>Hapus</button>
+                      )}
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={item.question}
+                      onChange={(e) => setQuizItems((current) => current.map((entry, i) => i === index ? { ...entry, question: e.target.value } : entry))}
+                    />
+                    {item.type === "mcq" && (
+                      <div className="taskChoiceInputs">
+                        {(item.choices.length ? item.choices : ["", "", "", ""]).map((choice, choiceIndex) => (
+                          <input
+                            key={choiceIndex}
+                            value={choice}
+                            onChange={(e) =>
+                              setQuizItems((current) =>
+                                current.map((entry, i) =>
+                                  i === index
+                                    ? {
+                                        ...entry,
+                                        choices: (entry.choices.length ? entry.choices : ["", "", "", ""])
+                                          .map((value, ci) => ci === choiceIndex ? e.target.value : value),
+                                      }
+                                    : entry
+                                )
+                              )
+                            }
+                            placeholder={"Pilihan " + String.fromCharCode(65 + choiceIndex)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                ))}
+                <button type="button" className="ghost" onClick={() => setQuizItems((current) => [...current, { type: "essay", question: "", choices: ["", "", "", ""] }])}>
+                  + Tambah pertanyaan
+                </button>
+              </div>
+            ) : (
+              <div className="taskBuilderList">
+                {todoItems.map((item, index) => (
+                  <div className="taskTodoEditRow" key={item.id}>
+                    <input
+                      value={item.text}
+                      onChange={(e) => setTodoItems((current) => current.map((entry, i) => i === index ? { ...entry, text: e.target.value } : entry))}
+                    />
+                    {todoItems.length > 1 && (
+                      <button type="button" className="dangerSmall" onClick={() => setTodoItems((current) => current.filter((_, i) => i !== index))}>×</button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" className="ghost" onClick={() => setTodoItems((current) => [...current, { id: crypto.randomUUID(), text: "", done: false }])}>
+                  + Tambah to-do
+                </button>
+              </div>
+            )}
+
+            <label>
+              Catatan / instruksi
+              <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </label>
+            <button className="primary" type="button" disabled={saving || !title.trim()} onClick={saveSettings}>
+              {saving ? "Menyimpan..." : "Simpan perubahan"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {!editing && task.task_type === "todo" && (
+        <section className="taskTodoList">
+          {todoItems.map((item) => (
+            <label className={item.done ? "taskTodoItem done" : "taskTodoItem"} key={item.id}>
+              <input type="checkbox" checked={item.done} onChange={() => void toggleTodo(item.id)} />
+              <span>{item.text}</span>
+            </label>
+          ))}
+        </section>
+      )}
+
+      {!editing && task.task_type === "quiz" && (
+        <section className="taskQuestionList">
+          {quizItems.map((item, index) => (
+            <article className="taskQuestionCard" key={index}>
+              <small>{item.type === "mcq" ? "PILIHAN GANDA" : "ESSAY"} · SOAL {index + 1}</small>
+              <h2>{item.question}</h2>
+              {item.type === "mcq" ? (
+                <div className="taskAnswerChoices">
+                  {item.choices.map((choice) => (
+                    <label key={choice} className={responses[String(index)] === choice ? "active" : ""}>
+                      <input
+                        type="radio"
+                        name={"task-" + task.id + "-" + index}
+                        checked={responses[String(index)] === choice}
+                        onChange={() => void saveResponse(index, choice)}
+                      />
+                      <span>{choice}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <textarea
+                  rows={4}
+                  value={responses[String(index)] || ""}
+                  onChange={(e) => setResponses((current) => ({ ...current, [String(index)]: e.target.value }))}
+                  onBlur={(e) => void saveResponse(index, e.target.value)}
+                  placeholder="Tulis jawaban / draft di sini..."
+                />
+              )}
+            </article>
+          ))}
+        </section>
+      )}
+    </section>
+  );
+}
+
 function DatabasePage({
   session,
   user,
