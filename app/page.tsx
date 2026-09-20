@@ -109,6 +109,9 @@ type StudyPath = {
   title: string;
   overview: string;
   focus_instruction: string;
+  teaching_depth?: "simple" | "medium" | "complex";
+  quiz_per_chapter?: boolean;
+  custom_chapter_titles?: string[];
   status: "processing" | "ready" | "error";
   error_message: string | null;
   created_at: string;
@@ -140,6 +143,65 @@ const nodeColors = [
   { value: "violet", label: "Violet" },
   { value: "slate", label: "Slate" },
 ];
+
+type CitationStyle = "none" | "apa" | "harvard" | "vancouver" | "ieee" | "chicago";
+type CitationOutput = "in-text" | "bibliography";
+type CitationPrefs = { style: CitationStyle; outputs: CitationOutput[] };
+
+const citationStyleOptions: Array<{ value: CitationStyle; label: string; preview: string }> = [
+  { value: "none", label: "Tanpa sitasi", preview: "Tidak ada marker" },
+  { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · (Nama et al., Tahun)" },
+  { value: "harvard", label: "Harvard", preview: "(Nama, Tahun) · (Nama et al., Tahun)" },
+  { value: "vancouver", label: "Vancouver", preview: "(1) · (2)" },
+  { value: "ieee", label: "IEEE", preview: "[1] · [2]" },
+  { value: "chicago", label: "Chicago Author-Date", preview: "(Nama Tahun)" },
+];
+
+function readCitationPrefs(): CitationPrefs {
+  if (typeof window === "undefined") return { style: "none", outputs: ["in-text"] };
+  const rawStyle = String(window.localStorage.getItem("rb-citation-style") || "none") as CitationStyle;
+  const style = citationStyleOptions.some((item) => item.value === rawStyle) ? rawStyle : "none";
+  let outputs: CitationOutput[] = ["in-text"];
+  try {
+    const parsed = JSON.parse(String(window.localStorage.getItem("rb-citation-outputs") || '["in-text"]'));
+    if (Array.isArray(parsed)) {
+      outputs = Array.from(
+        new Set(
+          parsed
+            .map(String)
+            .filter((value): value is CitationOutput => value === "in-text" || value === "bibliography")
+        )
+      );
+    }
+  } catch {}
+  if (!outputs.length) outputs = ["in-text"];
+  return { style, outputs };
+}
+
+function writeCitationPrefs(prefs: CitationPrefs) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("rb-citation-style", prefs.style);
+  window.localStorage.setItem("rb-citation-outputs", JSON.stringify(prefs.outputs));
+  window.dispatchEvent(new CustomEvent("rb-citation-change", { detail: prefs }));
+}
+
+function citationRequestFields() {
+  const prefs = readCitationPrefs();
+  return { citationStyle: prefs.style, citationOutputs: prefs.outputs };
+}
+
+function citationClientInstruction() {
+  const prefs = readCitationPrefs();
+  if (prefs.style === "none") return "Tidak ada format sitasi khusus.";
+  const preview = citationStyleOptions.find((item) => item.value === prefs.style)?.preview || "";
+  const outputText =
+    prefs.outputs.includes("in-text") && prefs.outputs.includes("bibliography")
+      ? "Gunakan sitasi dalam teks dan Daftar Pustaka."
+      : prefs.outputs.includes("bibliography")
+        ? "Gunakan Daftar Pustaka saja, tanpa marker sitasi dalam teks."
+        : "Gunakan sitasi dalam teks saja, tanpa Daftar Pustaka.";
+  return "Format sitasi " + prefs.style.toUpperCase() + " (" + preview + "). " + outputText + " Jangan mengarang metadata sumber.";
+}
 
 const GOOGLE_OAUTH_CLIENT_ID =
   process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID ||
@@ -1524,9 +1586,9 @@ function FolderPage({
                 if (!isFolderLikeNode(node)) return;
                 event.preventDefault();
                 event.stopPropagation();
+                clearFolderHover();
                 setDropActive(false);
                 setDropTargetId(node.id);
-                springOpenFolder(node.id);
               }}
               onDragOver={(event) => {
                 if (!isFolderLikeNode(node)) return;
@@ -1814,6 +1876,9 @@ function AddSheet({
     defaultSelection("gemini-2.5-flash")
   );
   const [plannerAnswerSources, setPlannerAnswerSources] = useState<AiSourceKind[]>(["database"]);
+  const [plannerStudyDepth, setPlannerStudyDepth] = useState<"simple" | "medium" | "complex">("medium");
+  const [plannerStudyQuizPerChapter, setPlannerStudyQuizPerChapter] = useState(true);
+  const [plannerStudyChapterTitles, setPlannerStudyChapterTitles] = useState("");
   const plannerMode = legacyModeForSelection(plannerSelection);
 
   const plannerFolders = useMemo(
@@ -1981,6 +2046,13 @@ function AddSheet({
                 aiModel: plannerSelection.model,
                 aiEffort: plannerSelection.effort,
                 sourceKinds: plannerAnswerSources,
+                teachingDepth: plannerStudyDepth,
+                quizPerChapter: plannerStudyQuizPerChapter,
+                customChapterTitles: plannerStudyChapterTitles
+                  .split(/\r?\n/)
+                  .map((value) => value.trim())
+                  .filter(Boolean),
+                ...citationRequestFields(),
               }),
             })
           : await fetch("/api/generate-study", {
@@ -2003,6 +2075,7 @@ function AddSheet({
                     ? answerAiQuestions.filter((question) => question.trim())
                     : undefined,
                 sourceKinds: plannerAnswerSources,
+                ...citationRequestFields(),
               }),
             });
 
@@ -2256,6 +2329,58 @@ function AddSheet({
                 }
               />
             </label>
+
+            {kind === "study" && (
+              <div className="studyBuildOptions">
+                <div>
+                  <span className="fieldLabel">Cara membahas</span>
+                  <div className="studyDepthChoices">
+                    {[
+                      { value: "simple" as const, label: "Simpel", hint: "Inti materi, bahasa mudah" },
+                      { value: "medium" as const, label: "Sedang", hint: "Lengkap tapi tetap ringkas" },
+                      { value: "complex" as const, label: "Kompleks", hint: "Mendalam, detail, hubungan konsep" },
+                    ].map((item) => (
+                      <button
+                        type="button"
+                        key={item.value}
+                        className={plannerStudyDepth === item.value ? "studyDepthChoice active" : "studyDepthChoice"}
+                        onClick={() => setPlannerStudyDepth(item.value)}
+                      >
+                        <strong>{item.label}</strong>
+                        <small>{item.hint}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="fieldLabel">Quiz di setiap bab?</span>
+                  <div className="binaryChoiceRow">
+                    <button
+                      type="button"
+                      className={plannerStudyQuizPerChapter ? "active" : ""}
+                      onClick={() => setPlannerStudyQuizPerChapter(true)}
+                    >Ya, pakai quiz</button>
+                    <button
+                      type="button"
+                      className={!plannerStudyQuizPerChapter ? "active" : ""}
+                      onClick={() => setPlannerStudyQuizPerChapter(false)}
+                    >Tidak</button>
+                  </div>
+                </div>
+
+                <label>
+                  Judul bab sendiri <span className="muted">opsional · satu judul per baris</span>
+                  <textarea
+                    rows={4}
+                    value={plannerStudyChapterTitles}
+                    onChange={(e) => setPlannerStudyChapterTitles(e.target.value)}
+                    placeholder={"Contoh:\nPengantar Farmakologi\nFarmakokinetik\nFarmakodinamik"}
+                  />
+                  <small className="muted">Jika diisi, AI tidak mengganti judul. AI mengajar isi sesuai judul dan urutan yang kamu tentukan.</small>
+                </label>
+              </div>
+            )}
 
             {kind === "quiz" && (
               <div className="quizCreationBlock">
@@ -3405,6 +3530,9 @@ function StudyPage({
   const [setupOpen, setSetupOpen] = useState(false);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [studyInstruction, setStudyInstruction] = useState("");
+  const [studyDepth, setStudyDepth] = useState<"simple" | "medium" | "complex">("medium");
+  const [quizPerChapter, setQuizPerChapter] = useState(true);
+  const [chapterTitlesText, setChapterTitlesText] = useState("");
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-2.5-flash"));
   const [studyAnswerSources, setStudyAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const aiMode = legacyModeForSelection(aiSelection);
@@ -3453,6 +3581,9 @@ function StudyPage({
       setUnits([]);
       setSelectedSources([]);
       setStudyInstruction("");
+      setStudyDepth("medium");
+      setQuizPerChapter(true);
+      setChapterTitlesText("");
       setSetupOpen(true);
       setLoading(false);
       return;
@@ -3460,6 +3591,9 @@ function StudyPage({
 
     setSelectedSources(nextPath.source_node_ids || []);
     setStudyInstruction(nextPath.focus_instruction || "");
+    setStudyDepth(nextPath.teaching_depth || "medium");
+    setQuizPerChapter(nextPath.quiz_per_chapter !== false);
+    setChapterTitlesText(Array.isArray(nextPath.custom_chapter_titles) ? nextPath.custom_chapter_titles.join("\n") : "");
     const legacySelection = selectionFromLegacyMode(nextPath.ai_mode || "instant");
     const storedModel = nextPath.ai_model as AiModelId | null | undefined;
     const storedEffort = nextPath.ai_effort as AiEffort | null | undefined;
@@ -3514,6 +3648,13 @@ function StudyPage({
         aiModel: aiSelection.model,
         aiEffort: aiSelection.effort,
         sourceKinds: studyAnswerSources,
+        teachingDepth: studyDepth,
+        quizPerChapter,
+        customChapterTitles: chapterTitlesText
+          .split(/\r?\n/)
+          .map((value) => value.trim())
+          .filter(Boolean),
+        ...citationRequestFields(),
       }),
     });
 
@@ -3744,15 +3885,7 @@ function StudyPage({
     setQuickDbStatus("");
   }
 
-  async function checkRecall(unit: StudyUnit) {
-    const answer = recallAnswers[unit.id];
-    if (!answer) return;
-
-    if (answer !== unit.recall_correct_answer) {
-      setRecallFeedback((current) => ({ ...current, [unit.id]: "wrong" }));
-      return;
-    }
-
+  async function completeStudyUnit(unit: StudyUnit, markRecallCorrect = false) {
     const now = new Date().toISOString();
     const { error } = await supabase
       .from("study_units")
@@ -3770,8 +3903,22 @@ function StudyPage({
       if (nextError) return alert(nextError.message);
     }
 
-    setRecallFeedback((current) => ({ ...current, [unit.id]: "correct" }));
+    if (markRecallCorrect) {
+      setRecallFeedback((current) => ({ ...current, [unit.id]: "correct" }));
+    }
     await loadStudy();
+  }
+
+  async function checkRecall(unit: StudyUnit) {
+    const answer = recallAnswers[unit.id];
+    if (!answer) return;
+
+    if (answer !== unit.recall_correct_answer) {
+      setRecallFeedback((current) => ({ ...current, [unit.id]: "wrong" }));
+      return;
+    }
+
+    await completeStudyUnit(unit, true);
   }
 
   const completedCount = units.filter((unit) => unit.completed_at).length;
@@ -3854,6 +4001,52 @@ function StudyPage({
               Instruksi ini dipakai bersama sumber AI / Database / Web yang dipilih di bar bawah.
             </small>
           </label>
+
+          <div className="studyBuildOptions">
+            <div>
+              <span className="fieldLabel">Cara membahas</span>
+              <div className="studyDepthChoices">
+                {[
+                  { value: "simple" as const, label: "Simpel", hint: "Inti + bahasa mudah" },
+                  { value: "medium" as const, label: "Sedang", hint: "Seimbang dan lengkap" },
+                  { value: "complex" as const, label: "Kompleks", hint: "Mendalam dan detail" },
+                ].map((item) => (
+                  <button
+                    type="button"
+                    key={item.value}
+                    className={studyDepth === item.value ? "studyDepthChoice active" : "studyDepthChoice"}
+                    onClick={() => setStudyDepth(item.value)}
+                  >
+                    <strong>{item.label}</strong>
+                    <small>{item.hint}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <span className="fieldLabel">Quiz di setiap bab?</span>
+              <div className="binaryChoiceRow">
+                <button type="button" className={quizPerChapter ? "active" : ""} onClick={() => setQuizPerChapter(true)}>
+                  Ya, pakai quiz
+                </button>
+                <button type="button" className={!quizPerChapter ? "active" : ""} onClick={() => setQuizPerChapter(false)}>
+                  Tidak
+                </button>
+              </div>
+            </div>
+
+            <label>
+              Judul bab sendiri <span className="muted">opsional · satu judul per baris</span>
+              <textarea
+                rows={5}
+                value={chapterTitlesText}
+                onChange={(e) => setChapterTitlesText(e.target.value)}
+                placeholder={"Contoh:\nPengantar Farmakologi\nFarmakokinetik\nFarmakodinamik"}
+              />
+              <small className="muted">Kalau diisi, AI mempertahankan judul dan urutan ini, lalu mengajar sesuai masing-masing bab.</small>
+            </label>
+          </div>
 
           <div className="instructionAiBar studyInstructionAiBar">
             <AiSourceModelBar
@@ -4009,7 +4202,9 @@ function StudyPage({
                     </summary>
                     <div className="studyUnitBody">
                       <div className="studyTeaching"><RichText text={unit.teaching_text} /></div>
-                      <div className="recallPassed">Recall selesai · <RichText text={unit.recall_explanation} /></div>
+                      {path?.quiz_per_chapter !== false && (
+                        <div className="recallPassed">Recall selesai · <RichText text={unit.recall_explanation} /></div>
+                      )}
                     </div>
                   </details>
                 );
@@ -4027,49 +4222,58 @@ function StudyPage({
 
                   <div className="studyTeaching"><RichText text={unit.teaching_text} /></div>
 
-                  <div className="recallBox">
-                    <div className="recallHead">
-                      <span>RECALL</span>
-                      <strong>Cek pemahaman sebelum lanjut</strong>
-                    </div>
-                    <h3><RichText text={unit.recall_question} /></h3>
-
-                    <div className="recallChoices">
-                      {unit.recall_choices.map((choice) => (
-                        <button
-                          type="button"
-                          key={choice}
-                          className={selected === choice ? "selected" : ""}
-                          onClick={() => {
-                            setRecallAnswers((current) => ({ ...current, [unit.id]: choice }));
-                            setRecallFeedback((current) => {
-                              const next = { ...current };
-                              delete next[unit.id];
-                              return next;
-                            });
-                          }}
-                        >
-                          <RichText text={choice} />
-                        </button>
-                      ))}
-                    </div>
-
-                    {feedback === "wrong" && (
-                      <div className="recallFeedback wrong">
-                        Belum tepat. Baca lagi bagian di atas, lalu coba sekali lagi.
+                  {path?.quiz_per_chapter !== false ? (
+                    <div className="recallBox">
+                      <div className="recallHead">
+                        <span>RECALL</span>
+                        <strong>Cek pemahaman sebelum lanjut</strong>
                       </div>
-                    )}
+                      <h3><RichText text={unit.recall_question} /></h3>
 
-                    {feedback === "correct" && (
-                      <div className="recallFeedback correct">
-                        Benar. <RichText text={unit.recall_explanation} />
+                      <div className="recallChoices">
+                        {unit.recall_choices.map((choice) => (
+                          <button
+                            type="button"
+                            key={choice}
+                            className={selected === choice ? "selected" : ""}
+                            onClick={() => {
+                              setRecallAnswers((current) => ({ ...current, [unit.id]: choice }));
+                              setRecallFeedback((current) => {
+                                const next = { ...current };
+                                delete next[unit.id];
+                                return next;
+                              });
+                            }}
+                          >
+                            <RichText text={choice} />
+                          </button>
+                        ))}
                       </div>
-                    )}
 
-                    <button className="primary recallSubmit" disabled={!selected} onClick={() => checkRecall(unit)}>
-                      Cek jawaban
-                    </button>
-                  </div>
+                      {feedback === "wrong" && (
+                        <div className="recallFeedback wrong">
+                          Belum tepat. Baca lagi bagian di atas, lalu coba sekali lagi.
+                        </div>
+                      )}
+
+                      {feedback === "correct" && (
+                        <div className="recallFeedback correct">
+                          Benar. <RichText text={unit.recall_explanation} />
+                        </div>
+                      )}
+
+                      <button className="primary recallSubmit" disabled={!selected} onClick={() => checkRecall(unit)}>
+                        Cek jawaban
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="studyContinueBox">
+                      <span>Tidak ada quiz untuk Study ini.</span>
+                      <button className="primary" type="button" onClick={() => void completeStudyUnit(unit)}>
+                        Selesai bab & lanjut
+                      </button>
+                    </div>
+                  )}
                 </article>
               );
             })}
@@ -5235,6 +5439,7 @@ function PracticePage({
         mode,
         aiMode,
         sourceKinds: practiceAnswerSources,
+        ...citationRequestFields(),
       }),
     });
 
@@ -5923,6 +6128,131 @@ function AiModePicker({
 }
 
 
+function CitationPicker({ compact = true }: { compact?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [prefs, setPrefs] = useState<CitationPrefs>({ style: "none", outputs: ["in-text"] });
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setPrefs(readCitationPrefs());
+    const sync = () => setPrefs(readCitationPrefs());
+    window.addEventListener("rb-citation-change", sync as EventListener);
+    return () => window.removeEventListener("rb-citation-change", sync as EventListener);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (target && wrapRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("touchstart", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("touchstart", close);
+    };
+  }, [open]);
+
+  function setStyle(style: CitationStyle) {
+    const next = { ...prefs, style };
+    setPrefs(next);
+    writeCitationPrefs(next);
+  }
+
+  function toggleOutput(output: CitationOutput) {
+    const active = prefs.outputs.includes(output);
+    const nextOutputs = active
+      ? prefs.outputs.filter((item) => item !== output)
+      : [...prefs.outputs, output];
+    if (!nextOutputs.length) return;
+    const next = { ...prefs, outputs: nextOutputs };
+    setPrefs(next);
+    writeCitationPrefs(next);
+  }
+
+  const selected = citationStyleOptions.find((item) => item.value === prefs.style) || citationStyleOptions[0];
+
+  return (
+    <div ref={wrapRef} className={compact ? "citationPicker compact" : "citationPicker"}>
+      <button
+        type="button"
+        className="citationTrigger"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+      >
+        <span>
+          <strong>Choose Citation</strong>
+          <small>{selected.label}{prefs.style !== "none" ? " · " + selected.preview : ""}</small>
+        </span>
+        <b>⌄</b>
+      </button>
+
+      {open && (
+        <div className="citationPopover">
+          <div className="citationPopoverHead">
+            <div>
+              <small>CHOOSE CITATION</small>
+              <strong>{selected.label}</strong>
+            </div>
+            <button type="button" onClick={() => setOpen(false)}>×</button>
+          </div>
+
+          <div className="citationStyleGrid">
+            {citationStyleOptions.map((item) => (
+              <button
+                type="button"
+                key={item.value}
+                className={prefs.style === item.value ? "active" : ""}
+                onClick={() => setStyle(item.value)}
+              >
+                <strong>{item.label}</strong>
+                <small>{item.preview}</small>
+              </button>
+            ))}
+          </div>
+
+          {prefs.style !== "none" && (
+            <>
+              <div className="citationOutputTitle">Tampilkan sebagai</div>
+              <div className="citationOutputChoices">
+                <button
+                  type="button"
+                  className={prefs.outputs.includes("in-text") ? "active" : ""}
+                  onClick={() => toggleOutput("in-text")}
+                >
+                  <strong>Sitasi dalam teks</strong>
+                  <small>{selected.preview}</small>
+                </button>
+                <button
+                  type="button"
+                  className={prefs.outputs.includes("bibliography") ? "active" : ""}
+                  onClick={() => toggleOutput("bibliography")}
+                >
+                  <strong>Daftar pustaka</strong>
+                  <small>References / Daftar Pustaka di akhir</small>
+                </button>
+              </div>
+              <div className="citationPreview">
+                <small>PREVIEW</small>
+                <strong>{selected.preview}</strong>
+                <span>
+                  {prefs.outputs.includes("in-text") && prefs.outputs.includes("bibliography")
+                    ? "Sitasi kurung/nomor + daftar pustaka"
+                    : prefs.outputs.includes("bibliography")
+                      ? "Daftar pustaka saja"
+                      : "Sitasi kurung/nomor saja"}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AiSourceModelBar({
   sources,
   onSourcesChange,
@@ -5988,6 +6318,7 @@ function AiSourceModelBar({
         compact={compact}
         allowLocal={allowLocal}
       />
+      <CitationPicker compact={compact} />
     </div>
   );
 }
@@ -6473,6 +6804,7 @@ function BottomAskBar({
         ? "Gunakan Database pribadi di bawah sebagai sumber."
         : "Jangan mengklaim memakai Database karena Database tidak dipilih.",
       "Jawab jelas, ringkas, dan terstruktur.",
+      citationClientInstruction(),
     ];
 
     if (useDatabase && !useAi) {
@@ -7180,6 +7512,7 @@ function BottomAskBar({
         attachmentPath: pendingAttachment?.filePath || "",
         attachmentMimeType: pendingAttachment?.mimeType || "",
         attachmentUrl: effectiveUrl,
+        ...citationRequestFields(),
       }),
     });
 
