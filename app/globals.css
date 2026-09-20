@@ -3836,3 +3836,115 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     cursor:default;
   }
 }
+
+
+/* Explorer UX: contextual drop targets, no full-screen drop takeover */
+.explorerDropOverlay{
+  display:none!important;
+}
+.folderDropChip{
+  width:max-content;
+  max-width:100%;
+  margin:2px 0 10px;
+  padding:7px 10px;
+  border:1px dashed #75a58e;
+  border-radius:11px;
+  background:rgba(238,248,242,.78);
+  color:#2d7655;
+  font-size:.72rem;
+  font-weight:850;
+  pointer-events:none;
+}
+:root[data-theme="dark"] .folderDropChip{
+  background:rgba(24,48,38,.78);
+  color:#9fd0b5;
+  border-color:#5d9477;
+}
+.explorerDropActive{
+  outline:0;
+}
+.explorerDropActive .folderTitle{
+  opacity:.92;
+}
+.folderDropTarget{
+  transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease,background .14s ease!important;
+}
+.folderDropTarget.active{
+  border-color:#67a17f!important;
+  box-shadow:0 0 0 3px rgba(103,161,127,.16),var(--shadow)!important;
+  transform:translateY(-2px) scale(1.01);
+}
+.folderDropTarget.active .nodeOpen{
+  background:rgba(238,248,242,.8)!important;
+}
+:root[data-theme="dark"] .folderDropTarget.active .nodeOpen{
+  background:rgba(24,48,38,.72)!important;
+}
+.crumbDropTarget{
+  border-radius:8px!important;
+  transition:background .14s ease,color .14s ease,box-shadow .14s ease;
+}
+.crumbDropTarget.active{
+  background:#e9f6ee!important;
+  color:#286848!important;
+  box-shadow:inset 0 0 0 1px #88b89d;
+}
+:root[data-theme="dark"] .crumbDropTarget.active{
+  background:#183026!important;
+  color:#a9d4bd!important;
+  box-shadow:inset 0 0 0 1px #416e58;
+}
+.explorerItems{
+  margin-top:10px;
+}
+.explorerEmpty.compact{
+  min-height:92px;
+  margin-top:8px;
+}
+.explorerEmpty.compact span{
+  font-size:1.35rem;
+}
+
+/* + planner creates Study / Quiz / Flashcard before opening the tool page */
+.toolPlanner{
+  gap:14px;
+}
+.toolPlanner>label{
+  display:grid;
+  gap:7px;
+}
+.toolPlanner label>small{
+  font-weight:500;
+}
+.plannerModelRow{
+  display:flex;
+  align-items:flex-end;
+  gap:10px;
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:15px;
+  background:var(--soft);
+}
+.plannerModelRow>div{
+  display:grid;
+  gap:7px;
+  min-width:0;
+}
+.plannerStyle{
+  padding-top:2px;
+}
+@media(max-width:620px){
+  .folderDropChip{
+    font-size:.68rem;
+    padding:6px 8px;
+    margin-bottom:8px;
+  }
+  .plannerModelRow{
+    align-items:stretch;
+  }
+  .plannerModelRow .aiModeSelect,
+  .plannerModelRow .aiModeTrigger{
+    width:100%;
+    max-width:none;
+  }
+}

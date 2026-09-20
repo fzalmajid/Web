@@ -632,6 +632,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [customizeNode, setCustomizeNode] = useState<StudyNode | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const breadcrumbHoverTimerRef = useRef<number | null>(null);
+  const [breadcrumbDropId, setBreadcrumbDropId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadAll();
@@ -696,6 +698,40 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     setCurrentId(current.parent_id);
   }
 
+  function clearBreadcrumbHover() {
+    if (breadcrumbHoverTimerRef.current) {
+      window.clearTimeout(breadcrumbHoverTimerRef.current);
+      breadcrumbHoverTimerRef.current = null;
+    }
+  }
+
+  function springOpenBreadcrumb(targetNodeId: string | null) {
+    clearBreadcrumbHover();
+    breadcrumbHoverTimerRef.current = window.setTimeout(() => {
+      setCurrentId(targetNodeId);
+      breadcrumbHoverTimerRef.current = null;
+    }, 650);
+  }
+
+  async function dropOnBreadcrumb(event: any, targetNodeId: string | null) {
+    event.preventDefault();
+    event.stopPropagation();
+    clearBreadcrumbHover();
+    setBreadcrumbDropId(null);
+
+    const item = readExplorerDragItem(event);
+    if (!item) return;
+
+    try {
+      const moved = await moveExplorerDraggedItem(nodes, item, targetNodeId);
+      if (!moved) return;
+      setCurrentId(targetNodeId);
+      refresh();
+    } catch (error: any) {
+      alert(error?.message || "Gagal memindahkan item.");
+    }
+  }
+
   async function removeNode(node: StudyNode) {
     if (!confirm('Hapus "' + node.title + '" beserta semua isi di dalamnya?')) return;
 
@@ -739,11 +775,53 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           <div className="pageNav">
             <button className="backBtn" onClick={goBack}>←</button>
             <div className="crumbs">
-              <button onClick={() => setCurrentId(null)}>Beranda</button>
+              <button
+                className={breadcrumbDropId === "__root__" ? "crumbDropTarget active" : "crumbDropTarget"}
+                onClick={() => setCurrentId(null)}
+                onDragEnter={(event) => {
+                  if (!readExplorerDragItem(event)) return;
+                  event.preventDefault();
+                  setBreadcrumbDropId("__root__");
+                  springOpenBreadcrumb(null);
+                }}
+                onDragOver={(event) => {
+                  if (!readExplorerDragItem(event)) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDragLeave={() => {
+                  clearBreadcrumbHover();
+                  setBreadcrumbDropId(null);
+                }}
+                onDrop={(event) => void dropOnBreadcrumb(event, null)}
+              >
+                Beranda
+              </button>
               {path.map((item) => (
                 <span key={item.id}>
                   <b>/</b>
-                  <button onClick={() => setCurrentId(item.id)}>{item.title}</button>
+                  <button
+                    className={breadcrumbDropId === item.id ? "crumbDropTarget active" : "crumbDropTarget"}
+                    onClick={() => setCurrentId(item.id)}
+                    onDragEnter={(event) => {
+                      if (!readExplorerDragItem(event)) return;
+                      event.preventDefault();
+                      setBreadcrumbDropId(item.id);
+                      springOpenBreadcrumb(item.id);
+                    }}
+                    onDragOver={(event) => {
+                      if (!readExplorerDragItem(event)) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }}
+                    onDragLeave={() => {
+                      clearBreadcrumbHover();
+                      setBreadcrumbDropId(null);
+                    }}
+                    onDrop={(event) => void dropOnBreadcrumb(event, item.id)}
+                  >
+                    {item.title}
+                  </button>
                 </span>
               ))}
             </div>
@@ -902,6 +980,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           session={session}
           user={user}
           parent={current}
+          nodes={nodes}
           onClose={() => setAddOpen(false)}
           onAdded={() => {
             setAddOpen(false);
@@ -1035,6 +1114,59 @@ async function moveExplorerItemToFolder(
   if (error) throw error;
 }
 
+type ExplorerDragItem = {
+  kind: "file" | "recording" | "entry" | "node";
+  id: string;
+};
+
+function readExplorerDragItem(event: any): ExplorerDragItem | null {
+  const raw = event.dataTransfer?.getData("application/x-rb-explorer-item");
+  if (!raw) return null;
+  try {
+    const item = JSON.parse(raw);
+    if (!["file", "recording", "entry", "node"].includes(item?.kind) || !item?.id) return null;
+    return { kind: item.kind, id: String(item.id) } as ExplorerDragItem;
+  } catch {
+    return null;
+  }
+}
+
+async function moveExplorerDraggedItem(
+  nodes: StudyNode[],
+  item: ExplorerDragItem,
+  targetNodeId: string | null
+) {
+  if (item.kind === "node") {
+    const movingNode = nodes.find((node) => node.id === item.id);
+    if (!movingNode) return false;
+
+    if (targetNodeId) {
+      const targetNode = nodes.find((node) => node.id === targetNodeId);
+      if (!targetNode || !isFolderLikeNode(targetNode)) return false;
+      if (movingNode.id === targetNode.id) {
+        throw new Error("Folder tidak bisa dimasukkan ke dirinya sendiri.");
+      }
+      const movingTreeIds = new Set(collectSubtreeIds(nodes, movingNode.id));
+      if (movingTreeIds.has(targetNode.id)) {
+        throw new Error("Folder tidak bisa dipindahkan ke dalam anak/subfolder-nya sendiri.");
+      }
+    }
+
+    if ((movingNode.parent_id || null) === targetNodeId) return true;
+
+    const { error } = await supabase
+      .from("study_nodes")
+      .update({ parent_id: targetNodeId })
+      .eq("id", movingNode.id);
+    if (error) throw error;
+    return true;
+  }
+
+  if (!targetNodeId) return false;
+  await moveExplorerItemToFolder(item.kind, item.id, targetNodeId);
+  return true;
+}
+
 function setExplorerDragData(
   event: any,
   kind: "file" | "recording" | "entry" | "node",
@@ -1075,6 +1207,14 @@ function FolderPage({
 }) {
   const [dropActive, setDropActive] = useState(false);
   const [dropBusy, setDropBusy] = useState(false);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const folderHoverTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (folderHoverTimerRef.current) window.clearTimeout(folderHoverTimerRef.current);
+    };
+  }, []);
 
   const localFiles = current ? files.filter((item) => item.node_id === current.id) : [];
   const localRecordings = current ? recordings.filter((item) => item.node_id === current.id) : [];
@@ -1091,6 +1231,21 @@ function FolderPage({
     : [];
 
   const hasAssets = !!(localFiles.length || localRecordings.length || localEntries.length);
+
+  function clearFolderHover() {
+    if (folderHoverTimerRef.current) {
+      window.clearTimeout(folderHoverTimerRef.current);
+      folderHoverTimerRef.current = null;
+    }
+  }
+
+  function springOpenFolder(nodeId: string) {
+    clearFolderHover();
+    folderHoverTimerRef.current = window.setTimeout(() => {
+      onOpen(nodeId);
+      folderHoverTimerRef.current = null;
+    }, 700);
+  }
 
   async function uploadFiles(targetNodeId: string, list: FileList | File[]) {
     const incoming = Array.from(list);
@@ -1109,45 +1264,13 @@ function FolderPage({
     }
   }
 
-  async function moveDroppedItem(event: any, targetNodeId: string) {
-    const raw = event.dataTransfer?.getData("application/x-rb-explorer-item");
-    if (!raw) return false;
+  async function moveDroppedItem(event: any, targetNodeId: string | null) {
+    const item = readExplorerDragItem(event);
+    if (!item) return false;
     try {
-      const item = JSON.parse(raw);
-      if (!["file", "recording", "entry", "node"].includes(item?.kind) || !item?.id) return false;
-
-      if (item.kind === "node") {
-        const nodeId = String(item.id);
-        const movingNode = nodes.find((node) => node.id === nodeId);
-        const targetNode = nodes.find((node) => node.id === targetNodeId);
-
-        if (!movingNode || !targetNode || !isFolderLikeNode(targetNode)) return false;
-        if (movingNode.id === targetNode.id) {
-          alert("Folder tidak bisa dimasukkan ke dirinya sendiri.");
-          return true;
-        }
-
-        const movingTreeIds = new Set(collectSubtreeIds(nodes, movingNode.id));
-        if (movingTreeIds.has(targetNode.id)) {
-          alert("Folder tidak bisa dipindahkan ke dalam anak/subfolder-nya sendiri.");
-          return true;
-        }
-
-        if (movingNode.parent_id === targetNode.id) return true;
-
-        const { error } = await supabase
-          .from("study_nodes")
-          .update({ parent_id: targetNode.id })
-          .eq("id", movingNode.id);
-
-        if (error) throw error;
-        onChange();
-        return true;
-      }
-
-      await moveExplorerItemToFolder(item.kind, String(item.id), targetNodeId);
-      onChange();
-      return true;
+      const moved = await moveExplorerDraggedItem(nodes, item, targetNodeId);
+      if (moved) onChange();
+      return moved;
     } catch (error: any) {
       alert(error?.message || "Gagal memindahkan item.");
       return true;
@@ -1157,9 +1280,11 @@ function FolderPage({
   async function handlePageDrop(event: any) {
     event.preventDefault();
     setDropActive(false);
-    if (!current) return;
-    if (await moveDroppedItem(event, current.id)) return;
-    if (event.dataTransfer?.files?.length) {
+    setDropTargetId(null);
+    clearFolderHover();
+
+    if (await moveDroppedItem(event, current?.id || null)) return;
+    if (current && event.dataTransfer?.files?.length) {
       await uploadFiles(current.id, event.dataTransfer.files);
     }
   }
@@ -1167,6 +1292,8 @@ function FolderPage({
   async function handleFolderDrop(event: any, target: StudyNode) {
     event.preventDefault();
     event.stopPropagation();
+    clearFolderHover();
+    setDropTargetId(null);
     if (!isFolderLikeNode(target)) return;
     if (await moveDroppedItem(event, target.id)) return;
     if (event.dataTransfer?.files?.length) {
@@ -1207,9 +1334,10 @@ function FolderPage({
     <section
       className={dropActive ? "folderPage explorerDropActive" : "folderPage"}
       onDragOver={(event) => {
-        if (!current) return;
+        const acceptsRootMove = !current && event.dataTransfer?.types?.includes("application/x-rb-explorer-item");
+        if (!current && !acceptsRootMove) return;
         event.preventDefault();
-        setDropActive(true);
+        if (!dropTargetId) setDropActive(true);
       }}
       onDragLeave={(event) => {
         if (event.currentTarget === event.target) setDropActive(false);
@@ -1229,11 +1357,24 @@ function FolderPage({
         {current && <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>}
       </div>
 
+      {dropActive && (
+        <div className="folderDropChip">
+          {dropBusy
+            ? "Mengupload..."
+            : current
+              ? "Drop di sini → " + current.title
+              : "Drop folder ke Beranda"}
+        </div>
+      )}
+
       {!!children.length && (
         <div className="nodeGrid explorerNodeGrid">
           {children.map((node) => (
             <article
-              className="nodeCard draggableFolderCard"
+              className={
+                "nodeCard draggableFolderCard" +
+                (dropTargetId === node.id ? " folderDropTarget active" : "")
+              }
               data-color={node.card_color || "default"}
               key={node.id}
               draggable
@@ -1241,10 +1382,29 @@ function FolderPage({
                 event.stopPropagation();
                 setExplorerDragData(event, "node", node.id);
               }}
+              onDragEnd={() => {
+                clearFolderHover();
+                setDropTargetId(null);
+                setDropActive(false);
+              }}
+              onDragEnter={(event) => {
+                if (!isFolderLikeNode(node)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setDropActive(false);
+                setDropTargetId(node.id);
+                springOpenFolder(node.id);
+              }}
               onDragOver={(event) => {
                 if (!isFolderLikeNode(node)) return;
                 event.preventDefault();
+                event.stopPropagation();
                 event.dataTransfer.dropEffect = "move";
+              }}
+              onDragLeave={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                clearFolderHover();
+                setDropTargetId(null);
               }}
               onDrop={(event) => void handleFolderDrop(event, node)}
             >
@@ -1265,78 +1425,62 @@ function FolderPage({
       )}
 
       {current && (
-        <section className="folderAssets">
-          <div className="folderAssetsHead">
-            <div>
-              <small>ISI FOLDER · RAW/ORIGINAL</small>
-              <strong>{children.length + localFiles.length + localRecordings.length + localEntries.length} item</strong>
-            </div>
-            <span>{dropBusy ? "Mengupload..." : "Folder, file, foto, audio, dan catatan bisa di-drag ke folder lain"}</span>
-          </div>
-
+        <>
           {!children.length && !hasAssets && (
-            <div className="explorerEmpty">
+            <div className="explorerEmpty compact">
               <span>📂</span>
-              <p>Belum ada isi folder. Drop file di sini atau tekan +.</p>
+              <p>Belum ada isi. Drop file di halaman ini atau tekan +.</p>
             </div>
           )}
-
           <div className="explorerItems">
-            {localEntries.map((entry) => (
-              <article
-                className="explorerTextItem"
-                key={entry.id}
-                draggable
-                onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
-              >
-                <div className="explorerItemMain">
-                  <span className="explorerFileIcon">📝</span>
-                  <div>
-                    <small>{entry.category || "Catatan RAW"}</small>
-                    <strong>{entry.title}</strong>
+              {localEntries.map((entry) => (
+                <article
+                  className="explorerTextItem"
+                  key={entry.id}
+                  draggable
+                  onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
+                >
+                  <div className="explorerItemMain">
+                    <span className="explorerFileIcon">📝</span>
+                    <div>
+                      <small>{entry.category || "Catatan RAW"}</small>
+                      <strong>{entry.title}</strong>
+                    </div>
                   </div>
-                </div>
-                <details>
-                  <summary>Lihat isi</summary>
-                  <div className="dataText raw"><RichText text={entry.raw_content || entry.content} /></div>
-                </details>
-                <button className="dangerSmall" type="button" onClick={() => removeEntry(entry.id)}>Hapus</button>
-              </article>
-            ))}
+                  <details>
+                    <summary>Lihat isi</summary>
+                    <div className="dataText raw"><RichText text={entry.raw_content || entry.content} /></div>
+                  </details>
+                  <button className="dangerSmall" type="button" onClick={() => removeEntry(entry.id)}>Hapus</button>
+                </article>
+              ))}
 
-            {localFiles.map((file) => (
-              <DatabaseFileCard
-                key={file.id}
-                file={file}
-                draggable
-                onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
-                onDelete={() => removeFile(file)}
-              />
-            ))}
+              {localFiles.map((file) => (
+                <DatabaseFileCard
+                  key={file.id}
+                  file={file}
+                  draggable
+                  onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
+                  onDelete={() => removeFile(file)}
+                />
+              ))}
 
-            {localRecordings.map((item) => (
-              <DatabaseStoredRecording
-                key={item.id}
-                item={item}
-                draggable
-                onDragStart={(event) => setExplorerDragData(event, "recording", item.id)}
-                onDelete={() => removeRecording(item)}
-              />
-            ))}
-          </div>
-        </section>
+              {localRecordings.map((item) => (
+                <DatabaseStoredRecording
+                  key={item.id}
+                  item={item}
+                  draggable
+                  onDragStart={(event) => setExplorerDragData(event, "recording", item.id)}
+                  onDelete={() => removeRecording(item)}
+                />
+              ))}
+            </div>
+        </>
       )}
 
       {!children.length && !hasAssets && !current && (
         <div className="emptyFolder">
           <p>Belum ada folder. Tekan + untuk membuat folder pertama.</p>
-        </div>
-      )}
-
-      {dropActive && current && (
-        <div className="explorerDropOverlay">
-          <strong>Drop ke {current.title}</strong>
-          <small>File asli akan disimpan sebagai RAW/original.</small>
         </div>
       )}
 
@@ -1349,6 +1493,7 @@ function AddSheet({
   session,
   user,
   parent,
+  nodes,
   onClose,
   onCreated,
   onAdded,
@@ -1356,6 +1501,7 @@ function AddSheet({
   session: Session;
   user: User;
   parent: StudyNode | null;
+  nodes: StudyNode[];
   onClose: () => void;
   onCreated: (id: string) => void;
   onAdded: () => void;
@@ -1371,6 +1517,28 @@ function AddSheet({
   const [textContent, setTextContent] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [plannerSourceId, setPlannerSourceId] = useState("");
+  const [plannerInstruction, setPlannerInstruction] = useState("");
+  const [plannerCount, setPlannerCount] = useState(5);
+  const [plannerSelection, setPlannerSelection] = useState<AiSelection>(
+    defaultSelection("gemini-2.5-flash")
+  );
+  const plannerMode = legacyModeForSelection(plannerSelection);
+
+  const plannerFolders = useMemo(() => {
+    const all = nodes.filter(isFolderLikeNode);
+    if (!parent) return all;
+    const allowed = new Set(collectSubtreeIds(nodes, parent.id));
+    return all.filter((item) => allowed.has(item.id));
+  }, [nodes, parent]);
+
+  useEffect(() => {
+    if (plannerSourceId && plannerFolders.some((item) => item.id === plannerSourceId)) return;
+    const preferred =
+      (parent && plannerFolders.find((item) => item.id === parent.id)) ||
+      plannerFolders[0];
+    setPlannerSourceId(preferred?.id || "");
+  }, [plannerFolders, plannerSourceId, parent]);
 
   const options = [
     { value: "folder", label: "Folder", hint: "Buat folder / subfolder materi" },
@@ -1380,20 +1548,16 @@ function AddSheet({
           { value: "link" as const, label: "Masukkan link", hint: "Simpan halaman web sebagai sumber RAW" },
           { value: "text" as const, label: "Masukkan teks", hint: "Catatan atau materi mentah langsung ke folder" },
           { value: "recording" as const, label: "🎙️ Rekam audio", hint: "Rekaman + transkrip verbatim langsung ke folder" },
-          { value: "study" as const, label: "Study", hint: "Belajar bertahap dari isi folder" },
         ]
       : []),
-    { value: "flashcards", label: "Flashcard", hint: "Latihan kartu dari isi folder" },
-    { value: "quiz", label: "Kuis", hint: "Soal dari isi folder" },
+    { value: "study", label: "Study", hint: "Atur sumber + model lalu langsung susun Study" },
+    { value: "flashcards", label: "Flashcard", hint: "Atur sumber + model lalu langsung buat kartu" },
+    { value: "quiz", label: "Kuis", hint: "Atur sumber + model lalu langsung buat soal" },
   ] as const;
 
-  async function createNode(e: FormEvent) {
+  async function createFolder(e: FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-    const nodeType: NodeType =
-      kind === "folder"
-        ? parent ? "submaterial" : "material"
-        : kind as "flashcards" | "quiz" | "study";
 
     setBusy(true);
     const { data, error } = await supabase
@@ -1402,7 +1566,7 @@ function AddSheet({
         user_id: user.id,
         parent_id: parent?.id || null,
         title: title.trim(),
-        node_type: nodeType,
+        node_type: parent ? "submaterial" : "material",
         emoji: emoji.trim(),
         card_color: cardColor,
       })
@@ -1412,6 +1576,88 @@ function AddSheet({
 
     if (error) return alert(error.message);
     onCreated(data.id);
+  }
+
+  async function createPlannedTool(e: FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    if (!plannerSourceId) {
+      setStatus("Pilih folder sumber terlebih dahulu.");
+      return;
+    }
+
+    const nodeType = kind as "study" | "flashcards" | "quiz";
+    const placementParentId = parent?.id || plannerSourceId;
+
+    setBusy(true);
+    setStatus(
+      nodeType === "study"
+        ? "Menyusun Study dari RAW/original..."
+        : nodeType === "quiz"
+          ? "Membuat kuis dari RAW/original..."
+          : "Membuat flashcard dari RAW/original..."
+    );
+
+    const { data, error } = await supabase
+      .from("study_nodes")
+      .insert({
+        user_id: user.id,
+        parent_id: placementParentId,
+        title: title.trim(),
+        node_type: nodeType,
+        emoji: emoji.trim(),
+        card_color: cardColor,
+      })
+      .select("id")
+      .single();
+
+    if (error || !data) {
+      setBusy(false);
+      setStatus("");
+      return alert(error?.message || "Gagal membuat.");
+    }
+
+    try {
+      const response =
+        nodeType === "study"
+          ? await fetch("/api/build-study", {
+              method: "POST",
+              headers: aiRequestHeaders(session, plannerSelection),
+              body: JSON.stringify({
+                studyNodeId: data.id,
+                sourceNodeIds: [plannerSourceId],
+                studyInstruction: plannerInstruction.trim(),
+                aiMode: plannerMode,
+                aiModel: plannerSelection.model,
+                aiEffort: plannerSelection.effort,
+              }),
+            })
+          : await fetch("/api/generate-study", {
+              method: "POST",
+              headers: aiRequestHeaders(session, plannerSelection),
+              body: JSON.stringify({
+                sourceNodeId: plannerSourceId,
+                targetNodeId: data.id,
+                mode: nodeType,
+                aiMode: plannerMode,
+                instruction: plannerInstruction.trim(),
+                count: Math.max(1, Math.min(20, Number(plannerCount || 5))),
+              }),
+            });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || "AI belum berhasil membuat konten.");
+      }
+
+      setBusy(false);
+      setStatus("");
+      onCreated(data.id);
+    } catch (error: any) {
+      await supabase.from("study_nodes").delete().eq("id", data.id);
+      setBusy(false);
+      setStatus(error?.message || "Gagal membuat konten.");
+    }
   }
 
   async function addFile(e: FormEvent) {
@@ -1473,13 +1719,15 @@ function AddSheet({
     onAdded();
   }
 
+  const isPlanner = kind === "study" || kind === "flashcards" || kind === "quiz";
+
   return (
     <div className="sheetBackdrop" onMouseDown={onClose}>
       <section className="addSheet explorerAddSheet" onMouseDown={(e) => e.stopPropagation()}>
         <div className="sheetHead">
           <div>
             <p className="eyebrow">TAMBAH</p>
-            <h2>{parent ? "Tambahkan ke " + parent.title : "Buat di Beranda"}</h2>
+            <h2>{parent ? "Tambahkan ke " + parent.title : "Buat dari +"}</h2>
           </div>
           <button className="closeBtn" onClick={onClose}>×</button>
         </div>
@@ -1569,15 +1817,15 @@ function AddSheet({
           </div>
         )}
 
-        {(kind === "folder" || kind === "study" || kind === "flashcards" || kind === "quiz") && (
-          <form className="stack" onSubmit={createNode}>
+        {kind === "folder" && (
+          <form className="stack" onSubmit={createFolder}>
             <label>
-              Nama
+              Nama folder
               <input
                 autoFocus
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder={kind === "folder" ? "Contoh: Pertemuan 1" : "Nama " + options.find((item) => item.value === kind)?.label}
+                placeholder="Contoh: Pertemuan 1"
               />
             </label>
             <div className="customizeMini">
@@ -1599,7 +1847,108 @@ function AddSheet({
               </div>
             </div>
             <button className="primary" disabled={busy || !title.trim()}>
-              {busy ? "Membuat..." : "Buat & buka"}
+              {busy ? "Membuat..." : "Buat folder"}
+            </button>
+          </form>
+        )}
+
+        {isPlanner && (
+          <form className="stack toolPlanner" onSubmit={createPlannedTool}>
+            <label>
+              Nama {kind === "study" ? "Study" : kind === "quiz" ? "Kuis" : "Flashcard"}
+              <input
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={
+                  kind === "study"
+                    ? "Contoh: Review CPOB Bab 1"
+                    : kind === "quiz"
+                      ? "Contoh: Kuis Farmasi"
+                      : "Contoh: Flashcard Farmakologi"
+                }
+              />
+            </label>
+
+            <label>
+              Sumber RAW / folder
+              <select value={plannerSourceId} onChange={(e) => setPlannerSourceId(e.target.value)}>
+                <option value="">Pilih folder sumber</option>
+                {plannerFolders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {(folder.emoji ? folder.emoji + " " : "") + folder.title}
+                  </option>
+                ))}
+              </select>
+              <small className="muted">AI membaca RAW/original dari folder ini. Versi tertata hanya bantuan.</small>
+            </label>
+
+            <label>
+              Fokus / instruksi (opsional)
+              <textarea
+                rows={3}
+                value={plannerInstruction}
+                onChange={(e) => setPlannerInstruction(e.target.value)}
+                placeholder={
+                  kind === "study"
+                    ? "Contoh: fokus konsep yang sering keluar ujian"
+                    : "Contoh: fokus definisi, mekanisme, dan perbedaan penting"
+                }
+              />
+            </label>
+
+            {kind !== "study" && (
+              <label>
+                Jumlah {kind === "quiz" ? "soal" : "kartu"}
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={plannerCount}
+                  onChange={(e) => setPlannerCount(Number(e.target.value || 1))}
+                />
+              </label>
+            )}
+
+            <div className="plannerModelRow">
+              <div>
+                <small className="createLabel">MODEL</small>
+                <AiModePicker
+                  value={plannerSelection}
+                  onChange={setPlannerSelection}
+                  action="study"
+                  allowLocal={false}
+                />
+              </div>
+            </div>
+
+            <div className="customizeMini plannerStyle">
+              <div>
+                <span className="fieldLabel">Emoji (opsional)</span>
+                <div className="emojiRow compact">
+                  {nodeEmojis.slice(0, 8).map((item) => (
+                    <button type="button" key={item} className={emoji === item ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji(item)}>{item}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="fieldLabel">Warna</span>
+                <div className="colorRow compact">
+                  {nodeColors.map((item) => (
+                    <button type="button" key={item.value} title={item.label} className={cardColor === item.value ? "colorChoice active" : "colorChoice"} data-color={item.value} onClick={() => setCardColor(item.value)} />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button className="primary" disabled={busy || !title.trim() || !plannerSourceId}>
+              {busy
+                ? status || "Membuat..."
+                : kind === "study"
+                  ? "Buat & susun Study"
+                  : kind === "quiz"
+                    ? "Buat Kuis sekarang"
+                    : "Buat Flashcard sekarang"}
             </button>
           </form>
         )}
@@ -1609,6 +1958,7 @@ function AddSheet({
     </div>
   );
 }
+
 
 function DatabasePage({
   session,
@@ -4248,9 +4598,11 @@ function PracticePage({
     if (aiSelection.model === "local") {
       setBusy(true);
       const scopeIds = collectSubtreeIds(nodes, node.parent_id);
-      const sourceEntries = entries.filter((item) => scopeIds.includes(item.node_id));
+      const sourceEntries = entries.filter(
+        (item) => scopeIds.includes(item.node_id) && item.source_type !== "transcript"
+      );
       const sentences = sourceEntries
-        .flatMap((entry) => entry.content.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
+        .flatMap((entry) => (entry.raw_content || entry.content).replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
         .map((sentence) => sentence.trim())
         .filter((sentence) => sentence.length >= 35 && sentence.length <= 260)
         .slice(0, 12);

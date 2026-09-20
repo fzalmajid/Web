@@ -43,8 +43,14 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     studyNodeId = String(body.studyNodeId || "");
-    const sourceNodeIds = Array.isArray(body.sourceNodeIds)
-      ? Array.from(new Set(body.sourceNodeIds.map((value: unknown) => String(value)).filter(Boolean)))
+    const sourceNodeIds: string[] = Array.isArray(body.sourceNodeIds)
+      ? Array.from(
+          new Set<string>(
+            body.sourceNodeIds
+              .map((value: unknown) => String(value))
+              .filter((value: string) => Boolean(value))
+          )
+        )
       : [];
     const aiMode = normalizeAiMode(body.aiMode);
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
@@ -98,25 +104,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const sourceScopeIds = Array.from(
+      new Set(
+        sourceNodeIds.flatMap((sourceId) =>
+          collectSubtreeIds(allNodes || [], sourceId)
+        )
+      )
+    );
+
     const { data: entries, error: entriesError } = await supabase
       .from("knowledge_entries")
-      .select("id,node_id,title,category,content,raw_content")
-      .in("node_id", sourceNodeIds)
+      .select("id,node_id,title,category,content,raw_content,source_type")
+      .in("node_id", sourceScopeIds)
       .order("created_at", { ascending: true });
 
     if (entriesError) throw entriesError;
     if (!entries?.length) {
-      return NextResponse.json({ error: "Folder yang dipilih belum memiliki isi teks/transkrip." }, { status: 400 });
+      return NextResponse.json({ error: "Folder yang dipilih belum memiliki sumber RAW yang dapat dipakai." }, { status: 400 });
     }
 
     const modeLimit = aiMode === "high" ? 140000 : aiMode === "medium" ? 100000 : 70000;
     const perEntryLimit = aiMode === "high" ? 12000 : aiMode === "medium" ? 9000 : 6500;
-    const titles = new Map(selectedNodes.map((node: any) => [node.id, node.title]));
+    const titles = new Map((allNodes || []).map((node: any) => [node.id, node.title]));
     const contextParts: string[] = [];
     let used = 0;
 
     for (const entry of entries) {
       if (used >= modeLimit) break;
+      if (entry.source_type === "transcript") continue;
       const folderTitle = titles.get(entry.node_id) || "Folder";
       const bodyText = String(entry.raw_content || entry.content || "").slice(0, perEntryLimit);
       const part = `[FOLDER RAW: ${folderTitle} | ${entry.title || "Materi"}]
