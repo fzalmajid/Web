@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { geminiGenerateDetailed, parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
@@ -21,6 +21,8 @@ export async function POST(req: NextRequest) {
     const targetNodeId = String(body.targetNodeId || sourceNodeId || "");
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
+    const instruction = String(body.instruction || "").trim().slice(0, 2000);
+    const requestedCount = Math.max(1, Math.min(20, Number(body.count || 0) || 0));
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const geminiAuth = geminiUserAuthFromHeaders(req.headers);
     const ownGemini = geminiAuth.ownGemini;
@@ -61,7 +63,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
-    const counts = aiMode === "high" ? { cards: 8, quiz: 5 } : aiMode === "medium" ? { cards: 6, quiz: 4 } : { cards: 4, quiz: 3 };
+    const defaultCounts =
+      aiMode === "high"
+        ? { cards: 8, quiz: 5 }
+        : aiMode === "medium"
+          ? { cards: 6, quiz: 4 }
+          : { cards: 4, quiz: 3 };
+    const counts = {
+      cards: mode === "flashcards" && requestedCount ? requestedCount : defaultCounts.cards,
+      quiz: mode === "quiz" && requestedCount ? requestedCount : defaultCounts.quiz,
+    };
     const requested = mode === "flashcards"
       ? "Buat flashcards saja. quizzes harus berupa array kosong."
       : mode === "quiz"
@@ -73,16 +84,21 @@ export async function POST(req: NextRequest) {
 
 ${context}
 
+INSTRUKSI USER:
+${instruction || "(Tidak ada instruksi tambahan.)"}
+
 ${requested}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdown:
 {
   "flashcards":[{"front":"...","back":"..."}],
   "quizzes":[{"question":"...","choices":["A","B","C","D"],"correct_answer":"...","explanation":"..."}]
 }
 
-Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
+Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? counts.quiz + " soal" : counts.cards + " flashcard dan " + counts.quiz + " soal"}. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE RAW/ORIGINAL. Ikuti INSTRUKSI USER selama masih dapat dibuktikan dari sumber.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
     }], "Jangan gunakan pengetahuan di luar database yang diberikan.", {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
+      responseMimeType: "application/json",
+      maxOutputTokens: aiMode === "high" ? 16384 : 12288,
       apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
@@ -90,7 +106,7 @@ Maksimal ${counts.cards} flashcard dan ${counts.quiz} soal. Semua pertanyaan, ja
     await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, geminiAuth.provider);
     const raw = geminiResult.text;
 
-    const parsed = JSON.parse(cleanJsonText(raw));
+    const parsed = parseJsonSafely(raw);
     const uid = userData.user.id;
 
     const flashcards = mode === "quiz" ? [] : Array.isArray(parsed.flashcards)
