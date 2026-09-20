@@ -31,15 +31,15 @@ export function citationInstruction(
 
   const styleRule: Record<Exclude<CitationStyle, "none">, string> = {
     apa:
-      "APA 7: sitasi dalam teks berbentuk (Nama, Tahun); untuk 3+ penulis gunakan (Nama et al., Tahun). Jika sumber punya tahun asli dan tahun terjemahan/edisi, wajib tulis tahun asli/tahun terjemahan, misalnya (Jung, 1921/2025), bukan (Jung, 2025).",
+      "APA 7: sitasi dalam teks berbentuk (Nama, Tahun); untuk 3+ penulis gunakan (Nama et al., Tahun). Hanya untuk karya yang diterjemahkan, dicetak ulang, diterbitkan ulang, atau diterbitkan kembali, tulis tahun karya asli lalu tahun versi yang dibaca dengan garis miring: (Nama, TahunAsli/TahunVersi).",
     harvard:
-      "Harvard author-date: sitasi dalam teks berbentuk (Nama, Tahun); untuk 3+ penulis gunakan (Nama et al., Tahun). Jika sumber punya tahun asli dan tahun terjemahan/edisi, wajib tulis tahun asli/tahun terjemahan, misalnya (Jung, 1921/2025), bukan (Jung, 2025).",
+      "Harvard author-date: sitasi dalam teks berbentuk (Nama, Tahun); untuk 3+ penulis gunakan (Nama et al., Tahun). Jika sumber adalah terjemahan, cetak ulang, terbitan ulang, atau terbitan kembali, pertahankan tahun asli dan tahun versi yang dibaca: (Nama, TahunAsli/TahunVersi).",
     vancouver:
       "Vancouver: sitasi dalam teks memakai nomor urut berbentuk (1), (2), dan seterusnya.",
     ieee:
       "IEEE: sitasi dalam teks memakai nomor urut berbentuk [1], [2], dan seterusnya.",
     chicago:
-      "Chicago Author-Date: sitasi dalam teks berbentuk (Nama Tahun); untuk 4+ penulis boleh gunakan et al. Jika sumber punya tahun asli dan tahun terjemahan/edisi, wajib tulis tahun asli/tahun terjemahan, misalnya (Jung 1921/2025), bukan (Jung 2025).",
+      "Chicago Author-Date: sitasi dalam teks berbentuk (Nama Tahun); untuk 4+ penulis boleh gunakan et al. Jika sumber adalah terjemahan, cetak ulang, terbitan ulang, atau terbitan kembali, pertahankan tahun asli dan tahun versi yang dibaca: (Nama TahunAsli/TahunVersi).",
   };
 
   const wantsInText = citationOutputs.includes("in-text");
@@ -56,7 +56,7 @@ export function citationInstruction(
     styleRule[citationStyle as Exclude<CitationStyle, "none">],
     outputRule,
     "Jangan mengarang nama penulis, tahun, judul, DOI, URL, atau metadata bibliografi. Gunakan hanya metadata yang benar-benar tersedia dari sumber. Jika penulis/tahun tidak tersedia, gunakan identitas sumber yang tersedia secara jujur dan jangan menebak.",
-    "STRICT YEAR RULE: jangan pernah membuang tahun publikasi asli ketika sumber juga memuat tahun terjemahan, cetak ulang, atau edisi. Pertahankan pasangan tahun dengan format original/edisi (contoh: 1921/2025). Di daftar pustaka, tulis tahun asli dan detail edisi/terjemahan yang tersedia.",
+    "ATURAN TAHUN: jangan menambahkan dua tahun hanya karena sebuah buku memiliki edisi baru. Gunakan pasangan TahunAsli/TahunVersi hanya bila sumber yang dipakai adalah terjemahan, cetak ulang, terbitan ulang, atau terbitan kembali dari karya yang sama, dan hanya jika kedua tahun benar-benar tersedia. Tahun asli ditulis lebih dahulu. Di daftar pustaka, gunakan metadata versi yang dibaca dan tambahkan keterangan karya asli sesuai format APA.",
     "Untuk sumber Database pribadi tanpa metadata bibliografi lengkap, gunakan judul dokumen/folder yang tersedia sebagai identitas sumber secara konsisten.",
   ].join("\n");
 }
