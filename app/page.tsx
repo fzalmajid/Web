@@ -8351,6 +8351,8 @@ function BottomAskBar({
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
   const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["ai", "database"]);
+  const [selectedSourceNodeIds, setSelectedSourceNodeIds] = useState<string[]>([]);
+  const [selectedSourceFileIds, setSelectedSourceFileIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
@@ -8394,6 +8396,9 @@ function BottomAskBar({
     mimeType: string;
     rawText: string;
     filePath: string;
+    ownsStorage?: boolean;
+    existingSourceFileId?: string | null;
+    sizeBytes?: number;
   } | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [linkInputOpen, setLinkInputOpen] = useState(false);
@@ -8601,6 +8606,17 @@ function BottomAskBar({
   }
 
   function scopedLocalEntries() {
+    const hasExplicit = selectedSourceNodeIds.length > 0 || selectedSourceFileIds.length > 0;
+    if (hasExplicit) {
+      const nodeIds = new Set<string>();
+      for (const nodeId of selectedSourceNodeIds) {
+        for (const id of collectSubtreeIds(nodes, nodeId)) nodeIds.add(id);
+      }
+      const fileIds = new Set(selectedSourceFileIds);
+      return entries.filter(
+        (item) => nodeIds.has(item.node_id) || (!!item.source_file_id && fileIds.has(item.source_file_id))
+      );
+    }
     if (!scopeNodeId) return entries;
     const ids = collectSubtreeIds(nodes, scopeNodeId);
     return entries.filter((item) => ids.includes(item.node_id));
@@ -9226,6 +9242,9 @@ function BottomAskBar({
       mimeType: extractedMime,
       rawText: extractedRaw,
       filePath,
+      ownsStorage: true,
+      existingSourceFileId: null,
+      sizeBytes: file.size,
     });
     setAttachMenuOpen(false);
     setAttachmentBusy(false);
@@ -9238,7 +9257,7 @@ function BottomAskBar({
 
   async function discardPendingAttachment() {
     const current = pendingAttachment;
-    if (current?.filePath) {
+    if (current?.filePath && current.ownsStorage !== false) {
       await supabase.storage.from("study-files").remove([current.filePath]);
     }
     setPendingAttachment(null);
@@ -9404,25 +9423,31 @@ function BottomAskBar({
   async function attachExplorerFile(fileId: string) {
     const source = files.find((item) => item.id === fileId);
     if (!source) return alert("File tidak ditemukan.");
+
     if (source.source_kind === "link" || source.source_url) {
-      return alert("Item ini adalah link. Gunakan tombol + lalu pilih Link.");
+      const rawUrl = source.source_url || source.file_path;
+      if (rawUrl) await prepareAskLink(rawUrl);
+      return;
     }
 
-    setAttachmentBusy(true);
-    setAttachmentStatus("Mengambil file dari Database...");
-    const { data, error } = await supabase.storage.from("study-files").download(source.file_path);
-    setAttachmentBusy(false);
-
-    if (error || !data) {
-      setAttachmentStatus("");
-      return alert(error?.message || "File dari Database tidak dapat dibaca.");
-    }
-
-    const draggedFile = new File([data], source.file_name, {
-      type: source.mime_type || data.type || "application/octet-stream",
+    const placeholder = new File([], source.file_name, {
+      type: source.mime_type || "application/octet-stream",
       lastModified: Date.now(),
     });
-    await processAskAttachment(draggedFile);
+
+    setPendingAttachment({
+      file: placeholder,
+      fileName: source.file_name,
+      mimeType: source.mime_type || "application/octet-stream",
+      rawText: source.raw_text || "",
+      filePath: source.file_path,
+      ownsStorage: false,
+      existingSourceFileId: source.id,
+      sizeBytes: Number(source.size_bytes || 0),
+    });
+    setAttachMenuOpen(false);
+    setAttachmentBusy(false);
+    setAttachmentStatus("File dari Database siap dipakai langsung oleh Tanya AI.");
   }
 
   async function handleAskDrop(event: any) {
@@ -9539,6 +9564,8 @@ function BottomAskBar({
         body: JSON.stringify({
           question,
           scopeNodeId,
+          sourceNodeIds: selectedSourceNodeIds,
+          sourceFileIds: selectedSourceFileIds,
           aiMode,
           sources: selectedSources,
           attachmentTitle:
@@ -9672,16 +9699,37 @@ function BottomAskBar({
         </button>
         <div className="askTopRow">
           <div className="askScope" title={scopeName}>{scopeName}</div>
-          <AiSourceModelBar
-            sources={selectedSources}
-            onSourcesChange={setSelectedSources}
-            selection={aiSelection}
-            onSelectionChange={setAiSelection}
-            action="ask"
-            context="chat"
-            compact
-            allowLocal
-          />
+          <div className="askTopControls">
+            <AiDatabaseSourcePicker
+              nodes={nodes}
+              files={files}
+              nodeIds={selectedSourceNodeIds}
+              fileIds={selectedSourceFileIds}
+              currentNodeId={scopeNodeId}
+              onChange={(next) => {
+                setSelectedSourceNodeIds(next.nodeIds);
+                setSelectedSourceFileIds(next.fileIds);
+                if (
+                  (next.nodeIds.length || next.fileIds.length) &&
+                  !selectedSources.includes("database")
+                ) {
+                  setSelectedSources((current) =>
+                    current.includes("database") ? current : [...current, "database"]
+                  );
+                }
+              }}
+            />
+            <AiSourceModelBar
+              sources={selectedSources}
+              onSourcesChange={setSelectedSources}
+              selection={aiSelection}
+              onSelectionChange={setAiSelection}
+              action="ask"
+              context="chat"
+              compact
+              allowLocal
+            />
+          </div>
         </div>
         <div className="askInputRow">
           <input
@@ -9825,33 +9873,47 @@ function BottomAskBar({
               <>
                 <div className="askAttachmentName">
                   <strong>{pendingAttachment.fileName}</strong>
-                  <small>{formatBytes(pendingAttachment.file.size)} · file asli + RAW siap dibaca AI</small>
+                  <small>{formatBytes(pendingAttachment.sizeBytes ?? pendingAttachment.file.size)} · file asli + RAW siap dibaca AI</small>
                 </div>
-                <div className="askVoiceSaveRow">
-                  <FolderTreePicker
-                    nodes={nodes}
-                    value={attachmentDbId}
-                    onChange={setAttachmentDbId}
-                    allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
-                    placeholder="Pilih folder"
-                  />
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={attachmentBusy}
-                    onClick={() => void discardPendingAttachment()}
-                  >
-                    Abaikan
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={attachmentBusy || !attachmentDbId}
-                    onClick={() => void savePendingAttachmentToDatabase()}
-                  >
-                    Simpan ke Database
-                  </button>
-                </div>
+                {pendingAttachment.existingSourceFileId ? (
+                  <div className="askExistingFileActions">
+                    <span>Sudah ada di Database · langsung dipakai sebagai lampiran</span>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={attachmentBusy}
+                      onClick={() => void discardPendingAttachment()}
+                    >
+                      Lepas
+                    </button>
+                  </div>
+                ) : (
+                  <div className="askVoiceSaveRow">
+                    <FolderTreePicker
+                      nodes={nodes}
+                      value={attachmentDbId}
+                      onChange={setAttachmentDbId}
+                      allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
+                      placeholder="Pilih folder"
+                    />
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={attachmentBusy}
+                      onClick={() => void discardPendingAttachment()}
+                    >
+                      Abaikan
+                    </button>
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={attachmentBusy || !attachmentDbId}
+                      onClick={() => void savePendingAttachmentToDatabase()}
+                    >
+                      Simpan ke Database
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>
