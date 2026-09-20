@@ -428,6 +428,70 @@ async function loadDatabaseRawAssets(
   return assets;
 }
 
+async function loadExplicitRawFiles(
+  supabase: any,
+  userId: string,
+  sourceFileIds: string[]
+): Promise<RawAsset[]> {
+  if (!sourceFileIds.length) return [];
+
+  const { data: sourceFiles } = await supabase
+    .from("source_files")
+    .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,raw_text,source_kind,source_url")
+    .eq("user_id", userId)
+    .in("id", sourceFileIds)
+    .limit(12);
+
+  const assets: RawAsset[] = [];
+  for (const file of sourceFiles || []) {
+    if (assets.length >= 5) break;
+
+    if (file.source_kind === "link" && file.source_url) {
+      const linked = await fetchExactRawLink(String(file.source_url));
+      if (linked) {
+        linked.origin = "database-link";
+        assets.push(linked);
+      } else if (file.raw_text) {
+        assets.push({
+          name: file.file_name || file.source_url,
+          mimeType: "text/plain",
+          rawText: String(file.raw_text).slice(0, 70000),
+          sourceUrl: String(file.source_url),
+          origin: "database-link",
+        });
+      }
+      continue;
+    }
+
+    const mimeType = normalizeRawMime(file.mime_type);
+    const size = Number(file.size_bytes || 0);
+    if (!supportsDirectBinary(mimeType) || size > 12 * 1024 * 1024) {
+      if (file.raw_text) {
+        assets.push({
+          name: file.file_name || "Database file",
+          mimeType: "text/plain",
+          rawText: String(file.raw_text).slice(0, 70000),
+          origin: "database-file",
+        });
+      }
+      continue;
+    }
+
+    const { data: blob } = await supabase.storage.from("study-files").download(file.file_path);
+    if (!blob || blob.size > 12 * 1024 * 1024) continue;
+    const buffer = Buffer.from(await blob.arrayBuffer());
+    assets.push({
+      name: file.file_name || "Database file",
+      mimeType,
+      data: buffer.toString("base64"),
+      rawText: file.raw_text ? String(file.raw_text).slice(0, 50000) : undefined,
+      origin: "database-file",
+    });
+  }
+
+  return assets;
+}
+
 async function loadCurrentRawAttachment(
   supabase: any,
   userId: string,
@@ -691,13 +755,25 @@ export async function POST(req: NextRequest) {
 
     const currentRawAssets = await loadCurrentRawAttachment(supabase, userData.user.id, body);
     const databaseRawAssets = useDatabase
-      ? await loadDatabaseRawAssets(
-          supabase,
-          data,
-          userData.user.id,
-          scopeNodeId,
-          question.trim()
-        )
+      ? sourceFileIds.length
+        ? await loadExplicitRawFiles(supabase, userData.user.id, sourceFileIds)
+        : sourceNodeIds.length === 1
+          ? await loadDatabaseRawAssets(
+              supabase,
+              data,
+              userData.user.id,
+              sourceNodeIds[0],
+              question.trim()
+            )
+          : sourceNodeIds.length > 1
+            ? []
+            : await loadDatabaseRawAssets(
+                supabase,
+                data,
+                userData.user.id,
+                scopeNodeId,
+                question.trim()
+              )
       : [];
 
     let rawBinaryBudget = 18 * 1024 * 1024;
