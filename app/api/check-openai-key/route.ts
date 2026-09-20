@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       valid: true,
       availableModels: available,
-      recommendedAvailable: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].filter((id) =>
+      recommendedAvailable: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"].filter((id) =>
         available.includes(id)
       ),
     });
@@ -52,3 +52,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Gagal memverifikasi OpenAI." }, { status: 500 });
   }
 }
+
