@@ -4,6 +4,7 @@ import { geminiGenerateDetailed, parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } 
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { citationInstruction, normalizeCitationOptions } from "@/lib/citations";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -57,6 +58,18 @@ export async function POST(req: NextRequest) {
     const geminiAuth = geminiUserAuthFromHeaders(req.headers);
     const ownGemini = geminiAuth.ownGemini;
     const studyInstruction = String(body.studyInstruction || "").trim().slice(0, 2000);
+    const teachingDepth =
+      body.teachingDepth === "simple" || body.teachingDepth === "complex"
+        ? body.teachingDepth
+        : "medium";
+    const quizPerChapter = body.quizPerChapter !== false;
+    const customChapterTitles = Array.isArray(body.customChapterTitles)
+      ? body.customChapterTitles
+          .map((value: unknown) => String(value || "").trim().slice(0, 180))
+          .filter(Boolean)
+          .slice(0, 30)
+      : [];
+    const { citationStyle, citationOutputs } = normalizeCitationOptions(body);
     const allowedSourceKinds = new Set(["ai", "database", "web"]);
     const sourceKinds = Array.isArray(body.sourceKinds)
       ? Array.from(new Set(body.sourceKinds.map((value: unknown) => String(value)).filter((value: string) => allowedSourceKinds.has(value))))
@@ -193,6 +206,9 @@ ${bodyText}`;
           title: studyNode.title,
           overview: "",
           focus_instruction: studyInstruction,
+          teaching_depth: teachingDepth,
+          quiz_per_chapter: quizPerChapter,
+          custom_chapter_titles: customChapterTitles,
           status: "processing",
           error_message: null,
           updated_at: new Date().toISOString(),
@@ -214,11 +230,34 @@ ${bodyText}`;
     }
 
     const unitRange =
-      aiMode === "high"
-        ? "6-10"
-        : aiMode === "medium"
-          ? "5-8"
-          : "4-6";
+      customChapterTitles.length
+        ? String(customChapterTitles.length)
+        : teachingDepth === "complex"
+          ? "7-12"
+          : teachingDepth === "simple"
+            ? "3-5"
+            : "5-8";
+
+    const depthInstruction =
+      teachingDepth === "simple"
+        ? "GAYA PEMBAHASAN: SIMPEL. Jelaskan langsung ke inti dengan bahasa mudah, contoh seperlunya, hindari detail yang tidak penting."
+        : teachingDepth === "complex"
+          ? "GAYA PEMBAHASAN: KOMPLEKS. Jelaskan rinci dan mendalam: mekanisme, hubungan konsep, pengecualian, perbandingan, detail penting, dan konteks yang membantu penguasaan materi."
+          : "GAYA PEMBAHASAN: SEDANG. Jelaskan cukup lengkap dan terstruktur, tetap mudah diikuti tanpa terlalu dangkal atau terlalu detail.";
+
+    const chapterInstruction = customChapterTitles.length
+      ? [
+          "JUDUL BAB DITENTUKAN USER. Gunakan PERSIS judul dan urutan berikut sebagai unit utama:",
+          ...customChapterTitles.map((title: string, index: number) => (index + 1) + ". " + title),
+          "Jangan mengganti, menghapus, menambah, atau mengurutkan ulang judul tersebut. AI bertugas mengajarkan isi yang relevan untuk setiap judul.",
+        ].join("\n")
+      : "Judul bab boleh ditentukan AI berdasarkan urutan belajar terbaik.";
+
+    const quizInstruction = quizPerChapter
+      ? "QUIZ PER BAB: AKTIF. Setiap unit wajib memiliki tepat 1 recall pilihan ganda dengan 4 pilihan."
+      : "QUIZ PER BAB: NONAKTIF. Jangan membuat quiz/recall. Isi recall_question dengan string kosong, recall_choices dengan [], recall_correct_answer dan recall_explanation dengan string kosong.";
+
+    const citationRule = citationInstruction(citationStyle, citationOutputs);
 
     const geminiResult = await geminiGenerateDetailed(
       [{
@@ -233,6 +272,11 @@ ${sourceContext || "(Database tidak aktif.)"}
 
 INSTRUKSI KHUSUS USER:
 ${studyInstruction || "(Tidak ada. Pelajari seluruh materi relevan dari folder yang dipilih.)"}
+
+${depthInstruction}
+${chapterInstruction}
+${quizInstruction}
+${citationRule}
 
 Susun jalur belajar dari konsep paling mendasar ke yang lebih kompleks.
 ${aiModeInstruction(aiMode)}
@@ -259,18 +303,19 @@ Aturan wajib:
 - Jika instruksi user meminta fokus tertentu (misalnya hanya CPOB 2024), prioritaskan hanya materi yang sesuai fokus itu. Materi di luar fokus boleh disebut hanya bila benar-benar diperlukan sebagai konteks atau perbandingan agar fokus utama dipahami.
 - Jika INSTRUKSI KHUSUS USER kosong, pelajari seluruh materi relevan dari folder terpilih secara proporsional.
 - Jangan mengabaikan instruksi user selama masih dapat dipenuhi dari folder yang dipilih.
-- Tentukan sendiri kompleksitas materi:
-  - materi sederhana boleh dipecah per BAB saja (unit_level="chapter");
-  - materi kompleks boleh dipecah lebih kecil menjadi SUBBAB (unit_level="subchapter").
-- Buat sekitar ${unitRange} unit; boleh lebih sedikit jika materi memang pendek.
+- Ikuti GAYA PEMBAHASAN yang dipilih user.
+- Jika user memberikan JUDUL BAB, setiap judul harus menjadi tepat satu unit utama dengan title persis sama dan unit_level="chapter".
+- Jika user tidak memberikan judul bab, tentukan struktur sendiri:
+  - gaya simpel utamakan BAB saja;
+  - gaya sedang boleh memakai BAB/subbab bila membantu;
+  - gaya kompleks boleh dipecah lebih rinci menjadi BAB/SUBBAB.
+- Buat sekitar ${unitRange} unit; bila judul bab ditentukan user, jumlah unit harus sama dengan jumlah judul tersebut.
 - Urutkan prerequisite dahulu sebelum materi lanjutan.
 - teaching_text adalah ringkasan pengajaran yang cukup untuk belajar unit itu, bukan sekadar daftar judul.
 - Pertahankan istilah penting, definisi, perbandingan, angka, aturan, dan hubungan sebab-akibat dari sumber.
 - Jangan mengulang isi yang sama pada banyak unit.
-- Setiap unit memiliki tepat 1 recall_question pilihan ganda dengan 4 pilihan.
-- recall_question hanya menguji materi yang SUDAH diajarkan pada unit tersebut atau unit sebelumnya.
-- recall_correct_answer harus sama persis dengan salah satu recall_choices.
-- recall_explanation singkat dan membantu mengingat konsep.
+- Jika QUIZ PER BAB aktif: setiap unit memiliki tepat 1 recall_question pilihan ganda dengan 4 pilihan; recall_question hanya menguji materi yang SUDAH diajarkan; recall_correct_answer harus sama persis dengan salah satu recall_choices; recall_explanation singkat dan membantu mengingat konsep.
+- Jika QUIZ PER BAB nonaktif: jangan buat soal; seluruh field recall harus kosong sesuai instruksi.
 - Jangan bocorkan materi unit-unit berikutnya di unit sebelumnya.\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
       }],
       "Anda menyusun kurikulum belajar bertahap. Patuhi sumber AI / Database / Web yang diaktifkan user dan jangan memakai sumber yang dinonaktifkan.",
@@ -335,7 +380,7 @@ ${raw.slice(0, 50000)}`,
           study_path_id: pathRow.id,
           position: index + 1,
           unit_level: unit.unit_level === "subchapter" ? "subchapter" : "chapter",
-          title: String(unit.title || `Bagian ${index + 1}`).trim(),
+          title: String(customChapterTitles[index] || unit.title || `Bagian ${index + 1}`).trim(),
           teaching_text: String(unit.teaching_text || "").trim(),
           recall_question: String(unit.recall_question || "").trim(),
           recall_choices: choices,
@@ -345,14 +390,15 @@ ${raw.slice(0, 50000)}`,
           completed_at: null,
         };
       })
-      .filter(
-        (unit: any) =>
-          unit.title &&
-          unit.teaching_text &&
+      .filter((unit: any) => {
+        if (!unit.title || !unit.teaching_text) return false;
+        if (!quizPerChapter) return true;
+        return (
           unit.recall_question &&
           unit.recall_choices.length === 4 &&
           unit.recall_choices.includes(unit.recall_correct_answer)
-      );
+        );
+      });
 
     if (!units.length) {
       throw new Error("Gemini belum berhasil menyusun unit Study yang valid.");
@@ -377,6 +423,9 @@ ${raw.slice(0, 50000)}`,
         ai_effort: aiSelection.effort,
         overview,
         focus_instruction: studyInstruction,
+        teaching_depth: teachingDepth,
+        quiz_per_chapter: quizPerChapter,
+        custom_chapter_titles: customChapterTitles,
         status: "ready",
         error_message: null,
         updated_at: new Date().toISOString(),
