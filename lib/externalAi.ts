@@ -1,4 +1,4 @@
-import type { AiEffort } from "./aiModels";
+import { responseLengthInstruction, type AiEffort, type AiResponseLength } from "./aiModels";
 import type { GeminiUsage, GeminiWebSource } from "./gemini";
 
 export type ExternalAiAttachment = {
@@ -72,11 +72,22 @@ export async function openaiGenerateDetailed(options: {
   prompt: string;
   system?: string;
   effort?: AiEffort;
+  responseLength?: AiResponseLength;
+  maxOutputTokens?: number;
   web?: boolean;
   attachments?: ExternalAiAttachment[];
 }) {
   const key = String(options.apiKey || "").trim();
   if (!key) throw new ExternalAiError("OpenAI belum terhubung.", 400, "OPENAI_KEY_MISSING");
+
+  const effectiveSystem = [
+    options.system,
+    options.responseLength ? responseLengthInstruction(options.responseLength) : "",
+  ].filter(Boolean).join("\n\n");
+  const maxOutputTokens = Math.min(
+    32768,
+    Math.max(1536, Math.ceil(Number(options.maxOutputTokens || 8192) * 1.5))
+  );
 
   const effort =
     options.effort === "none" ||
@@ -96,7 +107,8 @@ export async function openaiGenerateDetailed(options: {
     },
     body: JSON.stringify({
       model: options.model,
-      instructions: options.system || undefined,
+      instructions: effectiveSystem || undefined,
+      max_output_tokens: maxOutputTokens,
       input: options.attachments?.length
         ? [{
             role: "user",
@@ -179,11 +191,21 @@ export async function anthropicGenerateDetailed(options: {
   prompt: string;
   system?: string;
   effort?: AiEffort;
+  responseLength?: AiResponseLength;
+  maxOutputTokens?: number;
   web?: boolean;
   attachments?: ExternalAiAttachment[];
 }) {
   const key = String(options.apiKey || "").trim();
   if (!key) throw new ExternalAiError("Claude belum terhubung.", 400, "ANTHROPIC_KEY_MISSING");
+
+  const effectiveSystem = [
+    options.system,
+    options.responseLength ? responseLengthInstruction(options.responseLength) : "",
+  ].filter(Boolean).join("\n\n");
+  const highBudget = options.effort === "xhigh" || options.effort === "max";
+  const baseMaxTokens = Number(options.maxOutputTokens || (highBudget ? 32768 : 8192));
+  const maxTokens = Math.min(32768, Math.max(1536, Math.ceil(baseMaxTokens * 1.5)));
 
   const supportsEffort =
     options.effort === "low" ||
@@ -201,8 +223,8 @@ export async function anthropicGenerateDetailed(options: {
     },
     body: JSON.stringify({
       model: options.model,
-      max_tokens: supportsEffort && (options.effort === "xhigh" || options.effort === "max") ? 32768 : 8192,
-      system: options.system || undefined,
+      max_tokens: maxTokens,
+      system: effectiveSystem || undefined,
       messages: [{
         role: "user",
         content: options.attachments?.length
