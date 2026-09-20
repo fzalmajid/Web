@@ -8190,3 +8190,75 @@ summary{
     border-radius:14px!important;
   }
 }
+
+
+/* Explorer asset cards: RAW notes follow the same visual pattern as files. */
+.explorerTextItem.explorerUnifiedCard{
+  padding:14px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  gap:8px!important;
+}
+.explorerTextItem.explorerUnifiedCard .dataHead{
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:flex-start!important;
+  justify-content:space-between!important;
+  gap:8px!important;
+  min-height:48px!important;
+}
+.explorerTextItem.explorerUnifiedCard .dataHead>div:first-child{
+  min-width:0!important;
+  flex:1 1 auto!important;
+}
+.explorerTextItem.explorerUnifiedCard .dataHead small{
+  display:block!important;
+  margin:0 0 4px!important;
+  color:var(--muted)!important;
+  font-size:.61rem!important;
+  line-height:1.2!important;
+}
+.explorerTextItem.explorerUnifiedCard .dataHead h3{
+  margin:0!important;
+  font-size:.92rem!important;
+  line-height:1.22!important;
+  font-weight:800!important;
+  display:-webkit-box!important;
+  -webkit-line-clamp:2!important;
+  -webkit-box-orient:vertical!important;
+  overflow:hidden!important;
+}
+.explorerTextItem.explorerUnifiedCard .mediaCardActions{
+  flex:0 0 auto!important;
+  display:flex!important;
+  align-items:flex-start!important;
+  justify-content:flex-end!important;
+  width:auto!important;
+  max-width:none!important;
+}
+.explorerTextItem.explorerUnifiedCard .mediaCardActions .iconDots{
+  width:30px!important;
+  min-width:30px!important;
+  height:30px!important;
+  min-height:30px!important;
+  padding:0!important;
+  border:1px solid var(--line)!important;
+  border-radius:9px!important;
+  background:var(--card)!important;
+}
+
+@media(max-width:767px){
+  .explorerTextItem.explorerUnifiedCard .dataHead h3{
+    white-space:normal!important;
+    overflow:visible!important;
+    text-overflow:clip!important;
+    overflow-wrap:anywhere!important;
+  }
+  .explorerTextItem.explorerUnifiedCard .mediaCardActions .iconDots{
+    width:40px!important;
+    min-width:40px!important;
+    height:40px!important;
+    min-height:40px!important;
+    border-radius:11px!important;
+  }
+}
