@@ -6738,8 +6738,29 @@ function normalizeRichTextSource(text: string) {
     .replace(/\r\n/g, "\n")
     .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
     .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
+    // Accept common LaTeX wrappers from AI output, but never leak them to UI.
+    .replace(/\\\[([\s\S]*?)\\\]/g, "$1")
+    .replace(/\\\(([\s\S]*?)\\\)/g, "$1")
+    .replace(/\$\$([^$\n]+)\$\$/g, "$1")
+    .replace(/\$([^$\n]+)\$/g, "$1")
+    // Convert the small LaTeX subset that commonly appears in science answers.
+    .replace(/\\left\b/g, "")
+    .replace(/\\right\b/g, "")
     .replace(/\\times\b/g, "×")
-    .replace(/\\cdot\b/g, "·");
+    .replace(/\\cdot\b/g, "·")
+    .replace(/\\Delta\b/g, "Δ")
+    .replace(/\\delta\b/g, "δ")
+    .replace(/\\mu\b/g, "μ")
+    .replace(/\\sigma\b/g, "σ")
+    .replace(/\\lambda\b/g, "λ")
+    .replace(/\\alpha\b/g, "α")
+    .replace(/\\beta\b/g, "β")
+    .replace(/\\gamma\b/g, "γ")
+    .replace(/\\theta\b/g, "θ")
+    .replace(/\\mathrm\{([^{}]+)\}/g, "$1")
+    .replace(/\\text\{([^{}]+)\}/g, "$1")
+    .replace(/\\operatorname\{([^{}]+)\}/g, "$1")
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "$1/$2");
 }
 
 function isAlphaNumeric(value: string) {
@@ -6795,23 +6816,38 @@ function renderScientificPlainText(value: string, keyPrefix: string) {
     if (
       char === "_" &&
       i > 0 &&
-      isAlphaNumeric(value[i - 1]) &&
-      i + 1 < value.length &&
-      isAlphaNumeric(value[i + 1])
+      /[A-Za-zÀ-ÿ0-9)\]}]/.test(value[i - 1] || "") &&
+      i + 1 < value.length
     ) {
+      let sub = "";
       let end = i + 1;
-      while (
-        end < value.length &&
-        /[A-Za-zÀ-ÿ0-9]/.test(value[end])
-      ) end++;
+      const next = value[i + 1];
 
-      const sub = value.slice(i + 1, end);
-      flush();
-      nodes.push(
-        <sub className="mathSub" key={keyPrefix + "-sub-" + key++}>{sub}</sub>
-      );
-      i = end - 1;
-      continue;
+      if (next === "{") {
+        const closeAt = value.indexOf("}", i + 2);
+        if (closeAt > i + 2) {
+          sub = value.slice(i + 2, closeAt);
+          end = closeAt + 1;
+        }
+      } else {
+        const match = value.slice(i + 1).match(/^[A-Za-zÀ-ÿ0-9/.,+-]+/);
+        if (match?.[0]) {
+          sub = match[0];
+          end = i + 1 + sub.length;
+        }
+      }
+
+      if (sub) {
+        flush();
+        const subKey = keyPrefix + "-sub-" + key++;
+        nodes.push(
+          <sub className="mathSub" key={subKey}>
+            {renderScientificPlainText(sub, subKey + "-inner")}
+          </sub>
+        );
+        i = end - 1;
+        continue;
+      }
     }
 
     // Superscript: x^2, e^(-kt), e^{−kt}. The raw caret is hidden.
