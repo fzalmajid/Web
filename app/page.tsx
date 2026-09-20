@@ -1914,7 +1914,7 @@ function AddSheet({
   onAdded: () => void;
 }) {
   const [kind, setKind] = useState<
-    "folder" | "file" | "link" | "text" | "recording" | "flashcards" | "quiz" | "study"
+    "folder" | "file" | "link" | "text" | "recording" | "flashcards" | "quiz" | "study" | "task"
   >("folder");
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("");
@@ -1946,6 +1946,19 @@ function AddSheet({
   const [plannerStudyDepth, setPlannerStudyDepth] = useState<"simple" | "medium" | "complex">("medium");
   const [plannerStudyQuizPerChapter, setPlannerStudyQuizPerChapter] = useState(true);
   const [plannerStudyChapterTitles, setPlannerStudyChapterTitles] = useState("");
+  const [taskType, setTaskType] = useState<"quiz" | "todo">("todo");
+  const [taskSubmissionUrl, setTaskSubmissionUrl] = useState("");
+  const [taskSubmissionFormat, setTaskSubmissionFormat] = useState<"none" | "pptx" | "docx" | "pdf" | "other">("none");
+  const [taskSubmissionOther, setTaskSubmissionOther] = useState("");
+  const [taskNotes, setTaskNotes] = useState("");
+  const [taskQuizItems, setTaskQuizItems] = useState<Array<{
+    type: "mcq" | "essay";
+    question: string;
+    choices: string[];
+  }>>([{ type: "essay", question: "", choices: ["", "", "", ""] }]);
+  const [taskTodoItems, setTaskTodoItems] = useState<Array<{ id: string; text: string; done: boolean }>>([
+    { id: crypto.randomUUID(), text: "", done: false },
+  ]);
   const plannerMode = legacyModeForSelection(plannerSelection);
 
   const plannerFolders = useMemo(
@@ -1974,6 +1987,7 @@ function AddSheet({
     { value: "study", label: "Study", hint: "Atur sumber + model lalu langsung susun Study" },
     { value: "flashcards", label: "Flashcard", hint: "Atur sumber + model lalu langsung buat kartu" },
     { value: "quiz", label: "Kuis", hint: "Atur sumber + model lalu langsung buat soal" },
+    { value: "task", label: "Tugas", hint: "Soal/quiz atau to-do + link pengumpulan + format file" },
   ] as const;
 
   async function createFolder(e: FormEvent) {
@@ -1997,6 +2011,88 @@ function AddSheet({
 
     if (error) return alert(error.message);
     onCreated(data.id);
+  }
+
+  async function createTask(e: FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+
+    const cleanedQuizItems = taskQuizItems
+      .filter((item) => item.question.trim())
+      .map((item) => ({
+        type: item.type,
+        question: item.question.trim(),
+        choices: item.type === "mcq"
+          ? item.choices.map((choice) => choice.trim()).filter(Boolean)
+          : [],
+      }));
+
+    const cleanedTodoItems = taskTodoItems
+      .filter((item) => item.text.trim())
+      .map((item) => ({ ...item, text: item.text.trim(), done: Boolean(item.done) }));
+
+    if (taskType === "quiz" && !cleanedQuizItems.length) {
+      setStatus("Tambahkan minimal satu pertanyaan tugas.");
+      return;
+    }
+    if (taskType === "quiz" && cleanedQuizItems.some((item) => item.type === "mcq" && item.choices.length < 2)) {
+      setStatus("Pertanyaan PG perlu minimal dua pilihan.");
+      return;
+    }
+    if (taskType === "todo" && !cleanedTodoItems.length) {
+      setStatus("Tambahkan minimal satu item to-do.");
+      return;
+    }
+    if (taskSubmissionFormat === "other" && !taskSubmissionOther.trim()) {
+      setStatus("Tulis format file pengumpulan.");
+      return;
+    }
+
+    setBusy(true);
+    setStatus("Membuat Tugas...");
+    const { data: nodeRow, error: nodeError } = await supabase
+      .from("study_nodes")
+      .insert({
+        user_id: user.id,
+        parent_id: parent?.id || null,
+        title: title.trim(),
+        node_type: "task",
+        emoji: emoji.trim() || "📝",
+        card_color: cardColor,
+      })
+      .select("id")
+      .single();
+
+    if (nodeError || !nodeRow) {
+      setBusy(false);
+      setStatus("");
+      return alert(nodeError?.message || "Gagal membuat Tugas.");
+    }
+
+    const { error: taskError } = await supabase.from("study_tasks").insert({
+      user_id: user.id,
+      node_id: nodeRow.id,
+      task_type: taskType,
+      submission_url: taskSubmissionUrl.trim(),
+      submission_format: taskSubmissionFormat,
+      submission_format_other: taskSubmissionFormat === "other" ? taskSubmissionOther.trim() : "",
+      notes: taskNotes.trim(),
+      quiz_items: taskType === "quiz" ? cleanedQuizItems : [],
+      todo_items: taskType === "todo" ? cleanedTodoItems : [],
+      responses: {},
+      completed: false,
+    });
+
+    if (taskError) {
+      await supabase.from("study_nodes").delete().eq("id", nodeRow.id);
+      setBusy(false);
+      setStatus("");
+      return alert(taskError.message);
+    }
+
+    setBusy(false);
+    setStatus("");
+    onCreated(nodeRow.id);
   }
 
   async function createPlannedTool(e: FormEvent) {
@@ -2353,6 +2449,231 @@ function AddSheet({
             </div>
             <button className="primary" disabled={busy || !title.trim()}>
               {busy ? "Membuat..." : "Buat folder"}
+            </button>
+          </form>
+        )}
+
+        {kind === "task" && (
+          <form className="stack taskCreateForm" onSubmit={createTask}>
+            <label>
+              Nama Tugas
+              <input
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Contoh: Tugas Pertemuan 3"
+              />
+            </label>
+
+            <div className="taskTypeBlock">
+              <span className="fieldLabel">Jenis tugas</span>
+              <div className="taskTypeChoices">
+                <button
+                  type="button"
+                  className={taskType === "quiz" ? "active" : ""}
+                  onClick={() => setTaskType("quiz")}
+                >
+                  <strong>Soal / Quiz</strong>
+                  <small>Pertanyaan bisa PG atau Essay</small>
+                </button>
+                <button
+                  type="button"
+                  className={taskType === "todo" ? "active" : ""}
+                  onClick={() => setTaskType("todo")}
+                >
+                  <strong>To-do list</strong>
+                  <small>Checklist hal yang harus dilakukan</small>
+                </button>
+              </div>
+            </div>
+
+            <label>
+              Link pengumpulan <span className="muted">opsional</span>
+              <input
+                type="url"
+                value={taskSubmissionUrl}
+                onChange={(e) => setTaskSubmissionUrl(e.target.value)}
+                placeholder="Google Classroom, Google Drive, LMS, atau link lain"
+              />
+            </label>
+
+            <div className="taskSubmissionBlock">
+              <span className="fieldLabel">File yang dikumpulkan</span>
+              <div className="taskFormatChoices">
+                {[
+                  { value: "none" as const, label: "Tidak ditentukan" },
+                  { value: "pptx" as const, label: "PPT / PPTX" },
+                  { value: "docx" as const, label: "Word / DOCX" },
+                  { value: "pdf" as const, label: "PDF" },
+                  { value: "other" as const, label: "Lainnya" },
+                ].map((item) => (
+                  <button
+                    type="button"
+                    key={item.value}
+                    className={taskSubmissionFormat === item.value ? "active" : ""}
+                    onClick={() => setTaskSubmissionFormat(item.value)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              {taskSubmissionFormat === "other" && (
+                <input
+                  value={taskSubmissionOther}
+                  onChange={(e) => setTaskSubmissionOther(e.target.value)}
+                  placeholder="Contoh: XLSX, ZIP, video MP4"
+                />
+              )}
+            </div>
+
+            {taskType === "quiz" ? (
+              <div className="taskBuilderList">
+                <span className="fieldLabel">Pertanyaan tugas</span>
+                {taskQuizItems.map((item, index) => (
+                  <article className="taskBuilderCard" key={index}>
+                    <div className="taskBuilderHead">
+                      <strong>Soal {index + 1}</strong>
+                      <div className="quizKindTabs compactKinds">
+                        <button
+                          type="button"
+                          className={item.type === "mcq" ? "active" : ""}
+                          onClick={() =>
+                            setTaskQuizItems((current) =>
+                              current.map((entry, i) => i === index ? { ...entry, type: "mcq" } : entry)
+                            )
+                          }
+                        >PG</button>
+                        <button
+                          type="button"
+                          className={item.type === "essay" ? "active" : ""}
+                          onClick={() =>
+                            setTaskQuizItems((current) =>
+                              current.map((entry, i) => i === index ? { ...entry, type: "essay" } : entry)
+                            )
+                          }
+                        >Essay</button>
+                      </div>
+                      {taskQuizItems.length > 1 && (
+                        <button
+                          type="button"
+                          className="dangerSmall"
+                          onClick={() => setTaskQuizItems((current) => current.filter((_, i) => i !== index))}
+                        >Hapus</button>
+                      )}
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={item.question}
+                      onChange={(e) =>
+                        setTaskQuizItems((current) =>
+                          current.map((entry, i) => i === index ? { ...entry, question: e.target.value } : entry)
+                        )
+                      }
+                      placeholder="Tulis pertanyaan tugas..."
+                    />
+                    {item.type === "mcq" && (
+                      <div className="taskChoiceInputs">
+                        {item.choices.map((choice, choiceIndex) => (
+                          <input
+                            key={choiceIndex}
+                            value={choice}
+                            onChange={(e) =>
+                              setTaskQuizItems((current) =>
+                                current.map((entry, i) =>
+                                  i === index
+                                    ? {
+                                        ...entry,
+                                        choices: entry.choices.map((value, ci) => ci === choiceIndex ? e.target.value : value),
+                                      }
+                                    : entry
+                                )
+                              )
+                            }
+                            placeholder={"Pilihan " + String.fromCharCode(65 + choiceIndex)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                ))}
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() =>
+                    setTaskQuizItems((current) => [
+                      ...current,
+                      { type: "essay", question: "", choices: ["", "", "", ""] },
+                    ])
+                  }
+                >+ Tambah pertanyaan</button>
+              </div>
+            ) : (
+              <div className="taskBuilderList">
+                <span className="fieldLabel">To-do list</span>
+                {taskTodoItems.map((item, index) => (
+                  <div className="taskTodoEditRow" key={item.id}>
+                    <input
+                      value={item.text}
+                      onChange={(e) =>
+                        setTaskTodoItems((current) =>
+                          current.map((entry, i) => i === index ? { ...entry, text: e.target.value } : entry)
+                        )
+                      }
+                      placeholder={index === 0 ? "Contoh: beli buku bersampul coklat" : "Item berikutnya..."}
+                    />
+                    {taskTodoItems.length > 1 && (
+                      <button
+                        type="button"
+                        className="dangerSmall"
+                        onClick={() => setTaskTodoItems((current) => current.filter((_, i) => i !== index))}
+                      >×</button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() =>
+                    setTaskTodoItems((current) => [
+                      ...current,
+                      { id: crypto.randomUUID(), text: "", done: false },
+                    ])
+                  }
+                >+ Tambah to-do</button>
+              </div>
+            )}
+
+            <label>
+              Catatan / instruksi <span className="muted">opsional</span>
+              <textarea
+                rows={3}
+                value={taskNotes}
+                onChange={(e) => setTaskNotes(e.target.value)}
+                placeholder="Instruksi dosen, ketentuan tugas, deadline tertulis, dll."
+              />
+            </label>
+
+            <div className="customizeMini plannerStyle">
+              <div>
+                <span className="fieldLabel">Emoji (opsional)</span>
+                <div className="emojiRow compact">
+                  {nodeEmojis.slice(0, 8).map((item) => (
+                    <button type="button" key={item} className={emoji === item ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji(item)}>{item}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="fieldLabel">Warna</span>
+                <div className="colorRow compact">
+                  {nodeColors.map((item) => (
+                    <button type="button" key={item.value} title={item.label} className={cardColor === item.value ? "colorChoice active" : "colorChoice"} data-color={item.value} onClick={() => setCardColor(item.value)} />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button className="primary" disabled={busy || !title.trim()}>
+              {busy ? "Membuat..." : "Buat Tugas"}
             </button>
           </form>
         )}
