@@ -845,7 +845,6 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                   if (!hasExplorerDragItem(event)) return;
                   event.preventDefault();
                   setBreadcrumbDropId("__root__");
-                  springOpenBreadcrumb(null);
                 }}
                 onDragOver={(event) => {
                   if (!hasExplorerDragItem(event)) return;
@@ -864,17 +863,23 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                 <span className="pathSegment" key={item.id}>
                   <b className="pathSlash">/</b>
                   <button
-                    className={breadcrumbDropId === item.id ? "pathCrumb active" : "pathCrumb"}
-                    data-rb-drop-target={item.id}
+                    className={
+                      item.id === current.id
+                        ? "pathCrumb currentDropUnavailable"
+                        : breadcrumbDropId === item.id
+                          ? "pathCrumb dropAvailable active"
+                          : "pathCrumb dropAvailable"
+                    }
+                    data-rb-drop-target={item.id === current.id ? undefined : item.id}
+                    aria-disabled={item.id === current.id}
                     onClick={() => setCurrentId(item.id)}
                     onDragEnter={(event) => {
-                      if (!readExplorerDragItem(event)) return;
+                      if (item.id === current.id || !hasExplorerDragItem(event)) return;
                       event.preventDefault();
                       setBreadcrumbDropId(item.id);
-                      springOpenBreadcrumb(item.id);
                     }}
                     onDragOver={(event) => {
-                      if (!readExplorerDragItem(event)) return;
+                      if (item.id === current.id || !hasExplorerDragItem(event)) return;
                       event.preventDefault();
                       event.dataTransfer.dropEffect = "move";
                     }}
@@ -882,7 +887,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                       clearBreadcrumbHover();
                       setBreadcrumbDropId(null);
                     }}
-                    onDrop={(event) => void dropOnBreadcrumb(event, item.id)}
+                    onDrop={(event) => {
+                      if (item.id === current.id) return;
+                      void dropOnBreadcrumb(event, item.id);
+                    }}
                   >
                     {item.title}
                   </button>
