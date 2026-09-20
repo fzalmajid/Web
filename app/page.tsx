@@ -1816,9 +1816,13 @@ async function downloadStorageObject(bucket: string, path: string, fileName: str
 function DatabaseFileCard({
   file,
   onDelete,
+  draggable = false,
+  onDragStart,
 }: {
   file: SourceFile;
   onDelete: () => void;
+  draggable?: boolean;
+  onDragStart?: (event: any) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -1854,7 +1858,7 @@ function DatabaseFileCard({
   }
 
   return (
-    <article className="dataCard mediaDataCard">
+    <article className="dataCard mediaDataCard" draggable={draggable} onDragStart={onDragStart}>
       <div className="dataHead">
         <div>
           <small>
@@ -1935,9 +1939,13 @@ function DatabaseFileCard({
 function DatabaseStoredRecording({
   item,
   onDelete,
+  draggable = false,
+  onDragStart,
 }: {
   item: Recording;
   onDelete: () => void;
+  draggable?: boolean;
+  onDragStart?: (event: any) => void;
 }) {
   const [audioUrl, setAudioUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1965,7 +1973,7 @@ function DatabaseStoredRecording({
   const fileName = item.title.replace(/[^a-zA-Z0-9._-]+/g, "_") + "." + ext;
 
   return (
-    <article className="dataCard mediaDataCard recordingInDatabase">
+    <article className="dataCard mediaDataCard recordingInDatabase" draggable={draggable} onDragStart={onDragStart}>
       <div className="dataHead">
         <div>
           <small>Rekaman audio · {formatTime(item.duration_seconds || 0)}</small>
