@@ -4601,7 +4601,20 @@ function BottomAskBar({
     fileName: string;
     mimeType: string;
     rawText: string;
+    filePath: string;
   } | null>(null);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [linkInputOpen, setLinkInputOpen] = useState(false);
+  const [linkDraft, setLinkDraft] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkStatus, setLinkStatus] = useState("");
+  const [pendingLink, setPendingLink] = useState<{
+    url: string;
+    title: string;
+    mimeType: string;
+    rawText: string;
+  } | null>(null);
+  const [pendingTextSave, setPendingTextSave] = useState<string | null>(null);
 
   const askVoiceDatabases = useMemo(() => {
     const all = nodes.filter((item) => item.node_type === "database");
@@ -4656,6 +4669,116 @@ function BottomAskBar({
       window.removeEventListener("resize", update);
     };
   }, []);
+
+  function firstUrl(value: string) {
+    return value.match(/https?:\/\/[^\s<>"')\]]+/i)?.[0] || "";
+  }
+
+  function wantsDatabaseSave(value: string) {
+    const text = value.toLowerCase();
+    const saveWord = /(masukin|masukkan|masukkin|simpan|save|tambahkan|tambahin)/i.test(text);
+    return saveWord && /(database|\bdb\b)/i.test(text);
+  }
+
+  function suggestedDatabaseId(value: string) {
+    const lower = value.toLowerCase();
+    const exact = askVoiceDatabases
+      .slice()
+      .sort((a, b) => b.title.length - a.title.length)
+      .find((item) => lower.includes(item.title.toLowerCase()));
+    return exact?.id || attachmentDbId || askVoiceDatabases[0]?.id || "";
+  }
+
+  async function prepareAskLink(rawUrl: string) {
+    const url = rawUrl.trim();
+    if (!url) return;
+    setLinkBusy(true);
+    setLinkStatus("Membaca link RAW langsung...");
+    const response = await fetch("/api/ask-link", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({ url }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setLinkBusy(false);
+
+    if (!response.ok) {
+      setLinkStatus("");
+      alert(result.error || "Link tidak dapat dibaca.");
+      return;
+    }
+
+    setPendingLink({
+      url: String(result.url || url),
+      title: String(result.title || url),
+      mimeType: String(result.mimeType || "text/html"),
+      rawText: String(result.rawText || ""),
+    });
+    setLinkDraft("");
+    setLinkInputOpen(false);
+    setAttachMenuOpen(false);
+    setLinkStatus("Link RAW siap dipakai AI. Belum disimpan ke Database.");
+  }
+
+  function discardPendingLink() {
+    setPendingLink(null);
+    setLinkStatus("Link diabaikan.");
+  }
+
+  async function savePendingLinkToDatabase() {
+    if (!pendingLink || !attachmentDbId) return;
+    const target = askVoiceDatabases.find((item) => item.id === attachmentDbId);
+    if (!target) return;
+
+    setLinkBusy(true);
+    setLinkStatus("Menyimpan link RAW ke Database...");
+    const response = await fetch("/api/import-link", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({ nodeId: target.id, url: pendingLink.url }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setLinkBusy(false);
+
+    if (!response.ok) {
+      setLinkStatus("");
+      return alert(result.error || "Gagal menyimpan link.");
+    }
+
+    setPendingLink(null);
+    setLinkStatus("Link RAW sudah masuk Database: " + target.title + ".");
+    onChange();
+  }
+
+  async function saveQuestionTextToDatabase() {
+    const text = String(pendingTextSave || question).trim();
+    if (!text || !attachmentDbId) return;
+    const target = askVoiceDatabases.find((item) => item.id === attachmentDbId);
+    if (!target) return;
+
+    setAttachmentBusy(true);
+    const { error } = await supabase.from("knowledge_entries").insert({
+      user_id: session.user.id,
+      node_id: target.id,
+      title: "Catatan dari AI Bar - " + new Date().toLocaleString("id-ID"),
+      category: "Teks dari AI Bar",
+      content: text,
+      raw_content: text,
+      source_type: "manual",
+    });
+    setAttachmentBusy(false);
+
+    if (error) return alert(error.message);
+    setPendingTextSave(null);
+    setAttachmentStatus("Teks sudah masuk Database: " + target.title + ".");
+    onChange();
+  }
 
   function startDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     event.preventDefault();
