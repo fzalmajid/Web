@@ -5979,7 +5979,7 @@ function StudyPage({
                     <div className="studyUnitBody">
                       <div className="studyTeaching"><RichText text={unit.teaching_text} /></div>
                       {path?.quiz_per_chapter !== false && (
-                        <div className="recallPassed">Recall selesai · <RichText text={unit.recall_explanation} /></div>
+                        <div className="recallPassed">Recall selesai · Nilai 100/100 · <RichText text={unit.recall_explanation} /></div>
                       )}
                     </div>
                   </details>
@@ -6028,13 +6028,13 @@ function StudyPage({
 
                       {feedback === "wrong" && (
                         <div className="recallFeedback wrong">
-                          Belum tepat. Baca lagi bagian di atas, lalu coba sekali lagi.
+                          <strong>Belum tepat · 0/100.</strong> Baca lagi bagian di atas, lalu coba sekali lagi.
                         </div>
                       )}
 
                       {feedback === "correct" && (
                         <div className="recallFeedback correct">
-                          Benar. <RichText text={unit.recall_explanation} />
+                          <strong>Benar · 100/100.</strong> <RichText text={unit.recall_explanation} />
                         </div>
                       )}
 
@@ -7333,6 +7333,7 @@ function PracticePage({
 }) {
   type AiGradeResult = {
     gradable: boolean;
+    verdict?: "benar" | "kurang_tepat" | "salah" | "tidak_dapat_dinilai";
     correct: boolean;
     score: number;
     feedback: string;
@@ -7345,8 +7346,7 @@ function PracticePage({
   const localQuizzes = quizzes.filter((item) => item.scope_node_id === node.id);
 
   const fixedMcq = localQuizzes.filter((item) => item.quiz_type === "mcq" && item.grading_mode === "fixed");
-  const fixedEssay = localQuizzes.filter((item) => item.quiz_type === "essay" && item.grading_mode === "fixed");
-  const aiQuizzes = localQuizzes.filter((item) => item.grading_mode === "ai");
+  const aiQuizzes = localQuizzes.filter((item) => item.grading_mode === "ai" || item.quiz_type === "essay");
   const aiMcq = aiQuizzes.filter((item) => item.quiz_type === "mcq");
   const aiEssay = aiQuizzes.filter((item) => item.quiz_type === "essay");
 
@@ -7377,22 +7377,19 @@ function PracticePage({
   }, [node.id, node.parent_id]);
 
   const answeredMcq = [...fixedMcq, ...aiMcq].filter((quiz) => answers[quiz.id]).length;
-  const answeredEssay = [...fixedEssay, ...aiEssay].filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
+  const answeredEssay = aiEssay.filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
   const totalQuestions = localQuizzes.length;
   const answeredTotal = answeredMcq + answeredEssay;
   const allAnswered = totalQuestions > 0 && answeredTotal === totalQuestions;
 
   const correctFixedMcq = fixedMcq.filter((quiz) => answers[quiz.id] === quiz.correct_answer).length;
-  const correctFixedEssay = fixedEssay.filter(
-    (quiz) => normalizeQuizAnswer(essayAnswers[quiz.id] || "") === normalizeQuizAnswer(quiz.correct_answer || "")
-  ).length;
   const gradableAiResults = aiQuizzes
     .map((quiz) => aiResults[quiz.id])
     .filter((item): item is AiGradeResult => !!item && item.gradable);
   const correctAi = gradableAiResults.filter((item) => item.correct).length;
-  const gradedCount = fixedMcq.length + fixedEssay.length + gradableAiResults.length;
+  const gradedCount = fixedMcq.length + gradableAiResults.length;
   const totalScorePoints =
-    (correctFixedMcq + correctFixedEssay) * 100 +
+    correctFixedMcq * 100 +
     gradableAiResults.reduce((sum, item) => sum + item.score, 0);
   const scorePercent = gradedCount ? Math.round(totalScorePoints / gradedCount) : 0;
 
@@ -7532,7 +7529,7 @@ function PracticePage({
       explanation: isAi
         ? "Dinilai model Gemini aktif hanya berdasarkan Database."
         : manualKind === "essay-fixed"
-          ? "Essay dinilai lokal berdasarkan jawaban acuan."
+          ? "Essay dinilai AI secara semantik; jawaban acuan hanya menjadi referensi makna."
           : "Kuis dibuat manual.",
       quiz_type: isMcq ? "mcq" : "essay",
       grading_mode: isAi ? "ai" : "fixed",
@@ -7585,6 +7582,7 @@ function PracticePage({
       (data.results || []).forEach((item: any) => {
         mapped[String(item.id)] = {
           gradable: item.gradable !== false,
+          verdict: String(item.verdict || "") as AiGradeResult["verdict"],
           correct: item.correct === true,
           score: Number(item.score || 0),
           feedback: String(item.feedback || ""),
@@ -7790,7 +7788,7 @@ function PracticePage({
                 onChange={(e) => setManualExpectedAnswer(e.target.value)}
                 placeholder="Tulis jawaban yang dianggap benar..."
               />
-              <small className="muted">Mode Essay tanpa AI membandingkan jawaban secara lokal dengan jawaban acuan ini.</small>
+              <small className="muted">Jawaban acuan dipakai sebagai referensi makna. Saat selesai, AI tetap menilai konteks jawaban sehingga parafrasa yang benar tidak dianggap salah.</small>
             </label>
           )}
 
@@ -7835,7 +7833,7 @@ function PracticePage({
               <div className="scoreNumber">{scorePercent}</div>
               <div>
                 <small>NILAI AKHIR</small>
-                <strong>{correctFixedMcq + correctFixedEssay + correctAi} jawaban dinilai benar · {gradedCount} soal dinilai</strong>
+                <strong>{correctFixedMcq + correctAi} jawaban dinilai benar · {gradedCount} soal dinilai</strong>
                 {aiQuizzes.length !== gradableAiResults.length && (
                   <span className="muted">{aiQuizzes.length - gradableAiResults.length} soal AI tidak cukup sumber untuk dinilai.</span>
                 )}
@@ -7848,9 +7846,7 @@ function PracticePage({
               const isMcq = quiz.quiz_type === "mcq";
               const answer = isMcq ? answers[quiz.id] || "" : essayAnswers[quiz.id] || "";
               const aiResult = aiResults[quiz.id];
-              const fixedCorrect = isMcq
-                ? answer === quiz.correct_answer
-                : normalizeQuizAnswer(answer) === normalizeQuizAnswer(quiz.correct_answer || "");
+              const fixedCorrect = isMcq && answer === quiz.correct_answer;
 
               return (
                 <article className="dataCard quizCard" key={quiz.id}>
@@ -7882,19 +7878,30 @@ function PracticePage({
                     />
                   )}
 
-                  {submitted && quiz.grading_mode === "fixed" && (
+                  {submitted && quiz.grading_mode === "fixed" && isMcq && (
                     <div className={fixedCorrect ? "answerState ok" : "answerState bad"}>
-                      <strong>{fixedCorrect ? "Benar" : "Salah"}</strong>
+                      <strong>{fixedCorrect ? "Benar · 100/100" : "Salah · 0/100"}</strong>
                       <br />
-                      <span>{isMcq ? "Jawaban" : "Jawaban acuan"}: <RichText text={quiz.correct_answer} /></span>
+                      <span>Jawaban: <RichText text={quiz.correct_answer} /></span>
                       {quiz.explanation && <><br /><RichText text={quiz.explanation} /></>}
                     </div>
                   )}
 
-                  {submitted && quiz.grading_mode === "ai" && aiResult && (
-                    <div className={aiResult.correct ? "answerState ok" : "answerState bad"}>
-                      <strong>{aiResult.gradable ? (aiResult.correct ? "Benar" : "Belum benar") : "Belum dapat dinilai"} · {aiResult.score}/100</strong>
+                  {submitted && aiResult && (
+                    <div className={aiResult.correct ? "answerState ok" : aiResult.score > 0 ? "answerState" : "answerState bad"}>
+                      <strong>{
+                        !aiResult.gradable
+                          ? "Belum dapat dinilai · 0/100"
+                          : aiResult.correct
+                            ? "Benar · 100/100"
+                            : aiResult.verdict === "kurang_tepat" || aiResult.score > 0
+                              ? "Kurang tepat · " + aiResult.score + "/100"
+                              : "Salah · 0/100"
+                      }</strong>
                       {aiResult.feedback && <><br /><RichText text={aiResult.feedback} /></>}
+                      {quiz.quiz_type === "essay" && quiz.correct_answer && (
+                        <><br /><small>Jawaban acuan (referensi): <RichText text={quiz.correct_answer} /></small></>
+                      )}
                       {aiResult.basis && <><br /><small>Dasar Database: <RichText text={aiResult.basis} /></small></>}
                     </div>
                   )}
