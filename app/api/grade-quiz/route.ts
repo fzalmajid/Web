@@ -76,23 +76,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Konteks kuis tidak ditemukan." }, { status: 404 });
     }
 
+    const hasEssay = quizzes.some((quiz: any) => quiz.quiz_type === "essay");
+    const gradingAction = hasEssay ? "grade_essay" as const : "study" as const;
+
+    // Essay grading only needs enough source context to judge correctness,
+    // not the full Study-generation context.
     const knowledge = await getScopeKnowledge(
       supabase,
       quizNode.parent_id,
-      aiMode === "high" ? 60 : aiMode === "medium" ? 48 : 32
+      hasEssay
+        ? aiMode === "high" ? 36 : aiMode === "medium" ? 28 : 20
+        : aiMode === "high" ? 60 : aiMode === "medium" ? 48 : 32
     );
     if (!knowledge.length) {
       return NextResponse.json({ error: "Database sumber kuis masih kosong." }, { status: 400 });
     }
 
-    const preflight = ownGemini ? null : await checkAiCredits(supabase, "study", aiMode);
+    const preflight = ownGemini ? null : await checkAiCredits(supabase, gradingAction, aiMode);
     if (preflight && !preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
 
     const context = buildKnowledgeContext(
       knowledge,
-      aiMode === "high" ? 46000 : aiMode === "medium" ? 36000 : 24000
+      hasEssay
+        ? aiMode === "high" ? 28000 : aiMode === "medium" ? 22000 : 15000
+        : aiMode === "high" ? 46000 : aiMode === "medium" ? 36000 : 24000
     );
 
     const qa = quizzes.map((quiz: any) => {
@@ -116,9 +125,7 @@ DATABASE SUMBER:
 ${context}
 
 Nilai setiap jawaban berdasarkan DATABASE SUMBER dan konteks pertanyaan. Untuk essay, reference_answer hanya REFERENSI makna/rubrik, bukan teks yang harus disalin persis.
-${aiModeInstruction(aiMode)}
-
-Keluarkan JSON valid tanpa markdown:
+Penilaian harus efisien: pikirkan secukupnya untuk menentukan level nilai dengan benar, tetapi jangan membuat analisis panjang.\n\nKeluarkan JSON valid tanpa markdown:
 {
   "results": [
     {
@@ -147,7 +154,8 @@ Aturan:
 - Untuk quiz_type="mcq": hanya gunakan 0 atau 100. Pilihan benar = verdict="benar", score=100. Pilihan salah = verdict="salah", score=0.
 - Untuk quiz_type="essay": nilai MAKNA dan KETEPATAN KONSEP, bukan kemiripan kata. Parafrasa, sinonim, urutan kalimat berbeda, atau gaya bahasa berbeda tetap harus dinilai 100 bila maknanya setara dan inti jawaban terpenuhi.
 - reference_answer boleh membantu memahami jawaban ideal, tetapi JANGAN menjadikannya exact-match. Cocokkan kembali dengan pertanyaan dan Database.
-- Feedback harus singkat menjelaskan mengapa jawaban masuk level 0/25/50/70/100 dan apa yang kurang bila belum 100.
+- Feedback MAKSIMAL 1 kalimat pendek. Sebutkan hanya alasan utama nilai dan kekurangan terpenting bila belum 100.
+- basis MAKSIMAL 12 kata. Jangan mengulang pertanyaan atau jawaban peserta.
 - Jangan menggunakan pengetahuan umum atau internet.
 - Jika database tidak cukup untuk menilai suatu soal, gradable=false, verdict="salah", correct=false, score=0 dan jelaskan kekurangan sumber di feedback.
 - basis harus singkat dan menyebut dasar dari database tanpa mengarang kutipan.
@@ -155,7 +163,10 @@ Aturan:
     }], "Anda adalah penilai kuis yang adil secara semantik. Nilai kebenaran konsep, bukan kecocokan kata-per-kata, dan hanya gunakan database yang diberikan.", {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
-      responseLength: aiSelection.length,
+      responseLength: hasEssay ? "short" : aiSelection.length,
+      maxOutputTokens: hasEssay
+        ? Math.min(2400, Math.max(1200, 500 + qa.length * 160))
+        : undefined,
       apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
@@ -234,7 +245,7 @@ Aturan:
       };
     });
 
-    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "study", aiMode);
+    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, gradingAction, aiMode);
     return NextResponse.json({
       results,
       aiUsage,
