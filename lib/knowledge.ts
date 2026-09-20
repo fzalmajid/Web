@@ -79,6 +79,23 @@ export async function searchScopeKnowledge(
   return hydrateRawContent(supabase, (data || []) as KnowledgeSource[]);
 }
 
+export async function searchSelectedKnowledge(
+  supabase: SupabaseClient,
+  question: string,
+  sourceNodeIds: string[],
+  sourceFileIds: string[],
+  limit = 12
+): Promise<KnowledgeSource[]> {
+  const { data, error } = await supabase.rpc("search_knowledge_selected", {
+    search_query: question,
+    result_limit: limit,
+    source_node_ids: sourceNodeIds,
+    source_file_ids: sourceFileIds,
+  });
+  if (error) throw error;
+  return hydrateRawContent(supabase, (data || []) as KnowledgeSource[]);
+}
+
 export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000) {
   let used = 0;
   const parts: string[] = [];
