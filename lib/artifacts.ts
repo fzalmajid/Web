@@ -259,7 +259,7 @@ async function makePdf(title: string, content: string) {
       continue;
     }
     if (block.kind === "bullet") {
-      addLine("• " + block.text, 11, false, 12);
+      addLine("- " + block.text, 11, false, 12);
       continue;
     }
     addLine(block.text, 11);
@@ -305,13 +305,12 @@ function slideData(title: string, content: string) {
 }
 
 async function makePptx(title: string, content: string) {
-  const pptx = new PptxGenJS();
+  const pptx: any = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
   pptx.author = "Ruang Belajar AI";
   pptx.subject = title;
   pptx.title = title;
   pptx.company = "Ruang Belajar";
-  pptx.lang = "id-ID";
 
   const slides = slideData(title, content);
   slides.forEach((item, index) => {
