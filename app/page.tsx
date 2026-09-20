@@ -1569,7 +1569,7 @@ function FolderPage({
           {children.map((node) => (
             <article
               className={
-                "nodeCard draggableFolderCard" +
+                "nodeCard draggableFolderCard explorerUnifiedCard" +
                 (dropTargetId === node.id ? " folderDropTarget active" : "") +
                 (touchDraggingNodeId === node.id ? " touchDraggingFolder" : "")
               }
@@ -1638,7 +1638,7 @@ function FolderPage({
           <div className="explorerItems">
               {localEntries.map((entry) => (
                 <article
-                  className="explorerTextItem"
+                  className="explorerTextItem explorerUnifiedCard"
                   key={entry.id}
                   draggable={nativeDragEnabled}
                   onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
@@ -1663,6 +1663,7 @@ function FolderPage({
                   key={file.id}
                   file={file}
                   draggable={nativeDragEnabled}
+                  compact
                   onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
                   onDelete={() => removeFile(file)}
                 />
@@ -1673,6 +1674,7 @@ function FolderPage({
                   key={item.id}
                   item={item}
                   draggable={nativeDragEnabled}
+                  compact
                   onDragStart={(event) => setExplorerDragData(event, "recording", item.id)}
                   onDelete={() => removeRecording(item)}
                 />
@@ -3029,11 +3031,13 @@ function DatabaseFileCard({
   file,
   onDelete,
   draggable = false,
+  compact = false,
   onDragStart,
 }: {
   file: SourceFile;
   onDelete: () => void;
   draggable?: boolean;
+  compact?: boolean;
   onDragStart?: (event: any) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
@@ -3070,7 +3074,11 @@ function DatabaseFileCard({
   }
 
   return (
-    <article className="dataCard mediaDataCard" draggable={draggable} onDragStart={onDragStart}>
+    <article
+      className={compact ? "dataCard mediaDataCard explorerUnifiedCard compactExplorerDataCard" : "dataCard mediaDataCard"}
+      draggable={draggable}
+      onDragStart={onDragStart}
+    >
       <div className="dataHead">
         <div>
           <small>
@@ -3132,7 +3140,7 @@ function DatabaseFileCard({
       )}
 
       {file.raw_text && (
-        <details open>
+        <details open={!compact}>
           <summary>RAW / original source</summary>
           <div className="dataText raw"><RichText text={file.raw_text} /></div>
         </details>
@@ -3152,11 +3160,13 @@ function DatabaseStoredRecording({
   item,
   onDelete,
   draggable = false,
+  compact = false,
   onDragStart,
 }: {
   item: Recording;
   onDelete: () => void;
   draggable?: boolean;
+  compact?: boolean;
   onDragStart?: (event: any) => void;
 }) {
   const [audioUrl, setAudioUrl] = useState("");
@@ -3185,7 +3195,15 @@ function DatabaseStoredRecording({
   const fileName = item.title.replace(/[^a-zA-Z0-9._-]+/g, "_") + "." + ext;
 
   return (
-    <article className="dataCard mediaDataCard recordingInDatabase" draggable={draggable} onDragStart={onDragStart}>
+    <article
+      className={
+        compact
+          ? "dataCard mediaDataCard recordingInDatabase explorerUnifiedCard compactExplorerDataCard"
+          : "dataCard mediaDataCard recordingInDatabase"
+      }
+      draggable={draggable}
+      onDragStart={onDragStart}
+    >
       <div className="dataHead">
         <div>
           <small>Rekaman audio · {formatTime(item.duration_seconds || 0)}</small>
@@ -3213,7 +3231,7 @@ function DatabaseStoredRecording({
       )}
 
       {(item.raw_transcript || item.transcript || item.structured_transcript) && (
-        <details open className="transcriptPanel">
+        <details open={!compact} className="transcriptPanel">
           <summary>Transkrip mentah / verbatim</summary>
           <div className="dataText raw">
             <RichText text={item.raw_transcript || item.transcript || item.structured_transcript || ""} />
@@ -6318,6 +6336,7 @@ function AiSourceModelBar({
           );
         })}
       </div>
+      <CitationPicker compact={compact} />
       <AiModePicker
         value={selection}
         onChange={onSelectionChange}
@@ -6326,7 +6345,6 @@ function AiSourceModelBar({
         compact={compact}
         allowLocal={allowLocal}
       />
-      <CitationPicker compact={compact} />
     </div>
   );
 }
