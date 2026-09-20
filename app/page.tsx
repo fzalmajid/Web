@@ -1048,7 +1048,7 @@ async function moveExplorerItemToFolder(
 }
 
 function setExplorerDragData(
-  event: React.DragEvent,
+  event: any,
   kind: "file" | "recording" | "entry",
   id: string
 ) {
@@ -1057,38 +1057,177 @@ function setExplorerDragData(
 }
 
 function FolderPage({
+  session,
+  user,
   current,
   children,
+  entries,
+  files,
+  recordings,
   onOpen,
   onAdd,
   onCustomize,
   onDelete,
+  onChange,
 }: {
+  session: Session;
+  user: User;
   current: StudyNode | null;
   children: StudyNode[];
+  nodes: StudyNode[];
+  entries: KnowledgeEntry[];
+  files: SourceFile[];
+  recordings: Recording[];
   onOpen: (id: string) => void;
   onAdd: () => void;
   onCustomize: (node: StudyNode) => void;
   onDelete: (node: StudyNode) => void;
+  onChange: () => void;
 }) {
+  const [dropActive, setDropActive] = useState(false);
+  const [dropBusy, setDropBusy] = useState(false);
+
+  const localFiles = current ? files.filter((item) => item.node_id === current.id) : [];
+  const localRecordings = current ? recordings.filter((item) => item.node_id === current.id) : [];
+  const recordingEntryIds = new Set(
+    localRecordings.map((item) => item.knowledge_entry_id).filter(Boolean)
+  );
+  const localEntries = current
+    ? entries.filter(
+        (item) =>
+          item.node_id === current.id &&
+          !item.source_file_id &&
+          !recordingEntryIds.has(item.id)
+      )
+    : [];
+
+  const hasAssets = !!(localFiles.length || localRecordings.length || localEntries.length);
+
+  async function uploadFiles(targetNodeId: string, list: FileList | File[]) {
+    const incoming = Array.from(list);
+    if (!incoming.length) return;
+    setDropBusy(true);
+    try {
+      for (const file of incoming) {
+        await saveRawFileToFolder(user, targetNodeId, file);
+      }
+      onChange();
+    } catch (error: any) {
+      alert(error?.message || "Gagal menyimpan file.");
+    } finally {
+      setDropBusy(false);
+      setDropActive(false);
+    }
+  }
+
+  async function moveDroppedItem(event: any, targetNodeId: string) {
+    const raw = event.dataTransfer?.getData("application/x-rb-explorer-item");
+    if (!raw) return false;
+    try {
+      const item = JSON.parse(raw);
+      if (!["file", "recording", "entry"].includes(item?.kind) || !item?.id) return false;
+      await moveExplorerItemToFolder(item.kind, String(item.id), targetNodeId);
+      onChange();
+      return true;
+    } catch (error: any) {
+      alert(error?.message || "Gagal memindahkan item.");
+      return true;
+    }
+  }
+
+  async function handlePageDrop(event: any) {
+    event.preventDefault();
+    setDropActive(false);
+    if (!current) return;
+    if (await moveDroppedItem(event, current.id)) return;
+    if (event.dataTransfer?.files?.length) {
+      await uploadFiles(current.id, event.dataTransfer.files);
+    }
+  }
+
+  async function handleFolderDrop(event: any, target: StudyNode) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isFolderLikeNode(target)) return;
+    if (await moveDroppedItem(event, target.id)) return;
+    if (event.dataTransfer?.files?.length) {
+      await uploadFiles(target.id, event.dataTransfer.files);
+    }
+  }
+
+  async function removeEntry(id: string) {
+    if (!confirm("Hapus catatan ini dari folder?")) return;
+    const { error } = await supabase.from("knowledge_entries").delete().eq("id", id);
+    if (error) alert(error.message);
+    else onChange();
+  }
+
+  async function removeFile(file: SourceFile) {
+    if (!confirm("Hapus file ini dari folder?")) return;
+    await supabase.from("knowledge_entries").delete().eq("source_file_id", file.id);
+    if (file.source_kind !== "link") {
+      await supabase.storage.from("study-files").remove([file.file_path]);
+    }
+    const { error } = await supabase.from("source_files").delete().eq("id", file.id);
+    if (error) alert(error.message);
+    else onChange();
+  }
+
+  async function removeRecording(item: Recording) {
+    if (!confirm("Hapus rekaman ini dari folder?")) return;
+    await supabase.storage.from("recordings").remove([item.file_path]);
+    if (item.knowledge_entry_id) {
+      await supabase.from("knowledge_entries").delete().eq("id", item.knowledge_entry_id);
+    }
+    const { error } = await supabase.from("recordings").delete().eq("id", item.id);
+    if (error) alert(error.message);
+    else onChange();
+  }
+
   return (
-    <section className="folderPage">
+    <section
+      className={dropActive ? "folderPage explorerDropActive" : "folderPage"}
+      onDragOver={(event) => {
+        if (!current) return;
+        event.preventDefault();
+        setDropActive(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) setDropActive(false);
+      }}
+      onDrop={handlePageDrop}
+    >
       <div className="folderTitle folderTitleRow">
         <div>
-          <p className="eyebrow">{current ? "RUANG MATERI" : "RUANG BELAJAR"}</p>
+          <p className="eyebrow">{current ? "FOLDER BELAJAR" : "RUANG BELAJAR"}</p>
           <h1>{current ? (current.emoji ? current.emoji + " " : "") + current.title : "Materi saya"}</h1>
+          {current && (
+            <p className="muted explorerHint">
+              Folder ini sekaligus Database. Drop file/foto/audio di sini, atau tekan + untuk menambah file, link, teks, rekaman, subfolder, Study, Flashcard, atau Kuis.
+            </p>
+          )}
         </div>
         {current && <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>}
       </div>
 
       {!!children.length && (
-        <div className="nodeGrid">
+        <div className="nodeGrid explorerNodeGrid">
           {children.map((node) => (
-            <article className="nodeCard" data-color={node.card_color || "default"} key={node.id}>
+            <article
+              className="nodeCard"
+              data-color={node.card_color || "default"}
+              key={node.id}
+              onDragOver={(event) => {
+                if (!isFolderLikeNode(node)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(event) => void handleFolderDrop(event, node)}
+            >
               <button className="nodeOpen" onClick={() => onOpen(node.id)}>
-                <span className="nodeIcon">{node.emoji || iconFor(node.node_type)}</span>
+                <span className="nodeIcon">{node.emoji || (isFolderLikeNode(node) ? "📁" : iconFor(node.node_type))}</span>
                 <div>
-                  <small>{labels[node.node_type]}</small>
+                  <small>{isFolderLikeNode(node) ? "Folder" : labels[node.node_type]}</small>
                   <h3>{node.title}</h3>
                 </div>
               </button>
@@ -1101,9 +1240,79 @@ function FolderPage({
         </div>
       )}
 
-      {!children.length && (
+      {current && (
+        <section className="folderAssets">
+          <div className="folderAssetsHead">
+            <div>
+              <small>ISI FOLDER · RAW/ORIGINAL</small>
+              <strong>{localFiles.length + localRecordings.length + localEntries.length} item</strong>
+            </div>
+            <span>{dropBusy ? "Mengupload..." : "Tarik & drop file ke area folder"}</span>
+          </div>
+
+          {!hasAssets && (
+            <div className="explorerEmpty">
+              <span>📂</span>
+              <p>Belum ada file atau catatan. Drop file di sini atau tekan +.</p>
+            </div>
+          )}
+
+          <div className="explorerItems">
+            {localEntries.map((entry) => (
+              <article
+                className="explorerTextItem"
+                key={entry.id}
+                draggable
+                onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
+              >
+                <div className="explorerItemMain">
+                  <span className="explorerFileIcon">📝</span>
+                  <div>
+                    <small>{entry.category || "Catatan RAW"}</small>
+                    <strong>{entry.title}</strong>
+                  </div>
+                </div>
+                <details>
+                  <summary>Lihat isi</summary>
+                  <div className="dataText raw"><RichText text={entry.raw_content || entry.content} /></div>
+                </details>
+                <button className="dangerSmall" type="button" onClick={() => removeEntry(entry.id)}>Hapus</button>
+              </article>
+            ))}
+
+            {localFiles.map((file) => (
+              <DatabaseFileCard
+                key={file.id}
+                file={file}
+                draggable
+                onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
+                onDelete={() => removeFile(file)}
+              />
+            ))}
+
+            {localRecordings.map((item) => (
+              <DatabaseStoredRecording
+                key={item.id}
+                item={item}
+                draggable
+                onDragStart={(event) => setExplorerDragData(event, "recording", item.id)}
+                onDelete={() => removeRecording(item)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!children.length && !hasAssets && !current && (
         <div className="emptyFolder">
-          <p>Belum ada isi di halaman ini.</p>
+          <p>Belum ada folder. Tekan + untuk membuat folder pertama.</p>
+        </div>
+      )}
+
+      {dropActive && current && (
+        <div className="explorerDropOverlay">
+          <strong>Drop ke {current.title}</strong>
+          <small>File asli akan disimpan sebagai RAW/original.</small>
         </div>
       )}
 
