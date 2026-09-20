@@ -6012,3 +6012,225 @@ summary{
     max-width:none!important;
   }
 }
+
+
+/* Tugas */
+.taskCreateForm,
+.taskPage{
+  gap:10px!important;
+}
+.taskTypeBlock,
+.taskSubmissionBlock,
+.taskBuilderList{
+  display:grid;
+  gap:7px;
+}
+.taskTypeChoices{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:6px;
+}
+.taskTypeChoices button,
+.taskFormatChoices button{
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:var(--card);
+  color:var(--ink);
+}
+.taskTypeChoices button{
+  min-height:54px;
+  padding:8px 9px;
+  display:grid;
+  gap:2px;
+  text-align:left;
+}
+.taskTypeChoices button strong{font-size:.74rem}
+.taskTypeChoices button small{font-size:.61rem;color:var(--muted)}
+.taskTypeChoices button.active,
+.taskFormatChoices button.active{
+  border-color:#75a58e;
+  background:#eef8f2;
+  box-shadow:0 0 0 2px rgba(117,165,142,.08);
+}
+.taskFormatChoices{
+  display:flex;
+  flex-wrap:wrap;
+  gap:5px;
+}
+.taskFormatChoices button{
+  min-height:32px;
+  padding:6px 9px;
+  font-size:.67rem;
+  font-weight:800;
+}
+.taskBuilderCard{
+  display:grid;
+  gap:7px;
+  padding:9px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--soft);
+}
+.taskBuilderHead{
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+.taskBuilderHead>strong{
+  margin-right:auto;
+  font-size:.74rem;
+}
+.taskChoiceInputs{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:6px;
+}
+.taskTodoEditRow{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:6px;
+  align-items:center;
+}
+.taskHeader{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+}
+.taskHeader>div:first-child{
+  min-width:0;
+}
+.taskHeaderActions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+.taskMetaStrip{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+.taskMetaStrip>div{
+  min-height:66px;
+  padding:10px;
+  border:1px solid var(--line);
+  border-radius:13px;
+  background:var(--card);
+  display:grid;
+  align-content:center;
+  gap:3px;
+}
+.taskMetaStrip small{
+  color:var(--muted);
+  font-size:.58rem;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.taskMetaStrip strong{
+  font-size:.76rem;
+}
+.taskLinkButton{
+  width:max-content;
+  max-width:100%;
+  border:0;
+  padding:0;
+  background:transparent;
+  color:var(--accent);
+  font-weight:900;
+  text-align:left;
+  font-size:.75rem;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.taskEditPanel{
+  padding:12px!important;
+}
+.taskTodoList{
+  display:grid;
+  gap:7px;
+}
+.taskTodoItem{
+  min-height:48px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:9px 11px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--card);
+}
+.taskTodoItem input{
+  width:18px;
+  height:18px;
+  margin:0;
+}
+.taskTodoItem span{
+  font-size:.82rem;
+  line-height:1.35;
+}
+.taskTodoItem.done span{
+  color:var(--muted);
+  text-decoration:line-through;
+}
+.taskQuestionList{
+  display:grid;
+  gap:9px;
+}
+.taskQuestionCard{
+  display:grid;
+  gap:9px;
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--card);
+}
+.taskQuestionCard>small{
+  color:var(--muted);
+  font-size:.58rem;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.taskQuestionCard>h2{
+  margin:0;
+  font-size:.92rem;
+  line-height:1.35;
+}
+.taskAnswerChoices{
+  display:grid;
+  gap:6px;
+}
+.taskAnswerChoices label{
+  min-height:38px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:7px 9px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--soft);
+}
+.taskAnswerChoices label.active{
+  border-color:#75a58e;
+  background:#eef8f2;
+}
+.taskAnswerChoices input{
+  width:16px;
+  height:16px;
+  margin:0;
+}
+@media(max-width:700px){
+  .taskTypeChoices,
+  .taskMetaStrip,
+  .taskChoiceInputs{
+    grid-template-columns:1fr!important;
+  }
+  .taskHeader{
+    flex-direction:column;
+  }
+  .taskHeaderActions{
+    width:100%;
+    justify-content:flex-start;
+  }
+}
