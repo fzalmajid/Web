@@ -1108,6 +1108,9 @@ function DatabasePage({
   const [busy, setBusy] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileStatus, setFileStatus] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkStatus, setLinkStatus] = useState("");
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
   const aiMode = legacyModeForSelection(aiSelection);
 
@@ -1271,6 +1274,33 @@ function DatabasePage({
     onChange();
   }
 
+  async function importLink(e: FormEvent) {
+    e.preventDefault();
+    if (!linkUrl.trim()) return;
+
+    setLinkBusy(true);
+    setLinkStatus("Membaca link...");
+    const response = await fetch("/api/import-link", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({ nodeId: node.id, url: linkUrl.trim() }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setLinkBusy(false);
+
+    if (!response.ok) {
+      setLinkStatus("");
+      return alert(result.error || "Gagal membaca link.");
+    }
+
+    setLinkUrl("");
+    setLinkStatus("Link sudah masuk Database sebagai sumber RAW.");
+    onChange();
+  }
+
   async function removeEntry(id: string) {
     if (!confirm("Hapus catatan ini?")) return;
     const { error } = await supabase.from("knowledge_entries").delete().eq("id", id);
@@ -1303,7 +1333,7 @@ function DatabasePage({
       <div className="toolHeader">
         <p className="eyebrow">DATABASE</p>
         <h1>{node.title}</h1>
-        <p className="muted">Masukkan isi materi langsung sebagai teks atau file. Konteks mengikuti jalur materi tempat Database ini berada.</p>
+        <p className="muted">Masukkan teks, link, file, foto, audio, video, atau PDF. Sumber RAW/original disimpan dan menjadi sumber utama AI saat Database dipakai.</p>
       </div>
 
       <div className="toolGrid">
@@ -1351,6 +1381,23 @@ function DatabasePage({
             </button>
           </form>
           {fileStatus && <div className="notice">{fileStatus}</div>}
+
+          <div className="databaseRecorderDivider" />
+          <h2>Masukkan link</h2>
+          <p className="muted">Halaman web dibaca sebagai sumber RAW dan disimpan ke Database.</p>
+          <form className="stack" onSubmit={importLink}>
+            <input
+              type="url"
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="https://..."
+              required
+            />
+            <button className="primary" disabled={linkBusy || !linkUrl.trim()}>
+              {linkBusy ? "Membaca..." : "Tambahkan link"}
+            </button>
+          </form>
+          {linkStatus && <div className="notice">{linkStatus}</div>}
         </article>
       </div>
 
@@ -1367,7 +1414,13 @@ function DatabasePage({
               </div>
               <button className="dangerSmall" onClick={() => removeEntry(entry.id)}>Hapus</button>
             </div>
-            <div className="dataText"><RichText text={entry.content} /></div>
+            <div className="dataText raw"><RichText text={entry.raw_content || entry.content} /></div>
+            {entry.raw_content && entry.content && entry.raw_content !== entry.content && (
+              <details>
+                <summary>Versi tertata</summary>
+                <div className="dataText"><RichText text={entry.content} /></div>
+              </details>
+            )}
           </article>
         ))}
 
