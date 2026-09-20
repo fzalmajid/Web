@@ -41,7 +41,7 @@ export function citationInstruction(
     ieee:
       "IEEE: beri nomor sesuai urutan kemunculan dan letakkan di dalam tanda kurung siku pada baris yang sama, misalnya [1] atau [1], [2]; rentang harus ditulis sebagai nomor terpisah, bukan rentang otomatis. Sumber yang sama mengulang nomor yang sama. Daftar referensi mengikuti nomor, memakai inisial nama, mencantumkan hingga enam penulis IEEE lalu et al. bila lebih dari enam, dan mempertahankan DOI/URL yang benar-benar tersedia.",
     chicago:
-      "Chicago Author-Date: gunakan (Nama Tahun) dan tambahkan locator sebagai (Nama Tahun, Halaman). Untuk 4+ penulis gunakan (Nama et al. Tahun); daftar referensi disusun alfabetis. Gunakan n.d. bila tanggal memang tidak tersedia, bukan menebak. Untuk terjemahan/cetak ulang/terbit ulang, pertahankan informasi versi yang dibaca dan tahun karya asli hanya bila pedoman serta metadata sumber mendukungnya; jangan otomatis membuat TahunAsli/TahunVersi.",
+      "Chicago Author-Date: gunakan (Nama Tahun) dan tambahkan locator sebagai (Nama Tahun, Halaman). Untuk 3+ penulis gunakan (Nama et al. Tahun); daftar referensi disusun alfabetis. Gunakan n.d. bila tanggal memang tidak tersedia, bukan menebak. Untuk terjemahan/cetak ulang/terbit ulang, pertahankan informasi versi yang dibaca dan tahun karya asli hanya bila pedoman serta metadata sumber mendukungnya; jangan otomatis membuat TahunAsli/TahunVersi.",
   };
 
   const wantsInText = citationOutputs.includes("in-text");
