@@ -863,6 +863,7 @@ export async function POST(req: NextRequest) {
           prompt: targetPrompt,
           system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
           effort: aiSelection.effort,
+          responseLength: aiSelection.length,
           web: withWeb,
           attachments: externalRawAttachments(rawAssets),
         });
@@ -875,6 +876,7 @@ export async function POST(req: NextRequest) {
           prompt: targetPrompt,
           system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
           effort: aiSelection.effort,
+          responseLength: aiSelection.length,
           web: withWeb,
           attachments: externalRawAttachments(rawAssets),
         });
@@ -891,6 +893,7 @@ export async function POST(req: NextRequest) {
             withWeb ? "web" : "standard"
           ),
           effort: aiSelection.effort,
+          responseLength: aiSelection.length,
           apiKey: geminiAuth.apiKey,
           accessToken: geminiAuth.accessToken,
           projectId: geminiAuth.projectId,
@@ -914,6 +917,7 @@ export async function POST(req: NextRequest) {
             googleSearch: true,
             models: modelPlanForSelection("gemini-2.5-flash", aiMode, "web"),
             effort: "none",
+            responseLength: aiSelection.length,
             apiKey: geminiAuth.apiKey,
             accessToken: geminiAuth.accessToken,
             projectId: geminiAuth.projectId,
@@ -944,6 +948,7 @@ export async function POST(req: NextRequest) {
             prompt,
             system: "Anda adalah tutor Ruang Belajar. Gunakan Web sebagai sumber publik dan hormati sumber lain yang dipilih user.",
             effort: "none",
+            responseLength: aiSelection.length,
             web: true,
             attachments: externalRawAttachments(rawAssets),
           });
@@ -979,6 +984,7 @@ export async function POST(req: NextRequest) {
             prompt,
             system: "Anda adalah tutor Ruang Belajar. Gunakan Web sebagai sumber publik dan hormati sumber lain yang dipilih user.",
             effort: "none",
+            responseLength: aiSelection.length,
             web: true,
             attachments: externalRawAttachments(rawAssets),
           });
@@ -1016,6 +1022,7 @@ export async function POST(req: NextRequest) {
             googleSearch: true,
             models: modelPlanForSelection("gemini-2.5-flash", aiMode, "web"),
             effort: "none",
+            responseLength: aiSelection.length,
             apiKey: sharedKey,
           }
         );
