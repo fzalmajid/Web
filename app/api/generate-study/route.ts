@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { geminiGenerateDetailed, parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
-import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
-import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
+import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 import { citationInstruction, normalizeCitationOptions } from "@/lib/citations";
 
@@ -54,9 +53,8 @@ export async function POST(req: NextRequest) {
       Number.isFinite(rawCount) && rawCount > 0
         ? Math.max(1, Math.min(20, Math.round(rawCount)))
         : 0;
-    const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
-    const geminiAuth = geminiUserAuthFromHeaders(req.headers);
-    const ownGemini = geminiAuth.ownGemini;
+    const aiInfo = getTextAiRequestInfo(req, aiMode);
+    const aiSelection = aiInfo.selection;
 
     if (aiMode === "simple") {
       return NextResponse.json({ error: "Local diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
@@ -107,7 +105,7 @@ export async function POST(req: NextRequest) {
         : "- Web TIDAK AKTIF: jangan memakai web.",
     ].join("\n");
 
-    const preflight = ownGemini ? null : await checkAiCredits(supabase, "study", aiMode);
+    const preflight = aiInfo.sharedGemini ? await checkAiCredits(supabase, "study", aiMode) : null;
     if (preflight && !preflight.allowed) {
       return NextResponse.json(aiQuotaError(preflight), { status: 429 });
     }
@@ -161,8 +159,10 @@ export async function POST(req: NextRequest) {
 
     const citationRule = citationInstruction(citationStyle, citationOutputs);
 
-    const geminiResult = await geminiGenerateDetailed([{
-      text: `KONFIGURASI SUMBER:
+    const aiResult = await generateTextAi(
+      aiInfo,
+      aiMode,
+      `KONFIGURASI SUMBER:
 ${sourcePolicy}
 
 DATABASE RAW/ORIGINAL:
@@ -185,18 +185,15 @@ Aturan quiz:
 - Jangan mengubah fungsi penilaian: fixed tetap fixed, AI tetap dinilai AI saat user selesai.
 
 Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? counts.quiz + " soal" : counts.cards + " flashcard dan " + counts.quiz + " soal"}. Patuhi sumber AI / Database / Web yang diaktifkan user. Jika Database aktif, pertahankan isi RAW/ORIGINAL dan jangan menggantinya dengan versi tertata. Ikuti INSTRUKSI USER selama sesuai dengan sumber aktif.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
-    }], "Patuhi sumber AI / Database / Web yang diaktifkan user. Jangan memakai sumber yang dinonaktifkan.", {
-      models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
-      effort: aiSelection.effort,
-      responseMimeType: "application/json",
-      maxOutputTokens: aiMode === "high" ? 16384 : 12288,
-      googleSearch: useWeb,
-      apiKey: geminiAuth.apiKey,
-      accessToken: geminiAuth.accessToken,
-      projectId: geminiAuth.projectId,
-    });
-    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, geminiAuth.provider);
-    const raw = geminiResult.text;
+      "Patuhi sumber AI / Database / Web yang diaktifkan user. Jangan memakai sumber yang dinonaktifkan.",
+      {
+        web: useWeb,
+        json: true,
+        maxOutputTokens: aiMode === "high" ? 16384 : 12288,
+      }
+    );
+    await recordAiTokenUsage(supabase, aiResult.usage, aiResult.model, aiResult.provider);
+    const raw = aiResult.text;
 
     const parsed = parseJsonSafely(raw);
     const uid = userData.user.id;
@@ -271,13 +268,13 @@ Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? c
       if (error) throw error;
     }
 
-    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "study", aiMode);
+    const aiUsage = aiInfo.sharedGemini ? await finalizeAiCredits(supabase, "study", aiMode) : null;
     return NextResponse.json({
       flashcards: flashcards.length,
       quizzes: quizzes.length,
       aiUsage,
-      model: geminiResult.model,
-      provider: geminiAuth.provider,
+      model: aiResult.model,
+      provider: aiResult.provider,
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
