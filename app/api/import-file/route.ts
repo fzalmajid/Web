@@ -7,6 +7,7 @@ import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -95,7 +96,10 @@ export async function POST(req: NextRequest) {
     const aiCopyRatio = aiCopyMode === "compact" ? 30 : aiCopyMode === "complex" ? 90 : 50;
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const geminiAuth = geminiUserAuthFromHeaders(req.headers);
-    const ownGemini = geminiAuth.ownGemini;
+    const aiInfo = operation === "ai-copy" ? getTextAiRequestInfo(req, aiMode) : null;
+    const sharedGemini = operation === "ai-copy"
+      ? Boolean(aiInfo?.sharedGemini)
+      : !geminiAuth.ownGemini;
 
     if (aiMode === "simple") {
       return NextResponse.json({ error: "Local diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
@@ -135,7 +139,7 @@ export async function POST(req: NextRequest) {
       mimeType === "application/pdf" ||
       mimeType.startsWith("image/");
     const guardAction = heavyFile ? "file_heavy" : "file_light";
-    const preflight = ownGemini ? null : await checkAiCredits(supabase, guardAction, aiMode);
+    const preflight = sharedGemini ? await checkAiCredits(supabase, guardAction, aiMode) : null;
     if (preflight && !preflight.allowed) {
       await supabase
         .from("source_files")
@@ -234,16 +238,18 @@ export async function POST(req: NextRequest) {
         .eq("id", sourceFileId);
       if (rawUpdateError) throw rawUpdateError;
 
-      const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, guardAction, aiMode);
+      const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
       return NextResponse.json({ rawText, aiUsage, operation: "raw" });
     }
 
     const knowledge = await getScopeKnowledge(supabase, nodeId, 40);
     const context = buildKnowledgeContext(knowledge.filter(k => k.title !== fileName), 26000);
 
-    const structuredResult = await geminiGenerateDetailed(
-      [{
-        text: `SUMBER MENTAH:
+    if (!aiInfo) throw new Error("Konfigurasi AI copy tidak tersedia.");
+    const structuredResult = await generateTextAi(
+      aiInfo,
+      aiMode,
+      `SUMBER MENTAH:
 ${rawText}
 
 DATABASE REFERENSI YANG SUDAH ADA:
@@ -264,17 +270,13 @@ Aturan:
 - DATABASE REFERENSI hanya boleh dipakai untuk menyelesaikan istilah/nama/singkatan yang keliru atau ambigu.
 - Koreksi hanya dilakukan jika database benar-benar mendukungnya; semua koreksi harus dicatat.
 - Jika database tidak membantu, susun/rangkum berdasarkan SUMBER MENTAH saja.\n- ${aiModeInstruction(aiMode)}\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
-      }],
       "Anda mengolah sumber belajar secara konservatif. Jangan mengarang fakta.",
       {
-      models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
-      effort: aiSelection.effort,
-      apiKey: geminiAuth.apiKey,
-      accessToken: geminiAuth.accessToken,
-      projectId: geminiAuth.projectId,
-    }
+        web: false,
+        json: true,
+      }
     );
-    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model, geminiAuth.provider);
+    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model, structuredResult.provider);
     const structuredRaw = structuredResult.text;
 
     let structuredText = rawText;
@@ -356,7 +358,7 @@ Aturan:
       .eq("id", sourceFileId);
     if (updateError) throw updateError;
 
-    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, guardAction, aiMode);
+    const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
 
     return NextResponse.json({
       entryId,
@@ -366,7 +368,7 @@ Aturan:
       corrections,
       aiUsage,
       structuringModel: structuredResult.model,
-      provider: geminiAuth.provider,
+      provider: structuredResult.provider,
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
