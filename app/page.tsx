@@ -1976,7 +1976,7 @@ function AddSheet({
       setStatus("");
       return alert(result.error || "Gagal membaca link.");
     }
-    setStatus("Link RAW sudah masuk folder.");
+    setStatus("Link RAW sudah masuk Database.");
     onAdded();
   }
 
@@ -6021,7 +6021,7 @@ function BottomAskBar({
     setLinkDraft("");
     setLinkInputOpen(false);
     setAttachMenuOpen(false);
-    setLinkStatus("Link RAW siap dipakai AI. Belum disimpan ke folder.");
+    setLinkStatus("Link RAW siap dipakai AI. Belum disimpan ke Database.");
   }
 
   function discardPendingLink() {
@@ -6608,7 +6608,7 @@ function BottomAskBar({
     setAskVoiceBusy(false);
     setAskVoiceStatus(
       transcript
-        ? "Transkrip mentah sudah masuk ke teks pertanyaan. Silakan edit sendiri bila perlu, lalu Abaikan atau Simpan ke folder."
+        ? "Transkrip mentah sudah masuk ke teks pertanyaan. Silakan edit sendiri bila perlu, lalu Abaikan atau Simpan ke Database."
         : "Audio siap. Transkrip otomatis belum tersedia; ketik/koreksi pertanyaan lalu simpan atau abaikan."
     );
   }
@@ -6735,7 +6735,7 @@ function BottomAskBar({
     setAttachmentBusy(false);
     setAttachmentStatus(
       extractedRaw
-        ? "File RAW/original + teks mentah siap dibaca AI. Belum disimpan ke folder."
+        ? "File RAW/original + teks mentah siap dibaca AI. Belum disimpan ke Database."
         : "File RAW/original siap dibaca AI langsung. Ekstraksi teks tidak tersedia, tapi file asli tetap dipakai."
     );
   }
@@ -6756,7 +6756,7 @@ function BottomAskBar({
     if (!target) return;
 
     setAttachmentBusy(true);
-    setAttachmentStatus("Menyimpan file asli ke folder dan menyiapkan versi tertata...");
+    setAttachmentStatus("Menyimpan file asli ke Database dan menyiapkan versi tertata...");
 
     const file = pendingAttachment.file;
     const mimeType = pendingAttachment.mimeType || inferMime(file);
@@ -6828,7 +6828,7 @@ function BottomAskBar({
           source_file_id: row.id,
         });
         setAttachmentStatus(
-          "File asli sudah masuk folder; versi tertata belum selesai."
+          "File asli sudah masuk Database; versi tertata belum selesai."
         );
         setPendingAttachment(null);
         onChange();
@@ -6837,7 +6837,7 @@ function BottomAskBar({
     }
 
     setAttachmentStatus(
-      "File asli + RAW sudah masuk folder: " + target.title + "."
+      "File asli + RAW sudah masuk Database: " + target.title + "."
     );
     setPendingAttachment(null);
     if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
@@ -7148,7 +7148,7 @@ function BottomAskBar({
                   disabled={askVoiceBusy || !askVoiceDbId}
                   onClick={savePendingVoiceToDatabase}
                 >
-                  Simpan ke folder
+                  Simpan ke Database
                 </button>
               </div>
             )}
@@ -7186,7 +7186,7 @@ function BottomAskBar({
                     disabled={attachmentBusy || !attachmentDbId}
                     onClick={() => void savePendingAttachmentToDatabase()}
                   >
-                    Simpan ke folder
+                    Simpan ke Database
                   </button>
                 </div>
               </>
@@ -7225,7 +7225,7 @@ function BottomAskBar({
                     disabled={linkBusy || !attachmentDbId}
                     onClick={() => void savePendingLinkToDatabase()}
                   >
-                    Simpan ke folder
+                    Simpan ke Database
                   </button>
                 </div>
               </>
@@ -7262,7 +7262,7 @@ function BottomAskBar({
                 disabled={attachmentBusy || !attachmentDbId}
                 onClick={() => void saveQuestionTextToDatabase()}
               >
-                Simpan ke folder
+                Simpan ke Database
               </button>
             </div>
           </div>
