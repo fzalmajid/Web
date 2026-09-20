@@ -8143,7 +8143,7 @@ function AiModePicker({
         aria-expanded={open}
       >
         <span>
-          <strong>Choose Model</strong>
+          <strong>Model</strong>
           <small>
             {selected?.label || "Local"}
             {selected?.id !== "local" && selectedEffort ? " · " + selectedEffort.label : ""}
@@ -8156,7 +8156,7 @@ function AiModePicker({
         <div className="aiModePopover aiModelPopover">
           <div className="modelPickerHead">
             <div>
-              <span className="aiModeSectionLabel">CHOOSE MODEL</span>
+              <span className="aiModeSectionLabel">MODEL</span>
               <strong>{selected?.label || "Local"}</strong>
             </div>
             <div className="modelPickerActions">
@@ -8277,7 +8277,7 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
         aria-expanded={open}
       >
         <span>
-          <strong>Choose Citation</strong>
+          <strong>Sitasi</strong>
           <small>{selected.label}{prefs.style !== "none" ? " · " + selected.preview : ""}</small>
         </span>
         <b>⌄</b>
@@ -8287,7 +8287,7 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
         <div className="citationPopover">
           <div className="citationPopoverHead">
             <div>
-              <small>CHOOSE CITATION</small>
+              <small>SITASI</small>
               <strong>{selected.label}</strong>
             </div>
             <button type="button" onClick={() => setOpen(false)}>×</button>
