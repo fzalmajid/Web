@@ -73,28 +73,23 @@ export async function searchScopeKnowledge(
 export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000) {
   let used = 0;
   const parts: string[] = [];
+
   for (const row of rows) {
     if (used >= maxChars) break;
 
     const raw = String(row.raw_content || row.content || "").trim();
-    const structured = String(row.content || "").trim();
-    const rawBudget = Math.min(3200, Math.max(1200, maxChars - used));
-    const rawBody = raw.slice(0, rawBudget);
+    if (!raw) continue;
 
-    const sections = [
-      `[${row.title}${row.category ? ` | ${row.category}` : ""} | RAW/ORIGINAL]\n${rawBody}`,
-    ];
+    const remaining = maxChars - used;
+    const body = raw.slice(0, Math.max(0, remaining));
+    if (!body) break;
 
-    if (structured && structured !== raw) {
-      const structuredBudget = Math.min(1800, Math.max(0, maxChars - used - sections[0].length));
-      if (structuredBudget > 200) {
-        sections.push(`[VERSI TERTATA · BANTUAN, BUKAN PENGGANTI RAW]\n${structured.slice(0, structuredBudget)}`);
-      }
-    }
+    const part =
+      `[${row.title}${row.category ? ` | ${row.category}` : ""} | RAW/ORIGINAL]\n${body}`;
 
-    const part = sections.join("\n\n");
     parts.push(part);
     used += part.length;
   }
+
   return parts.join("\n\n---\n\n");
 }
