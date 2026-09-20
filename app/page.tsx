@@ -63,6 +63,10 @@ type SourceFile = {
   error_message: string | null;
   source_kind?: "file" | "link";
   source_url?: string | null;
+  ai_copy_mode?: "compact" | "medium" | "complex" | null;
+  ai_copy_ratio?: number | null;
+  ai_copy_model?: string | null;
+  ai_copy_updated_at?: string | null;
   created_at: string;
 };
 type Recording = {
@@ -1662,6 +1666,8 @@ function FolderPage({
                 <DatabaseFileCard
                   key={file.id}
                   file={file}
+                  session={session}
+                  onChange={onChange}
                   draggable={nativeDragEnabled}
                   compact
                   onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
@@ -2748,7 +2754,7 @@ function DatabasePage({
     }
 
     onChange();
-    setFileStatus("Sedang diproses...");
+    setFileStatus("Sedang membaca RAW...");
 
     if (aiSelection.model === "local") {
       const localMime = inferMime(selectedFile);
@@ -2798,7 +2804,7 @@ function DatabasePage({
       await supabase.from("source_files").update({
         processing_status: "ready",
         raw_text: rawText,
-        structured_text: rawText,
+        structured_text: null,
         corrections: [],
         error_message: null,
       }).eq("id", row.id);
@@ -2820,6 +2826,7 @@ function DatabasePage({
         mimeType,
         nodeId: node.id,
         aiMode,
+        operation: "raw",
       }),
     });
 
@@ -2833,7 +2840,7 @@ function DatabasePage({
     }
 
     setSelectedFile(null);
-    setFileStatus("Selesai. File sudah menjadi isi Database.");
+    setFileStatus("Selesai. RAW/original sudah masuk Database. Versi AI belum dibuat.");
     onChange();
   }
 
@@ -2942,7 +2949,7 @@ function DatabasePage({
               action={selectedFile && isHeavyFile(selectedFile) ? "file_heavy" : "file_light"}
             />
             <button className="primary" disabled={!selectedFile || fileBusy}>
-              {fileBusy ? "Memproses..." : "Upload & olah"}
+              {fileBusy ? "Memproses..." : "Upload RAW"}
             </button>
           </form>
           {fileStatus && <div className="notice">{fileStatus}</div>}
@@ -2993,6 +3000,8 @@ function DatabasePage({
           <DatabaseFileCard
             key={file.id}
             file={file}
+            session={session}
+            onChange={onChange}
             onDelete={() => removeFile(file)}
           />
         ))}
@@ -3029,12 +3038,16 @@ async function downloadStorageObject(bucket: string, path: string, fileName: str
 
 function DatabaseFileCard({
   file,
+  session,
+  onChange,
   onDelete,
   draggable = false,
   compact = false,
   onDragStart,
 }: {
   file: SourceFile;
+  session: Session;
+  onChange: () => void;
   onDelete: () => void;
   draggable?: boolean;
   compact?: boolean;
@@ -3042,6 +3055,45 @@ function DatabaseFileCard({
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [copyMode, setCopyMode] = useState<"compact" | "medium" | "complex">(
+    file.ai_copy_mode || "medium"
+  );
+  const [copySelection, setCopySelection] = useState<AiSelection>(
+    defaultSelection("gemini-2.5-flash")
+  );
+
+  async function createAiCopy() {
+    if (!file.raw_text?.trim()) {
+      return alert("RAW belum siap. Tunggu proses pembacaan file selesai.");
+    }
+    if (copySelection.model === "local") {
+      return alert("Versi AI membutuhkan model cloud.");
+    }
+
+    setCopyBusy(true);
+    const response = await fetch("/api/import-file", {
+      method: "POST",
+      headers: aiRequestHeaders(session, copySelection),
+      body: JSON.stringify({
+        sourceFileId: file.id,
+        filePath: file.file_path,
+        fileName: file.file_name,
+        mimeType: file.mime_type,
+        nodeId: file.node_id,
+        aiMode: legacyModeForSelection(copySelection),
+        operation: "ai-copy",
+        aiCopyMode: copyMode,
+        ...citationRequestFields(),
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setCopyBusy(false);
+    if (!response.ok) return alert(result.error || "Gagal membuat salinan AI.");
+    setCopyOpen(false);
+    onChange();
+  }
   const isLink = file.source_kind === "link" || Boolean(file.source_url);
   const isImage = file.mime_type.startsWith("image/");
   const isAudio = file.mime_type.startsWith("audio/");
@@ -3085,7 +3137,7 @@ function DatabaseFileCard({
             {isLink
               ? "Link RAW"
               : file.processing_status === "processing"
-                ? "Sedang diproses..."
+                ? "Sedang membaca RAW..."
                 : file.processing_status === "ready"
                   ? "Ready"
                   : "Gagal diproses"}
@@ -3114,6 +3166,11 @@ function DatabaseFileCard({
               Download
             </button>
           )}
+          {!isLink && file.raw_text && (
+            <button className="ghost" type="button" onClick={() => setCopyOpen((current) => !current)}>
+              {file.structured_text ? "Atur ulang AI" : "Buat versi AI"}
+            </button>
+          )}
           <button className="dangerSmall" type="button" onClick={onDelete}>Hapus</button>
         </div>
       </div>
@@ -3139,6 +3196,54 @@ function DatabaseFileCard({
         </div>
       )}
 
+      {copyOpen && file.raw_text && (
+        <section className="aiCopyPanel">
+          <div className="aiCopyHead">
+            <div>
+              <small>SALINAN AI · RAW TETAP UTUH</small>
+              <strong>Panjang hasil</strong>
+            </div>
+            <button type="button" onClick={() => setCopyOpen(false)}>×</button>
+          </div>
+
+          <div className="aiCopyLengthChoices">
+            {[
+              { value: "compact" as const, label: "Ringkas", ratio: "30%", hint: "Inti saja" },
+              { value: "medium" as const, label: "Medium", ratio: "50%", hint: "Seimbang" },
+              { value: "complex" as const, label: "Kompleks", ratio: "90%", hint: "Hampir lengkap" },
+            ].map((item) => (
+              <button
+                type="button"
+                key={item.value}
+                className={copyMode === item.value ? "active" : ""}
+                onClick={() => setCopyMode(item.value)}
+              >
+                <strong>{item.label} · {item.ratio}</strong>
+                <small>{item.hint} dari karakter RAW</small>
+              </button>
+            ))}
+          </div>
+
+          <div className="aiCopyModelRow">
+            <CitationPicker />
+            <AiModePicker
+              value={copySelection}
+              onChange={setCopySelection}
+              action="study"
+              allowLocal={false}
+            />
+          </div>
+
+          <button className="primary" type="button" disabled={copyBusy} onClick={createAiCopy}>
+            {copyBusy ? "Membuat salinan AI..." : file.structured_text ? "Buat ulang versi AI" : "Buat salinan versi AI"}
+          </button>
+          <small className="muted">
+            RAW/original tidak diubah. Versi AI dibuat sebagai salinan terpisah dengan target panjang sekitar
+            {copyMode === "compact" ? " 30%" : copyMode === "complex" ? " 90%" : " 50%"} dari karakter RAW.
+          </small>
+        </section>
+      )}
+
       {file.raw_text && (
         <details open={!compact}>
           <summary>RAW / original source</summary>
@@ -3147,7 +3252,10 @@ function DatabaseFileCard({
       )}
       {file.structured_text && file.structured_text !== file.raw_text && (
         <details>
-          <summary>Versi tertata</summary>
+          <summary>
+            Salinan AI{file.ai_copy_ratio ? " · sekitar " + file.ai_copy_ratio + "%" : ""}
+            {file.ai_copy_model ? " · " + file.ai_copy_model : ""}
+          </summary>
           <div className="dataText"><RichText text={file.structured_text} /></div>
         </details>
       )}
@@ -3814,7 +3922,7 @@ function StudyPage({
     }
 
     onChange();
-    setQuickDbStatus("Sedang diproses...");
+    setQuickDbStatus("Sedang membaca RAW...");
 
     if (quickDbAiSelection.model === "local") {
       const localSupported =
@@ -3862,7 +3970,7 @@ function StudyPage({
       await supabase.from("source_files").update({
         processing_status: "ready",
         raw_text: rawText,
-        structured_text: rawText,
+        structured_text: null,
         corrections: [],
         error_message: null,
       }).eq("id", row.id);
@@ -3884,6 +3992,7 @@ function StudyPage({
         mimeType,
         nodeId: database.id,
         aiMode: quickDbAiMode,
+        operation: "raw",
       }),
     });
 
@@ -3897,7 +4006,7 @@ function StudyPage({
     }
 
     setQuickDbFile(null);
-    setQuickDbStatus("Selesai. File sudah masuk folder dan otomatis dipilih sebagai sumber Study.");
+    setQuickDbStatus("Selesai. RAW/original sudah masuk folder dan otomatis dipilih sebagai sumber Study.");
     onChange();
   }
 
@@ -4153,7 +4262,7 @@ function StudyPage({
                       action={quickDbFile && isHeavyFile(quickDbFile) ? "file_heavy" : "file_light"}
                     />
                     <button className="primary" disabled={!quickDbName.trim() || !quickDbFile || quickFileBusy}>
-                      {quickFileBusy ? "Memproses..." : "Upload & olah"}
+                      {quickFileBusy ? "Memproses..." : "Upload RAW"}
                     </button>
                   </form>
                   {quickDbStatus && <div className="notice">{quickDbStatus}</div>}
@@ -7411,6 +7520,7 @@ function BottomAskBar({
           mimeType,
           nodeId: target.id,
           aiMode,
+          operation: "raw",
         }),
       });
       const result = await response.json().catch(() => ({}));
