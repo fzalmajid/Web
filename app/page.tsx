@@ -60,6 +60,8 @@ type SourceFile = {
   structured_text: string | null;
   corrections: Correction[];
   error_message: string | null;
+  source_kind?: "file" | "link";
+  source_url?: string | null;
   created_at: string;
 };
 type Recording = {
@@ -1311,7 +1313,9 @@ function DatabasePage({
   async function removeFile(file: SourceFile) {
     if (!confirm("Hapus file dan hasil olahannya?")) return;
     await supabase.from("knowledge_entries").delete().eq("source_file_id", file.id);
-    await supabase.storage.from("study-files").remove([file.file_path]);
+    if (file.source_kind !== "link") {
+      await supabase.storage.from("study-files").remove([file.file_path]);
+    }
     const { error } = await supabase.from("source_files").delete().eq("id", file.id);
     if (error) alert(error.message);
     else onChange();
@@ -1471,6 +1475,7 @@ function DatabaseFileCard({
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
+  const isLink = file.source_kind === "link" || Boolean(file.source_url);
   const isImage = file.mime_type.startsWith("image/");
   const isAudio = file.mime_type.startsWith("audio/");
   const isVideo = file.mime_type.startsWith("video/");
@@ -1478,6 +1483,11 @@ function DatabaseFileCard({
   const canInlinePreview = isImage || isAudio || isVideo || isPdf;
 
   async function preview() {
+    if (isLink) {
+      const url = file.source_url || file.file_path;
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
     setPreviewBusy(true);
     const { data, error } = await supabase.storage
       .from("study-files")
@@ -1501,26 +1511,38 @@ function DatabaseFileCard({
       <div className="dataHead">
         <div>
           <small>
-            {file.processing_status === "processing"
-              ? "Sedang diproses..."
-              : file.processing_status === "ready"
-                ? "Ready"
-                : "Gagal diproses"}
-            {" · "}{formatBytes(file.size_bytes)}
+            {isLink
+              ? "Link RAW"
+              : file.processing_status === "processing"
+                ? "Sedang diproses..."
+                : file.processing_status === "ready"
+                  ? "Ready"
+                  : "Gagal diproses"}
+            {!isLink && " · " + formatBytes(file.size_bytes)}
           </small>
           <h3>{file.file_name}</h3>
         </div>
         <div className="mediaCardActions">
           <button className="ghost" type="button" disabled={previewBusy} onClick={preview}>
-            {previewBusy ? "Membuka..." : previewUrl ? "Tutup" : canInlinePreview ? "Lihat / Putar" : "Buka"}
+            {isLink
+              ? "Buka sumber"
+              : previewBusy
+                ? "Membuka..."
+                : previewUrl
+                  ? "Tutup"
+                  : canInlinePreview
+                    ? "Lihat / Putar"
+                    : "Buka"}
           </button>
-          <button
-            className="ghost"
-            type="button"
-            onClick={() => downloadStorageObject("study-files", file.file_path, file.file_name)}
-          >
-            Download
-          </button>
+          {!isLink && (
+            <button
+              className="ghost"
+              type="button"
+              onClick={() => downloadStorageObject("study-files", file.file_path, file.file_name)}
+            >
+              Download
+            </button>
+          )}
           <button className="dangerSmall" type="button" onClick={onDelete}>Hapus</button>
         </div>
       </div>
