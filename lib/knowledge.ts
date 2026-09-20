@@ -8,6 +8,7 @@ export type KnowledgeSource = {
   content: string;
   raw_content?: string | null;
   source_file_id?: string | null;
+  source_type?: "manual" | "file" | "transcript" | "generated" | null;
 };
 
 async function hydrateRawContent(
@@ -19,7 +20,7 @@ async function hydrateRawContent(
 
   const { data } = await supabase
     .from("knowledge_entries")
-    .select("id,raw_content,content,source_file_id")
+    .select("id,raw_content,content,source_file_id,source_type")
     .in("id", ids);
 
   const byId = new Map(
@@ -28,6 +29,7 @@ async function hydrateRawContent(
       {
         raw: String(item.raw_content || item.content || "").trim(),
         sourceFileId: item.source_file_id ? String(item.source_file_id) : null,
+        sourceType: item.source_type ? String(item.source_type) : null,
       },
     ])
   );
@@ -38,6 +40,7 @@ async function hydrateRawContent(
       ...row,
       raw_content: hydrated?.raw || row.raw_content || row.content,
       source_file_id: hydrated?.sourceFileId || row.source_file_id || null,
+      source_type: (hydrated?.sourceType as KnowledgeSource["source_type"]) || row.source_type || null,
     };
   });
 }
@@ -76,6 +79,10 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000)
 
   for (const row of rows) {
     if (used >= maxChars) break;
+
+    // Rekaman dibaca dari file audio asli oleh /api/ask.
+    // Transkrip disimpan untuk user, bukan dijadikan sumber fakta AI.
+    if (row.source_type === "transcript") continue;
 
     const raw = String(row.raw_content || row.content || "").trim();
     if (!raw) continue;
