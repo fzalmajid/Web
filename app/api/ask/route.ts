@@ -258,94 +258,169 @@ async function fetchExactRawLink(rawUrl: string): Promise<RawAsset | null> {
   }
 }
 
+async function resolveRawScopeNodeIds(
+  supabase: any,
+  userId: string,
+  scopeNodeId: string | null
+): Promise<string[] | null> {
+  const { data: nodes } = await supabase
+    .from("study_nodes")
+    .select("id,parent_id")
+    .eq("user_id", userId);
+
+  if (!Array.isArray(nodes) || !nodes.length) {
+    return scopeNodeId ? [scopeNodeId] : null;
+  }
+
+  if (!scopeNodeId) return nodes.map((node: any) => String(node.id));
+
+  const result = [scopeNodeId];
+  let cursor = 0;
+  while (cursor < result.length) {
+    const parentId = result[cursor++];
+    for (const node of nodes) {
+      const id = String(node.id || "");
+      if (node.parent_id === parentId && id && !result.includes(id)) result.push(id);
+    }
+  }
+  return result;
+}
+
+function rawCandidateScore(question: string, ...values: Array<unknown>) {
+  const haystack = values.map((value) => String(value || "").toLowerCase()).join(" ");
+  const words = Array.from(
+    new Set(question.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi)?.map((word) => word.toLowerCase()) || [])
+  );
+  return words.reduce((score, word) => score + (haystack.includes(word) ? 1 : 0), 0);
+}
+
 async function loadDatabaseRawAssets(
   supabase: any,
   rows: any[],
-  userId: string
+  userId: string,
+  scopeNodeId: string | null,
+  question: string
 ): Promise<RawAsset[]> {
   const assets: RawAsset[] = [];
-  const sourceFileIds = Array.from(
-    new Set(rows.map((row) => String(row.source_file_id || "")).filter(Boolean))
-  ).slice(0, 6);
+  const matchedSourceFileIds = new Set(
+    rows.map((row) => String(row.source_file_id || "")).filter(Boolean)
+  );
+  const matchedEntryIds = new Set(
+    rows.map((row) => String(row.id || "")).filter(Boolean)
+  );
+  const scopeNodeIds = await resolveRawScopeNodeIds(supabase, userId, scopeNodeId);
 
-  if (sourceFileIds.length) {
-    const { data: sourceFiles } = await supabase
-      .from("source_files")
-      .select("id,user_id,file_path,file_name,mime_type,size_bytes,raw_text,source_kind,source_url")
-      .in("id", sourceFileIds)
-      .eq("user_id", userId);
+  let sourceFilesQuery = supabase
+    .from("source_files")
+    .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,raw_text,source_kind,source_url,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(80);
 
-    for (const file of sourceFiles || []) {
-      if (assets.length >= 4) break;
+  if (scopeNodeIds?.length) {
+    sourceFilesQuery = sourceFilesQuery.in("node_id", scopeNodeIds);
+  }
 
-      if (file.source_kind === "link" && file.source_url) {
-        const live = await fetchExactRawLink(String(file.source_url));
-        if (live) {
-          live.origin = "database-link";
-          assets.push(live);
-        } else if (file.raw_text) {
-          assets.push({
-            name: file.file_name || file.source_url,
-            mimeType: "text/plain",
-            rawText: String(file.raw_text).slice(0, 70000),
-            sourceUrl: String(file.source_url),
-            origin: "database-link",
-          });
-        }
-        continue;
+  const { data: sourceFiles } = await sourceFilesQuery;
+  const rankedFiles = (sourceFiles || [])
+    .map((file: any, index: number) => ({
+      file,
+      score:
+        (matchedSourceFileIds.has(String(file.id)) ? 1000 : 0) +
+        rawCandidateScore(question, file.file_name, file.source_url, String(file.raw_text || "").slice(0, 12000)) +
+        Math.max(0, 0.2 - index * 0.001),
+    }))
+    .sort((a: any, b: any) => b.score - a.score);
+
+  for (const { file } of rankedFiles) {
+    if (assets.length >= 4) break;
+
+    if (file.source_kind === "link" && file.source_url) {
+      const live = await fetchExactRawLink(String(file.source_url));
+      if (live) {
+        live.origin = "database-link";
+        assets.push(live);
+      } else if (file.raw_text) {
+        assets.push({
+          name: file.file_name || file.source_url,
+          mimeType: "text/plain",
+          rawText: String(file.raw_text).slice(0, 70000),
+          sourceUrl: String(file.source_url),
+          origin: "database-link",
+        });
       }
-
-      const mimeType = normalizeRawMime(file.mime_type);
-      const size = Number(file.size_bytes || 0);
-      if (!supportsDirectBinary(mimeType) || size > 12 * 1024 * 1024) {
-        if (file.raw_text) {
-          assets.push({
-            name: file.file_name || "Database file",
-            mimeType: "text/plain",
-            rawText: String(file.raw_text).slice(0, 70000),
-            origin: "database-file",
-          });
-        }
-        continue;
-      }
-
-      const { data: blob } = await supabase.storage.from("study-files").download(file.file_path);
-      if (!blob || blob.size > 12 * 1024 * 1024) continue;
-      const buffer = Buffer.from(await blob.arrayBuffer());
-      assets.push({
-        name: file.file_name || "Database file",
-        mimeType,
-        data: buffer.toString("base64"),
-        rawText: file.raw_text ? String(file.raw_text).slice(0, 50000) : undefined,
-        origin: "database-file",
-      });
+      continue;
     }
+
+    const mimeType = normalizeRawMime(file.mime_type);
+    const size = Number(file.size_bytes || 0);
+
+    if (!supportsDirectBinary(mimeType) || size > 12 * 1024 * 1024) {
+      if (file.raw_text) {
+        assets.push({
+          name: file.file_name || "Database file",
+          mimeType: "text/plain",
+          rawText: String(file.raw_text).slice(0, 70000),
+          origin: "database-file",
+        });
+      }
+      continue;
+    }
+
+    const { data: blob } = await supabase.storage.from("study-files").download(file.file_path);
+    if (!blob || blob.size > 12 * 1024 * 1024) continue;
+    const buffer = Buffer.from(await blob.arrayBuffer());
+    assets.push({
+      name: file.file_name || "Database file",
+      mimeType,
+      data: buffer.toString("base64"),
+      rawText: file.raw_text ? String(file.raw_text).slice(0, 50000) : undefined,
+      origin: "database-file",
+    });
   }
 
   if (assets.length < 4) {
-    const entryIds = rows.map((row) => String(row.id || "")).filter(Boolean).slice(0, 20);
-    if (entryIds.length) {
-      const { data: recordings } = await supabase
-        .from("recordings")
-        .select("id,user_id,title,file_path,mime_type,knowledge_entry_id,raw_transcript")
-        .in("knowledge_entry_id", entryIds)
-        .eq("user_id", userId)
-        .limit(4 - assets.length);
+    let recordingsQuery = supabase
+      .from("recordings")
+      .select("id,user_id,node_id,title,file_path,mime_type,knowledge_entry_id,raw_transcript,created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(60);
 
-      for (const recording of recordings || []) {
-        if (assets.length >= 4) break;
-        const mimeType = normalizeRawMime(recording.mime_type || "audio/webm");
-        const { data: blob } = await supabase.storage.from("recordings").download(recording.file_path);
-        if (!blob || blob.size > 12 * 1024 * 1024) continue;
-        const buffer = Buffer.from(await blob.arrayBuffer());
-        assets.push({
-          name: recording.title || "Rekaman Database",
-          mimeType,
-          data: buffer.toString("base64"),
-          rawText: recording.raw_transcript ? String(recording.raw_transcript).slice(0, 50000) : undefined,
-          origin: "database-recording",
-        });
-      }
+    if (scopeNodeIds?.length) {
+      recordingsQuery = recordingsQuery.in("node_id", scopeNodeIds);
+    }
+
+    const { data: recordings } = await recordingsQuery;
+    const rankedRecordings = (recordings || [])
+      .map((recording: any, index: number) => ({
+        recording,
+        score:
+          (matchedEntryIds.has(String(recording.knowledge_entry_id || "")) ? 1000 : 0) +
+          rawCandidateScore(
+            question,
+            recording.title,
+            String(recording.raw_transcript || "").slice(0, 12000)
+          ) +
+          Math.max(0, 0.2 - index * 0.001),
+      }))
+      .sort((a: any, b: any) => b.score - a.score);
+
+    for (const { recording } of rankedRecordings) {
+      if (assets.length >= 4) break;
+      const mimeType = normalizeRawMime(recording.mime_type || "audio/webm");
+      const { data: blob } = await supabase.storage.from("recordings").download(recording.file_path);
+      if (!blob || blob.size > 12 * 1024 * 1024) continue;
+      const buffer = Buffer.from(await blob.arrayBuffer());
+      assets.push({
+        name: recording.title || "Rekaman Database",
+        mimeType,
+        data: buffer.toString("base64"),
+        rawText: recording.raw_transcript
+          ? String(recording.raw_transcript).slice(0, 50000)
+          : undefined,
+        origin: "database-recording",
+      });
     }
   }
 
@@ -604,7 +679,13 @@ export async function POST(req: NextRequest) {
 
     const currentRawAssets = await loadCurrentRawAttachment(supabase, userData.user.id, body);
     const databaseRawAssets = useDatabase
-      ? await loadDatabaseRawAssets(supabase, data, userData.user.id)
+      ? await loadDatabaseRawAssets(
+          supabase,
+          data,
+          userData.user.id,
+          scopeNodeId,
+          question.trim()
+        )
       : [];
 
     let rawBinaryBudget = 18 * 1024 * 1024;
