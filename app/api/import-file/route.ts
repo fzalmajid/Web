@@ -136,17 +136,13 @@ export async function POST(req: NextRequest) {
       ? Boolean(aiInfo?.sharedGemini)
       : !geminiAuth.ownGemini;
 
-    if (aiMode === "simple") {
-      return NextResponse.json({ error: "Local diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
-    }
-
     if (!sourceFileId || !filePath || !nodeId) {
       return NextResponse.json({ error: "Data file tidak lengkap." }, { status: 400 });
     }
 
     const { data: row, error: rowError } = await supabase
       .from("source_files")
-      .select("id,node_id,file_path,file_name,mime_type,raw_text,processing_status,processing_page,processing_total_pages,processing_chunks,processing_chars,processing_strategy")
+      .select("id,node_id,file_path,file_name,mime_type,raw_text,processing_status,processing_page,processing_total_pages,processing_chunks,processing_chars,processing_strategy,processing_started_at,processing_updated_at")
       .eq("id", sourceFileId)
       .single();
     if (rowError || !row || row.file_path !== filePath || row.node_id !== nodeId) {
@@ -387,12 +383,29 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const rawNeedsAi =
+      isMediaMime(mimeType) ||
+      mimeType.startsWith("image/") ||
+      (!isTextMime(mimeType) &&
+        mimeType !== "application/pdf" &&
+        mimeType !== "application/vnd.openxmlformats-officedocument.wordprocessingml.document" &&
+        mimeType !== "application/vnd.openxmlformats-officedocument.presentationml.presentation" &&
+        !fileName.toLowerCase().endsWith(".docx") &&
+        !fileName.toLowerCase().endsWith(".pptx"));
+    const aiRequired = operation === "ai-copy" || rawNeedsAi;
+    if (aiRequired && aiMode === "simple") {
+      return NextResponse.json(
+        { error: "Format/operasi ini membutuhkan model cloud. PDF, DOCX, PPTX, TXT, CSV, JSON, dan XML dapat diproses tanpa AI." },
+        { status: 400 }
+      );
+    }
+
     const heavyFile =
       isMediaMime(mimeType) ||
       mimeType === "application/pdf" ||
       mimeType.startsWith("image/");
     const guardAction = heavyFile ? "file_heavy" : "file_light";
-    const preflight = sharedGemini ? await checkAiCredits(supabase, guardAction, aiMode) : null;
+    const preflight = sharedGemini && aiRequired ? await checkAiCredits(supabase, guardAction, aiMode) : null;
     if (preflight && !preflight.allowed) {
       await supabase
         .from("source_files")
@@ -498,7 +511,7 @@ export async function POST(req: NextRequest) {
         .eq("id", sourceFileId);
       if (rawUpdateError) throw rawUpdateError;
 
-      const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
+      const aiUsage = sharedGemini && aiRequired ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
       return NextResponse.json({
         rawText: rawText.length <= 120000 ? rawText : "",
         aiUsage,
@@ -602,7 +615,7 @@ Aturan:
       .eq("id", sourceFileId);
     if (updateError) throw updateError;
 
-    const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
+    const aiUsage = sharedGemini && aiRequired ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
 
     return NextResponse.json({
       entryId,
