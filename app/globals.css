@@ -5009,3 +5009,36 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     max-height:calc(100dvh - 20px);
   }
 }
+
+
+/* Breadcrumb drop affordance: ancestors available, current folder unavailable */
+.pathCrumb.dropAvailable{
+  background:var(--card)!important;
+  border-color:var(--line)!important;
+}
+.pathCrumb.dropAvailable:hover{
+  border-color:#9db8ad!important;
+  background:var(--card)!important;
+}
+.pathCrumb.currentDropUnavailable{
+  background:var(--soft)!important;
+  color:var(--muted)!important;
+  cursor:default!important;
+}
+.pathCrumb.currentDropUnavailable:hover{
+  border-color:var(--line)!important;
+  background:var(--soft)!important;
+}
+.pathCrumb.dropAvailable.active{
+  background:#e9f6ee!important;
+  border-color:#67a17f!important;
+  color:#286848!important;
+  box-shadow:0 0 0 2px rgba(103,161,127,.13)!important;
+}
+:root[data-theme="dark"] .pathCrumb.dropAvailable{
+  background:var(--card)!important;
+}
+:root[data-theme="dark"] .pathCrumb.currentDropUnavailable{
+  background:var(--soft)!important;
+  color:var(--muted)!important;
+}
