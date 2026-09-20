@@ -17,8 +17,28 @@ export async function POST(req: NextRequest) {
     if (!token) return NextResponse.json({ error: "Belum login." }, { status: 401 });
 
     const body = await req.json();
-    const sourceNodeId = String(body.sourceNodeId || body.scopeNodeId || "");
-    const targetNodeId = String(body.targetNodeId || sourceNodeId || "");
+    const legacySourceNodeId = String(body.sourceNodeId || body.scopeNodeId || "");
+    const sourceNodeIds: string[] = Array.isArray(body.sourceNodeIds)
+      ? Array.from(
+          new Set<string>(
+            body.sourceNodeIds
+              .map((value: unknown) => String(value || ""))
+              .filter(Boolean)
+          )
+        ).slice(0, 24)
+      : legacySourceNodeId
+        ? [legacySourceNodeId]
+        : [];
+    const sourceFileIds: string[] = Array.isArray(body.sourceFileIds)
+      ? Array.from(
+          new Set<string>(
+            body.sourceFileIds
+              .map((value: unknown) => String(value || ""))
+              .filter(Boolean)
+          )
+        ).slice(0, 60)
+      : [];
+    const targetNodeId = String(body.targetNodeId || sourceNodeIds[0] || "");
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
     const instruction = String(body.instruction || "").trim().slice(0, 2000);
@@ -60,8 +80,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Local diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
     }
 
-    if (!sourceNodeId || !targetNodeId) {
-      return NextResponse.json({ error: "Scope materi belum dipilih." }, { status: 400 });
+    if (!targetNodeId) {
+      return NextResponse.json({ error: "Cabang tujuan belum dipilih." }, { status: 400 });
+    }
+    if (useDatabase && !sourceNodeIds.length && !sourceFileIds.length) {
+      return NextResponse.json({ error: "Pilih minimal satu folder atau file sumber Database." }, { status: 400 });
     }
     if (mode === "quiz" && quizCreationMode === "answer-ai" && !manualQuestions.length) {
       return NextResponse.json({ error: "Tulis minimal satu pertanyaan yang ingin dijawab AI." }, { status: 400 });
@@ -82,20 +105,71 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Cabang tujuan tidak ditemukan." }, { status: 404 });
     }
 
-    const sourceLimit = aiMode === "high" ? 60 : aiMode === "medium" ? 48 : 32;
-    const sources = useDatabase ? await getScopeKnowledge(supabase, sourceNodeId, sourceLimit) : [];
-    if (useDatabase && !sources.length) {
-      return NextResponse.json({ error: "Database aktif, tetapi sumber materi ini masih kosong." }, { status: 400 });
+    const sourceLimit = aiMode === "high" ? 80 : aiMode === "medium" ? 60 : 40;
+    let sources: any[] = [];
+
+    if (useDatabase) {
+      const { data: allNodes, error: nodesError } = await supabase
+        .from("study_nodes")
+        .select("id,parent_id");
+      if (nodesError) throw nodesError;
+
+      const collectTree = (rootId: string) => {
+        const result = [rootId];
+        let cursor = 0;
+        while (cursor < result.length) {
+          const parent = result[cursor++];
+          for (const child of allNodes || []) {
+            const id = String(child.id || "");
+            if (child.parent_id === parent && id && !result.includes(id)) result.push(id);
+          }
+        }
+        return result;
+      };
+
+      const scopeNodeIds = Array.from(
+        new Set(sourceNodeIds.flatMap((sourceId) => collectTree(sourceId)))
+      );
+
+      const merged = new Map<string, any>();
+
+      if (scopeNodeIds.length) {
+        const { data: nodeEntries, error: nodeEntriesError } = await supabase
+          .from("knowledge_entries")
+          .select("id,node_id,title,category,content,raw_content,source_type,source_file_id,source_page_start,source_page_end")
+          .in("node_id", scopeNodeIds)
+          .order("created_at", { ascending: true })
+          .limit(Math.max(sourceLimit * 4, 120));
+        if (nodeEntriesError) throw nodeEntriesError;
+        for (const entry of nodeEntries || []) merged.set(String(entry.id), entry);
+      }
+
+      if (sourceFileIds.length) {
+        const { data: fileEntries, error: fileEntriesError } = await supabase
+          .from("knowledge_entries")
+          .select("id,node_id,title,category,content,raw_content,source_type,source_file_id,source_page_start,source_page_end")
+          .in("source_file_id", sourceFileIds)
+          .order("source_page_start", { ascending: true, nullsFirst: false })
+          .limit(Math.max(sourceLimit * 6, 180));
+        if (fileEntriesError) throw fileEntriesError;
+        for (const entry of fileEntries || []) merged.set(String(entry.id), entry);
+      }
+
+      sources = Array.from(merged.values()).slice(0, Math.max(sourceLimit * 5, 160));
+
+      if (!sources.length) {
+        return NextResponse.json({ error: "Database aktif, tetapi folder/file yang dipilih belum memiliki sumber RAW/index." }, { status: 400 });
+      }
     }
 
     const context = useDatabase
-      ? buildKnowledgeContext(sources, aiMode === "high" ? 46000 : aiMode === "medium" ? 36000 : 24000)
+      ? buildKnowledgeContext(sources, aiMode === "high" ? 52000 : aiMode === "medium" ? 40000 : 28000)
       : "";
 
     const sourcePolicy = [
       "SUMBER AKTIF: " + activeSourceKinds.join(", "),
       useDatabase
-        ? "- Database AKTIF: gunakan RAW/ORIGINAL di bawah sebagai sumber utama."
+        ? "- Database AKTIF: gunakan hanya RAW/ORIGINAL dari folder/file yang dipilih user di bawah sebagai sumber utama."
         : "- Database TIDAK AKTIF: abaikan database sebagai sumber fakta.",
       useAiKnowledge
         ? "- AI AKTIF: pengetahuan internal model boleh dipakai."
