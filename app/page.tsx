@@ -5123,11 +5123,14 @@ function BottomAskBar({
   const [pendingTextSave, setPendingTextSave] = useState<string | null>(null);
 
   const askVoiceDatabases = useMemo(() => {
-    const all = nodes.filter((item) => item.node_type === "database");
+    const all = nodes.filter(isFolderLikeNode);
     if (!scopeNodeId) return all;
-    const ids = new Set(collectSubtreeIds(nodes, scopeNodeId));
-    const scoped = all.filter((item) => ids.has(item.id));
-    return scoped.length ? scoped : all;
+
+    const currentFolder = all.find((item) => item.id === scopeNodeId);
+    const subtreeIds = new Set(collectSubtreeIds(nodes, scopeNodeId));
+    const scoped = all.filter((item) => subtreeIds.has(item.id));
+    const ordered = [currentFolder, ...scoped, ...all].filter(Boolean) as StudyNode[];
+    return Array.from(new Map(ordered.map((item) => [item.id, item])).values());
   }, [nodes, scopeNodeId]);
 
   useEffect(() => {
@@ -5183,7 +5186,7 @@ function BottomAskBar({
   function wantsDatabaseSave(value: string) {
     const text = value.toLowerCase();
     const saveWord = /(masukin|masukkan|masukkin|simpan|save|tambahkan|tambahin)/i.test(text);
-    return saveWord && /(database|\bdb\b)/i.test(text);
+    return saveWord && /(database|\bdb\b|folder|materi)/i.test(text);
   }
 
   function suggestedDatabaseId(value: string) {
@@ -5226,7 +5229,7 @@ function BottomAskBar({
     setLinkDraft("");
     setLinkInputOpen(false);
     setAttachMenuOpen(false);
-    setLinkStatus("Link RAW siap dipakai AI. Belum disimpan ke Database.");
+    setLinkStatus("Link RAW siap dipakai AI. Belum disimpan ke folder.");
   }
 
   function discardPendingLink() {
@@ -5240,7 +5243,7 @@ function BottomAskBar({
     if (!target) return;
 
     setLinkBusy(true);
-    setLinkStatus("Menyimpan link RAW ke Database...");
+    setLinkStatus("Menyimpan link RAW ke folder...");
     const response = await fetch("/api/import-link", {
       method: "POST",
       headers: {
@@ -5258,7 +5261,7 @@ function BottomAskBar({
     }
 
     setPendingLink(null);
-    setLinkStatus("Link RAW sudah masuk Database: " + target.title + ".");
+    setLinkStatus("Link RAW sudah masuk folder: " + target.title + ".");
     onChange();
   }
 
@@ -5282,7 +5285,7 @@ function BottomAskBar({
 
     if (error) return alert(error.message);
     setPendingTextSave(null);
-    setAttachmentStatus("Teks sudah masuk Database: " + target.title + ".");
+    setAttachmentStatus("Teks sudah masuk folder: " + target.title + ".");
     onChange();
   }
 
@@ -5426,7 +5429,7 @@ function BottomAskBar({
       "Anda adalah tutor Ruang Belajar.",
       "Sumber dipilih user:",
       "- AI: " + (useAi ? "AKTIF" : "TIDAK"),
-      "- Database: " + (useDatabase ? "AKTIF" : "TIDAK"),
+      "- folder: " + (useDatabase ? "AKTIF" : "TIDAK"),
       "- Web: TIDAK",
       "",
       useAi
@@ -5813,7 +5816,7 @@ function BottomAskBar({
     setAskVoiceBusy(false);
     setAskVoiceStatus(
       transcript
-        ? "Transkrip mentah sudah masuk ke teks pertanyaan. Silakan edit sendiri bila perlu, lalu Abaikan atau Simpan ke Database."
+        ? "Transkrip mentah sudah masuk ke teks pertanyaan. Silakan edit sendiri bila perlu, lalu Abaikan atau Simpan ke folder."
         : "Audio siap. Transkrip otomatis belum tersedia; ketik/koreksi pertanyaan lalu simpan atau abaikan."
     );
   }
@@ -5864,7 +5867,7 @@ function BottomAskBar({
     if (error) return alert(error.message);
 
     setPendingVoice(null);
-    setAskVoiceStatus("Audio dan transkrip sudah masuk Database: " + target.title + ".");
+    setAskVoiceStatus("Audio dan transkrip sudah masuk folder: " + target.title + ".");
     onChange();
   }
 
@@ -5926,7 +5929,7 @@ function BottomAskBar({
     });
     setAttachMenuOpen(false);
     setAttachmentStatus(
-      "File asli + RAW siap dibaca AI. Belum disimpan ke Database."
+      "File asli + RAW siap dibaca AI. Belum disimpan ke folder."
     );
   }
 
@@ -5946,7 +5949,7 @@ function BottomAskBar({
     if (!target) return;
 
     setAttachmentBusy(true);
-    setAttachmentStatus("Menyimpan file asli ke Database dan menyiapkan versi tertata...");
+    setAttachmentStatus("Menyimpan file asli ke folder dan menyiapkan versi tertata...");
 
     const file = pendingAttachment.file;
     const mimeType = pendingAttachment.mimeType || inferMime(file);
@@ -6018,7 +6021,7 @@ function BottomAskBar({
           source_file_id: row.id,
         });
         setAttachmentStatus(
-          "File asli sudah masuk Database; versi tertata belum selesai."
+          "File asli sudah masuk folder; versi tertata belum selesai."
         );
         setPendingAttachment(null);
         onChange();
@@ -6027,7 +6030,7 @@ function BottomAskBar({
     }
 
     setAttachmentStatus(
-      "File asli + RAW sudah masuk Database: " + target.title + "."
+      "File asli + RAW sudah masuk folder: " + target.title + "."
     );
     setPendingAttachment(null);
     if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
@@ -6350,7 +6353,7 @@ function BottomAskBar({
             {pendingVoice && (
               <div className="askVoiceSaveRow">
                 <select value={askVoiceDbId} onChange={(e) => setAskVoiceDbId(e.target.value)}>
-                  <option value="">Pilih Database</option>
+                  <option value="">Pilih folder</option>
                   {askVoiceDatabases.map((database) => (
                     <option key={database.id} value={database.id}>{database.title}</option>
                   ))}
@@ -6369,7 +6372,7 @@ function BottomAskBar({
                   disabled={askVoiceBusy || !askVoiceDbId}
                   onClick={savePendingVoiceToDatabase}
                 >
-                  Simpan ke Database
+                  Simpan ke folder
                 </button>
               </div>
             )}
@@ -6387,7 +6390,7 @@ function BottomAskBar({
                 </div>
                 <div className="askVoiceSaveRow">
                   <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
-                    <option value="">Pilih Database</option>
+                    <option value="">Pilih folder</option>
                     {askVoiceDatabases.map((database) => (
                       <option key={database.id} value={database.id}>{database.title}</option>
                     ))}
@@ -6406,7 +6409,7 @@ function BottomAskBar({
                     disabled={attachmentBusy || !attachmentDbId}
                     onClick={() => void savePendingAttachmentToDatabase()}
                   >
-                    Simpan ke Database
+                    Simpan ke folder
                   </button>
                 </div>
               </>
@@ -6425,7 +6428,7 @@ function BottomAskBar({
                 </div>
                 <div className="askVoiceSaveRow">
                   <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
-                    <option value="">Pilih Database</option>
+                    <option value="">Pilih folder</option>
                     {askVoiceDatabases.map((database) => (
                       <option key={database.id} value={database.id}>{database.title}</option>
                     ))}
@@ -6444,7 +6447,7 @@ function BottomAskBar({
                     disabled={linkBusy || !attachmentDbId}
                     onClick={() => void savePendingLinkToDatabase()}
                   >
-                    Simpan ke Database
+                    Simpan ke folder
                   </button>
                 </div>
               </>
@@ -6461,7 +6464,7 @@ function BottomAskBar({
             </div>
             <div className="askVoiceSaveRow">
               <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
-                <option value="">Pilih Database</option>
+                <option value="">Pilih folder</option>
                 {askVoiceDatabases.map((database) => (
                   <option key={database.id} value={database.id}>{database.title}</option>
                 ))}
@@ -6480,7 +6483,7 @@ function BottomAskBar({
                 disabled={attachmentBusy || !attachmentDbId}
                 onClick={() => void saveQuestionTextToDatabase()}
               >
-                Simpan ke Database
+                Simpan ke folder
               </button>
             </div>
           </div>
