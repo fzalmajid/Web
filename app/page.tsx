@@ -780,13 +780,13 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                 data-rb-drop-target="__root__"
                 onClick={() => setCurrentId(null)}
                 onDragEnter={(event) => {
-                  if (!readExplorerDragItem(event)) return;
+                  if (!hasExplorerDragItem(event)) return;
                   event.preventDefault();
                   setBreadcrumbDropId("__root__");
                   springOpenBreadcrumb(null);
                 }}
                 onDragOver={(event) => {
-                  if (!readExplorerDragItem(event)) return;
+                  if (!hasExplorerDragItem(event)) return;
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "move";
                 }}
@@ -1120,6 +1120,11 @@ type ExplorerDragItem = {
   kind: "file" | "recording" | "entry" | "node";
   id: string;
 };
+
+function hasExplorerDragItem(event: any) {
+  const types = Array.from(event.dataTransfer?.types || []).map(String);
+  return types.includes("application/x-rb-explorer-item");
+}
 
 function readExplorerDragItem(event: any): ExplorerDragItem | null {
   const raw = event.dataTransfer?.getData("application/x-rb-explorer-item");
