@@ -5607,3 +5607,305 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     max-height:64dvh!important;
   }
 }
+
+
+/* DENSITY PASS — remove dead space while keeping touch targets/readability */
+:root{
+  --rb-dense-gap:9px;
+}
+
+/* General page rhythm */
+.pageShell{
+  padding-top:20px!important;
+}
+.pageNav{
+  margin-bottom:18px!important;
+}
+.folderTitle,
+.toolHeader{
+  margin-bottom:16px!important;
+}
+.toolPage{
+  gap:16px!important;
+}
+.toolGrid{
+  gap:12px!important;
+}
+.panel,
+.recordPanel{
+  padding:16px!important;
+  border-radius:18px!important;
+}
+.dataCard{
+  padding:14px!important;
+}
+.databaseList{
+  gap:9px!important;
+}
+
+/* Shared form density */
+.stack{
+  gap:9px!important;
+}
+.stack label,
+.toolPlanner>label,
+.manualQuizForm label{
+  gap:5px!important;
+  font-size:.82rem!important;
+}
+input,
+textarea,
+select{
+  padding:9px 11px!important;
+  border-radius:11px!important;
+  line-height:1.35!important;
+}
+input:not([type="radio"]):not([type="checkbox"]):not([type="color"]),
+select{
+  min-height:40px!important;
+}
+textarea[rows="2"]{min-height:52px!important}
+textarea[rows="3"]{min-height:62px!important}
+textarea[rows="4"]{min-height:74px!important}
+textarea[rows="5"]{min-height:86px!important}
+.primary,
+.ghost,
+.stopBtn,
+.textBtn{
+  padding:9px 12px!important;
+  border-radius:11px!important;
+}
+.primary,
+.ghost,
+.stopBtn{
+  min-height:38px!important;
+}
+
+/* Add/Create sheet: tighter width, padding and card rhythm */
+@media(min-width:768px){
+  .sheetBackdrop{
+    place-items:center!important;
+    padding:14px!important;
+  }
+  .explorerAddSheet{
+    width:min(760px,calc(100vw - 28px))!important;
+    max-height:min(86dvh,820px)!important;
+    padding:16px!important;
+    border-radius:20px!important;
+  }
+}
+.sheetHead{
+  align-items:center!important;
+  gap:10px!important;
+  margin-bottom:6px!important;
+}
+.sheetHead .eyebrow{
+  margin-bottom:4px!important;
+}
+.sheetHead h2{
+  margin:0!important;
+  font-size:1.65rem!important;
+  line-height:1.08!important;
+}
+.closeBtn{
+  width:36px!important;
+  height:36px!important;
+  border-radius:10px!important;
+  font-size:1.15rem!important;
+}
+.typeChoices,
+.explorerTypeChoices{
+  gap:7px!important;
+  margin:6px 0 12px!important;
+}
+.typeChoice{
+  min-height:58px!important;
+  padding:9px 11px!important;
+  border-radius:13px!important;
+}
+.typeChoice strong{
+  margin-bottom:2px!important;
+  font-size:.82rem!important;
+}
+.typeChoice small{
+  font-size:.66rem!important;
+  line-height:1.25!important;
+}
+
+/* Planner density */
+.toolPlanner{
+  gap:10px!important;
+}
+.plannerFolderField{
+  gap:5px!important;
+}
+.folderTreeSelected{
+  min-height:40px!important;
+  padding:6px 9px!important;
+  border-radius:11px!important;
+}
+.folderTreeSelected>span:first-child{
+  width:26px!important;
+  height:26px!important;
+}
+.folderTreeSelectedCopy strong{
+  font-size:.77rem!important;
+}
+.folderTreeSelectedCopy small{
+  font-size:.6rem!important;
+}
+.fieldLabel{
+  margin-bottom:5px!important;
+  font-size:.73rem!important;
+}
+.quizCreationBlock{
+  gap:8px!important;
+}
+.quizCreationModes{
+  gap:6px!important;
+}
+.quizCreationMode{
+  min-height:60px!important;
+  padding:8px 9px!important;
+  border-radius:12px!important;
+}
+.quizCreationMode strong{
+  font-size:.74rem!important;
+}
+.quizCreationMode small{
+  font-size:.62rem!important;
+  line-height:1.25!important;
+}
+.plannerQuizKinds{
+  gap:5px!important;
+}
+.plannerKinds{
+  gap:6px!important;
+}
+.plannerKinds button{
+  min-height:36px!important;
+  padding:7px 9px!important;
+  font-size:.72rem!important;
+}
+.studyBuildOptions{
+  gap:9px!important;
+  padding:10px!important;
+  border-radius:13px!important;
+}
+.studyBuildOptions>div,
+.studyBuildOptions>label{
+  gap:6px!important;
+}
+.studyDepthChoices,
+.binaryChoiceRow{
+  gap:6px!important;
+}
+.studyDepthChoice{
+  min-height:56px!important;
+  padding:7px 8px!important;
+  border-radius:11px!important;
+}
+.studyDepthChoice strong{
+  font-size:.73rem!important;
+}
+.studyDepthChoice small{
+  font-size:.61rem!important;
+  line-height:1.25!important;
+}
+.binaryChoiceRow button{
+  min-height:34px!important;
+  border-radius:10px!important;
+  font-size:.72rem!important;
+}
+
+/* Customization row */
+.customizeMini{
+  gap:10px!important;
+}
+.plannerStyle{
+  padding-top:0!important;
+}
+.emojiRow,
+.colorRow{
+  gap:5px!important;
+}
+.emojiChoice{
+  width:34px!important;
+  height:34px!important;
+  border-radius:9px!important;
+  font-size:1rem!important;
+}
+.colorChoice{
+  width:24px!important;
+  height:24px!important;
+}
+.toolPlanner>.primary{
+  min-height:42px!important;
+  margin-top:0!important;
+}
+
+/* Compact common status/content blocks */
+.notice{
+  margin-top:9px!important;
+  padding:9px 10px!important;
+  font-size:.8rem!important;
+}
+.dataText{
+  margin-top:7px!important;
+  padding:10px!important;
+  line-height:1.55!important;
+}
+details{
+  margin-top:7px!important;
+}
+summary{
+  font-size:.78rem!important;
+}
+
+/* Compact quiz/tool page headers */
+.quizCreateActions{
+  gap:10px!important;
+  margin-top:10px!important;
+}
+.manualCreateBox{
+  gap:5px!important;
+}
+.manualQuizForm{
+  gap:11px!important;
+}
+.quizProgress{
+  margin-bottom:10px!important;
+  padding:8px 10px!important;
+  border-radius:13px!important;
+}
+.quizScore{
+  gap:12px!important;
+  margin-bottom:12px!important;
+  padding:13px!important;
+  border-radius:16px!important;
+}
+
+/* Keep mobile dense without becoming cramped */
+@media(max-width:767px){
+  .explorerAddSheet{
+    padding:13px!important;
+    border-radius:17px!important;
+  }
+  .sheetHead h2{
+    font-size:1.35rem!important;
+  }
+  .typeChoices,
+  .explorerTypeChoices{
+    grid-template-columns:1fr!important;
+    gap:5px!important;
+  }
+  .typeChoice{
+    min-height:52px!important;
+  }
+  .toolPlanner{
+    gap:9px!important;
+  }
+  .customizeMini{
+    gap:8px!important;
+  }
+}
