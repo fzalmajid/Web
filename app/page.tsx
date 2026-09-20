@@ -6738,6 +6738,13 @@ function normalizeRichTextSource(text: string) {
     .replace(/\r\n/g, "\n")
     .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
     .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
+    // Normalize escaped scientific punctuation before interpreting math.
+    // AI frequently emits C\\_1 / t\\_2 / e\\^(-kt); those backslashes
+    // are transport/Markdown escapes and must never be visible to the user.
+    .replace(/\\\\_/g, "_")
+    .replace(/\\\\\^/g, "^")
+    .replace(/\\\\\*/g, "*")
+    .replace(/\\\\\$/g, "$")
     // Accept common LaTeX wrappers from AI output, but never leak them to UI.
     .replace(/\\\[([\s\S]*?)\\\]/g, "$1")
     .replace(/\\\(([\s\S]*?)\\\)/g, "$1")
@@ -6757,6 +6764,8 @@ function normalizeRichTextSource(text: string) {
     .replace(/\\beta\b/g, "β")
     .replace(/\\gamma\b/g, "γ")
     .replace(/\\theta\b/g, "θ")
+    .replace(/\\ln\b/g, "ln")
+    .replace(/\\exp\b/g, "exp")
     .replace(/\\mathrm\{([^{}]+)\}/g, "$1")
     .replace(/\\text\{([^{}]+)\}/g, "$1")
     .replace(/\\operatorname\{([^{}]+)\}/g, "$1")
