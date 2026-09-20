@@ -130,6 +130,7 @@ type StudyPath = {
   user_id: string;
   node_id: string;
   source_node_ids: string[];
+  source_file_ids?: string[];
   ai_mode: "instant" | "medium" | "high";
   ai_model?: AiModelId | null;
   ai_effort?: AiEffort | null;
@@ -1072,6 +1073,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             node={current}
             nodes={nodes}
             entries={entries}
+            files={files}
             onOpen={setCurrentId}
             onChange={refresh}
           />
@@ -5206,6 +5208,7 @@ function StudyPage({
   node,
   nodes,
   entries,
+  files,
   onOpen,
   onChange,
 }: {
@@ -5214,6 +5217,7 @@ function StudyPage({
   node: StudyNode;
   nodes: StudyNode[];
   entries: KnowledgeEntry[];
+  files: SourceFile[];
   onOpen: (id: string) => void;
   onChange: () => void;
 }) {
@@ -5223,6 +5227,7 @@ function StudyPage({
   const [building, setBuilding] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [selectedSourceFiles, setSelectedSourceFiles] = useState<string[]>([]);
   const [studyInstruction, setStudyInstruction] = useState("");
   const [studyDepth, setStudyDepth] = useState<"simple" | "medium" | "complex">("medium");
   const [quizPerChapter, setQuizPerChapter] = useState(true);
@@ -5251,6 +5256,8 @@ function StudyPage({
   const sourceDatabases = nodes.filter(
     (item) => branchIds.includes(item.id) && isFolderLikeNode(item)
   );
+  const branchNodes = nodes.filter((item) => branchIds.includes(item.id));
+  const sourceFiles = files.filter((item) => branchIds.includes(item.node_id));
 
   useEffect(() => {
     void loadStudy();
@@ -5279,6 +5286,7 @@ function StudyPage({
     if (!nextPath) {
       setUnits([]);
       setSelectedSources([]);
+      setSelectedSourceFiles([]);
       setStudyInstruction("");
       setStudyDepth("medium");
       setQuizPerChapter(true);
@@ -5289,6 +5297,7 @@ function StudyPage({
     }
 
     setSelectedSources(nextPath.source_node_ids || []);
+    setSelectedSourceFiles(nextPath.source_file_ids || []);
     setStudyInstruction(nextPath.focus_instruction || "");
     setStudyDepth(nextPath.teaching_depth || "medium");
     setQuizPerChapter(nextPath.quiz_per_chapter !== false);
@@ -5330,8 +5339,12 @@ function StudyPage({
   }
 
   async function buildStudy() {
-    if (studyAnswerSources.includes("database") && !selectedSources.length) {
-      return alert("Database aktif. Pilih minimal satu folder sumber.");
+    if (
+      studyAnswerSources.includes("database") &&
+      !selectedSources.length &&
+      !selectedSourceFiles.length
+    ) {
+      return alert("Database aktif. Pilih minimal satu folder atau file sumber.");
     }
     if (aiSelection.model === "local") return alert("Study terarah membutuhkan model cloud.");
 
@@ -5342,6 +5355,7 @@ function StudyPage({
       body: JSON.stringify({
         studyNodeId: node.id,
         sourceNodeIds: selectedSources,
+        sourceFileIds: selectedSourceFiles,
         studyInstruction: studyInstruction.trim(),
         aiMode,
         aiModel: aiSelection.model,
@@ -5648,37 +5662,32 @@ function StudyPage({
           <div className="studySetupHead">
             <div>
               <p className="eyebrow">SUMBER STUDY</p>
-              <h2>Pilih folder</h2>
-              <p className="muted">Bisa pilih lebih dari satu folder dalam cabang materi ini.</p>
+              <h2>Pilih sumber</h2>
+              <p className="muted">Bisa pilih folder atau file langsung, dan bisa lebih dari satu.</p>
             </div>
             {path?.status === "ready" && (
               <button className="ghost" onClick={() => setSetupOpen(false)}>Batal</button>
             )}
           </div>
 
-          <div className="studySourceGrid">
-            {sourceDatabases.map((database) => {
-              const count = entries.filter((entry) => entry.node_id === database.id).length;
-              const active = selectedSources.includes(database.id);
-              return (
-                <button
-                  type="button"
-                  key={database.id}
-                  className={active ? "studySource active" : "studySource"}
-                  onClick={() => toggleSource(database.id)}
-                >
-                  <span className="studySourceCheck">{active ? "✓" : ""}</span>
-                  <span className="studySourceIcon">{database.emoji || "🗂️"}</span>
-                  <span className="studySourceCopy">
-                    <strong>{database.title}</strong>
-                    <small>{count ? count + " item teks/transkrip" : "Belum ada isi"}</small>
-                  </span>
-                </button>
-              );
-            })}
-            {!sourceDatabases.length && (
-              <div className="emptyStudySource">Belum ada folder sumber di cabang ini.</div>
-            )}
+          <div className="studySourcePickerWrap">
+            <AiDatabaseSourcePicker
+              nodes={branchNodes}
+              files={sourceFiles}
+              nodeIds={selectedSources}
+              fileIds={selectedSourceFiles}
+              currentNodeId={node.parent_id}
+              onChange={(next) => {
+                setSelectedSources(next.nodeIds);
+                setSelectedSourceFiles(next.fileIds);
+              }}
+            />
+            <div className="studySourceSelectionSummary">
+              <strong>{selectedSources.length + selectedSourceFiles.length} sumber dipilih</strong>
+              <span>
+                {selectedSources.length} folder · {selectedSourceFiles.length} file
+              </span>
+            </div>
           </div>
 
           <label className="studyInstructionField">
@@ -5757,7 +5766,12 @@ function StudyPage({
             </button>
             <button
               className="primary"
-              disabled={building || (studyAnswerSources.includes("database") && !selectedSources.length)}
+              disabled={
+                building ||
+                (studyAnswerSources.includes("database") &&
+                  !selectedSources.length &&
+                  !selectedSourceFiles.length)
+              }
               onClick={buildStudy}
             >
               {building ? "Sedang menyusun urutan belajar..." : path ? "Susun ulang Study" : "Mulai susun Study"}
@@ -5858,8 +5872,12 @@ function StudyPage({
               <small>SUMBER</small>
               <div className="studySourceChips">
                 {(path.source_node_ids || []).map((id) => (
-                  <span key={id}>{sourceNameMap.get(id) || "Folder"}</span>
+                  <span key={"node-" + id}>{sourceNameMap.get(id) || "Folder"}</span>
                 ))}
+                {(path.source_file_ids || []).map((id) => {
+                  const file = files.find((item) => item.id === id);
+                  return <span key={"file-" + id}>{file?.file_name || "File"}</span>;
+                })}
               </div>
             </div>
             {path.overview && (
