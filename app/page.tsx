@@ -180,12 +180,12 @@ type CitationPrefs = { style: CitationStyle; outputs: CitationOutput[] };
 
 const citationStyleOptions: Array<{ value: CitationStyle; label: string; preview: string }> = [
   { value: "none", label: "Tanpa sitasi", preview: "Tidak ada marker" },
-  { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · (Nama, TahunAsli/TahunVersi)" },
-  { value: "mla", label: "MLA 9", preview: "(Nama Halaman) · (Halaman)" },
-  { value: "harvard", label: "Harvard", preview: "(Nama, Tahun) · (Nama, TahunAsli/TahunVersi)" },
-  { value: "vancouver", label: "Vancouver", preview: "(1) · (2)" },
-  { value: "ieee", label: "IEEE", preview: "[1] · [2]" },
-  { value: "chicago", label: "Chicago Author-Date", preview: "(Nama Tahun) · (Nama TahunAsli/TahunVersi)" },
+  { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · p./pp. untuk kutipan langsung" },
+  { value: "mla", label: "MLA 9", preview: "(Nama Halaman) · tanpa author-year" },
+  { value: "harvard", label: "Harvard · Leeds", preview: "(Nama, Tahun) · p./pp. bila perlu" },
+  { value: "vancouver", label: "Vancouver · ICMJE/NLM", preview: "(1) · urutan kemunculan" },
+  { value: "ieee", label: "IEEE", preview: "[1] · [2] · urutan kemunculan" },
+  { value: "chicago", label: "Chicago Author-Date", preview: "(Nama Tahun, Halaman)" },
 ];
 
 function readCitationPrefs(): CitationPrefs {
@@ -224,24 +224,35 @@ function citationRequestFields() {
 function citationClientInstruction() {
   const prefs = readCitationPrefs();
   if (prefs.style === "none") return "Tidak ada format sitasi khusus.";
-  const preview = citationStyleOptions.find((item) => item.value === prefs.style)?.preview || "";
-  const styleRule =
-    prefs.style === "mla"
-      ? "Gunakan author-page (Nama Halaman), bukan author-year; jika nama sudah ada di kalimat, gunakan hanya (Halaman)."
-      : prefs.style === "vancouver"
-        ? "Gunakan nomor urut (1), (2) yang dipakai ulang untuk sumber yang sama."
-        : prefs.style === "ieee"
-          ? "Gunakan nomor urut dalam kurung siku [1], [2] yang dipakai ulang untuk sumber yang sama."
-          : "Gunakan aturan author-date gaya yang dipilih dan tambahkan locator hanya bila metadata tersedia.";
-  const outputText =
-    prefs.outputs.includes("in-text") && prefs.outputs.includes("bibliography")
-      ? "Gunakan sitasi dalam teks dan Daftar Pustaka."
-      : prefs.outputs.includes("bibliography")
-        ? "Gunakan Daftar Pustaka saja, tanpa marker sitasi dalam teks."
-        : "Gunakan sitasi dalam teks saja, tanpa Daftar Pustaka.";
-  return "Format sitasi " + prefs.style.toUpperCase() + " (" + preview + "). " + styleRule + " " + outputText + " Jangan mengarang metadata sumber. TahunAsli/TahunVersi hanya dipakai bila sumber benar-benar terjemahan, cetak ulang, terbitan ulang, atau terbitan kembali dan kedua tahun tersedia; bukan otomatis untuk edisi baru.";
-}
 
+  const output =
+    prefs.outputs.includes("in-text") && prefs.outputs.includes("bibliography")
+      ? "Gunakan marker in-text dan daftar referensi di akhir."
+      : prefs.outputs.includes("bibliography")
+        ? "Tanpa marker in-text; tambahkan daftar referensi di akhir."
+        : "Gunakan marker in-text tanpa daftar referensi terpisah.";
+
+  const rules: Record<Exclude<CitationStyle, "none">, string> = {
+    apa:
+      "APA 7: author-date; dua author memakai & di parenthetical, 3+ memakai et al.; direct quote memakai p./pp. bila locator tersedia; References alfabetis.",
+    mla:
+      "MLA 9: author-page, bukan author-year; tanpa koma antara author dan page; jika unpaginated jangan mengarang locator; bagian akhir bernama Works Cited.",
+    harvard:
+      "Leeds Harvard: (Author, Year), 3+ author memakai et al., page memakai p./pp.; reference list alfabetis; jangan memakai ibid.",
+    vancouver:
+      "Vancouver/ICMJE-NLM: nomor Arab dalam tanda kurung berdasarkan urutan pertama kali sumber muncul; nomor sumber yang sama harus tetap sama; References mengikuti urutan kemunculan.",
+    ieee:
+      "IEEE: nomor dalam square brackets [1]; beberapa sumber ditulis [1], [2], bukan rentang otomatis; References mengikuti urutan kemunculan.",
+    chicago:
+      "Chicago Author-Date: (Author Year, locator), tanpa koma antara author dan year; reference list alfabetis dengan year setelah author.",
+  };
+
+  return [
+    rules[prefs.style as Exclude<CitationStyle, "none">],
+    output,
+    "Jangan mengarang author, year, publisher, DOI, URL, page, atau metadata lain. Jika metadata tidak ada, gunakan fallback sah style tersebut dan hanya elemen yang benar-benar tersedia.",
+  ].join("\n");
+}
 const GOOGLE_OAUTH_CLIENT_ID =
   process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID ||
   "42957287889-qgsdslbqcipbuatleep800hjb8na9s25.apps.googleusercontent.com";
