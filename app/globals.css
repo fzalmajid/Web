@@ -5042,3 +5042,488 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   background:var(--soft)!important;
   color:var(--muted)!important;
 }
+
+
+/* FINAL UI CONSISTENCY PASS — shared AI controls + compact popovers + equal explorer cards */
+
+/* One exact AI control strip everywhere: sources | citation | model.
+   Model intentionally stays the right-most control. */
+.aiSourceModelBar{
+  width:100%!important;
+  min-width:0!important;
+  display:flex!important;
+  align-items:center!important;
+  flex-wrap:nowrap!important;
+  gap:4px!important;
+  padding:4px!important;
+  border:1px solid var(--line)!important;
+  border-radius:12px!important;
+  background:var(--card)!important;
+  box-sizing:border-box!important;
+}
+.aiSourceModelBar .sourceToggleGroup{
+  display:flex!important;
+  align-items:center!important;
+  gap:2px!important;
+  flex:0 0 auto!important;
+  width:auto!important;
+  padding:2px!important;
+  border-radius:9px!important;
+  background:var(--soft)!important;
+}
+.aiSourceModelBar .sourceToggle{
+  min-width:auto!important;
+  min-height:30px!important;
+  height:30px!important;
+  padding:4px 8px!important;
+  border:0!important;
+  border-radius:7px!important;
+  background:transparent!important;
+  font-size:.68rem!important;
+  line-height:1!important;
+  font-weight:800!important;
+}
+.aiSourceModelBar .sourceToggle.active{
+  background:var(--card)!important;
+  box-shadow:0 1px 3px rgba(30,45,40,.08)!important;
+}
+.aiSourceModelBar .citationPicker{
+  flex:0 0 auto!important;
+  margin-left:auto!important;
+}
+.aiSourceModelBar .aiModeSelect{
+  flex:0 0 auto!important;
+  margin-left:0!important;
+}
+.aiSourceModelBar .citationTrigger,
+.aiSourceModelBar .aiModeTrigger{
+  width:auto!important;
+  min-width:0!important;
+  max-width:190px!important;
+  min-height:34px!important;
+  height:34px!important;
+  padding:4px 7px!important;
+  border:0!important;
+  border-radius:8px!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  gap:5px!important;
+}
+.aiSourceModelBar .citationTrigger:hover,
+.aiSourceModelBar .aiModeTrigger:hover{
+  background:var(--soft)!important;
+}
+.aiSourceModelBar .citationTrigger>span,
+.aiSourceModelBar .aiModeTrigger>span{
+  display:grid!important;
+  gap:1px!important;
+  min-width:0!important;
+}
+.aiSourceModelBar .citationTrigger strong,
+.aiSourceModelBar .aiModeTrigger strong{
+  font-size:.68rem!important;
+  line-height:1.05!important;
+  white-space:nowrap!important;
+}
+.aiSourceModelBar .citationTrigger small,
+.aiSourceModelBar .aiModeTrigger small{
+  max-width:150px!important;
+  font-size:.58rem!important;
+  line-height:1.08!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+.aiSourceModelBar .citationTrigger>b,
+.aiSourceModelBar .aiModeTrigger>b{
+  font-size:.68rem!important;
+}
+
+/* Instruction bars no longer create a second bulky container.
+   The shared AI strip itself is the visual component. */
+.instructionAiBar,
+.studyInstructionAiBar{
+  display:block!important;
+  width:100%!important;
+  padding:0!important;
+  margin:0!important;
+  border:0!important;
+  border-radius:0!important;
+  background:transparent!important;
+}
+.instructionAiBar>.createLabel{
+  display:none!important;
+}
+.quizCreateActions .createLabel{
+  margin-bottom:5px!important;
+}
+
+/* Bottom composer uses the exact same strip; only its input row adds + and mic. */
+.askTopRow{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr)!important;
+  gap:4px!important;
+  align-items:stretch!important;
+}
+.askTopRow .askScope{
+  width:100%!important;
+  max-width:none!important;
+  padding:0 4px!important;
+  font-size:.61rem!important;
+  line-height:1.15!important;
+}
+.askTopRow .aiSourceModelBar{
+  width:100%!important;
+}
+
+/* Compact model and citation popovers */
+.aiModePopover.aiModelPopover,
+.citationPopover{
+  width:min(560px,calc(100vw - 28px))!important;
+  max-width:560px!important;
+  max-height:66dvh!important;
+  padding:9px!important;
+  border-radius:16px!important;
+  overflow:auto!important;
+}
+.modelPickerHead,
+.citationPopoverHead{
+  min-height:38px!important;
+  padding:2px 2px 8px!important;
+  gap:8px!important;
+}
+.modelPickerHead strong,
+.citationPopoverHead strong{
+  font-size:.84rem!important;
+}
+.aiModeSectionLabel,
+.citationPopoverHead small{
+  font-size:.57rem!important;
+}
+.modelPluginButton,
+.modelPickerClose,
+.citationPopoverHead>button{
+  min-height:30px!important;
+  height:30px!important;
+  padding:5px 8px!important;
+  border-radius:9px!important;
+  font-size:.68rem!important;
+}
+.modelPickerClose,
+.citationPopoverHead>button{
+  width:30px!important;
+  padding:0!important;
+}
+.modelCardGrid,
+.citationStyleGrid{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:6px!important;
+}
+.modelCard,
+.citationStyleGrid button{
+  min-height:58px!important;
+  padding:8px 9px!important;
+  border-radius:11px!important;
+  gap:3px!important;
+}
+.modelCard strong,
+.citationStyleGrid button strong{
+  font-size:.74rem!important;
+}
+.modelCard small,
+.citationStyleGrid button small{
+  font-size:.61rem!important;
+  line-height:1.28!important;
+}
+.modelEffortPanel{
+  margin-top:8px!important;
+  padding-top:8px!important;
+  gap:7px!important;
+}
+.modelEffortPanel>div:first-child{
+  gap:2px!important;
+}
+.modelEffortPanel>div:first-child small{
+  font-size:.61rem!important;
+}
+.aiEffortGrid{
+  gap:6px!important;
+}
+.aiEffortOption{
+  min-height:46px!important;
+  padding:7px 8px!important;
+  border-radius:11px!important;
+}
+.aiEffortOption strong{
+  font-size:.72rem!important;
+}
+.aiEffortOption small{
+  font-size:.58rem!important;
+  line-height:1.2!important;
+}
+.citationOutputTitle{
+  margin:9px 2px 5px!important;
+  font-size:.59rem!important;
+}
+.citationOutputChoices{
+  gap:6px!important;
+}
+.citationOutputChoices button{
+  min-height:50px!important;
+  padding:8px 9px!important;
+  border-radius:11px!important;
+}
+.citationPreview{
+  margin-top:7px!important;
+  padding:8px 9px!important;
+  border-radius:10px!important;
+  gap:2px!important;
+}
+.citationPreview strong{
+  font-size:.75rem!important;
+}
+.citationPreview span{
+  font-size:.61rem!important;
+}
+
+/* Popovers opened from add/study sheets stay compact too. */
+.sheetBackdrop .aiModePopover,
+.sheetBackdrop .citationPopover{
+  position:fixed!important;
+  left:50%!important;
+  right:auto!important;
+  top:max(10px,env(safe-area-inset-top))!important;
+  bottom:auto!important;
+  transform:translateX(-50%)!important;
+  width:min(560px,calc(100vw - 20px))!important;
+  max-width:560px!important;
+  max-height:calc(100dvh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  z-index:230!important;
+}
+
+/* Folder, text, file, link and recording cards use one visual unit
+   when they appear together in the explorer. */
+.nodeGrid.explorerNodeGrid,
+.explorerItems{
+  display:grid!important;
+  grid-template-columns:repeat(auto-fill,minmax(280px,1fr))!important;
+  gap:12px!important;
+  align-items:stretch!important;
+  width:100%!important;
+  margin:0 0 12px!important;
+}
+.explorerItems{
+  margin-top:12px!important;
+}
+.explorerUnifiedCard{
+  width:100%!important;
+  min-width:0!important;
+  height:150px!important;
+  min-height:150px!important;
+  box-sizing:border-box!important;
+  border:1px solid var(--line)!important;
+  border-radius:18px!important;
+  background:var(--card)!important;
+  box-shadow:var(--shadow)!important;
+  overflow:hidden!important;
+}
+.explorerUnifiedCard:has(details[open]){
+  height:auto!important;
+  min-height:150px!important;
+  overflow:visible!important;
+}
+.nodeCard.explorerUnifiedCard .nodeOpen{
+  width:100%!important;
+  height:100%!important;
+  min-height:0!important;
+  padding:16px 16px 40px!important;
+  gap:12px!important;
+}
+.nodeCard.explorerUnifiedCard .nodeIcon{
+  width:42px!important;
+  height:42px!important;
+  min-width:42px!important;
+  border-radius:12px!important;
+}
+.nodeCard.explorerUnifiedCard .nodeOpen small{
+  margin-bottom:4px!important;
+  font-size:.63rem!important;
+}
+.nodeCard.explorerUnifiedCard .nodeOpen h3{
+  margin:0!important;
+  font-size:1rem!important;
+  line-height:1.22!important;
+  display:-webkit-box!important;
+  -webkit-line-clamp:2!important;
+  -webkit-box-orient:vertical!important;
+  overflow:hidden!important;
+}
+.nodeCard.explorerUnifiedCard .nodeTools{
+  right:9px!important;
+  bottom:8px!important;
+}
+.nodeCard.explorerUnifiedCard .nodeTools button{
+  min-height:26px!important;
+  padding:3px 6px!important;
+  font-size:.65rem!important;
+}
+
+.explorerTextItem.explorerUnifiedCard,
+.compactExplorerDataCard{
+  padding:14px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  gap:8px!important;
+}
+.explorerTextItem .explorerItemMain{
+  min-height:46px!important;
+}
+.explorerTextItem .explorerItemMain strong,
+.compactExplorerDataCard .dataHead h3{
+  font-size:.92rem!important;
+  line-height:1.22!important;
+  display:-webkit-box!important;
+  -webkit-line-clamp:2!important;
+  -webkit-box-orient:vertical!important;
+  overflow:hidden!important;
+}
+.explorerTextItem details,
+.compactExplorerDataCard details{
+  margin-top:auto!important;
+}
+.explorerTextItem details summary,
+.compactExplorerDataCard details summary{
+  font-size:.67rem!important;
+  padding:4px 0!important;
+}
+.explorerTextItem>.dangerSmall{
+  position:absolute!important;
+  right:12px!important;
+  bottom:10px!important;
+}
+.explorerTextItem{
+  position:relative!important;
+}
+.compactExplorerDataCard .dataHead{
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:flex-start!important;
+  justify-content:space-between!important;
+  gap:8px!important;
+  min-height:48px!important;
+}
+.compactExplorerDataCard .dataHead>div:first-child{
+  min-width:0!important;
+  flex:1 1 auto!important;
+}
+.compactExplorerDataCard .dataHead small{
+  font-size:.61rem!important;
+}
+.compactExplorerDataCard .mediaCardActions{
+  flex:0 0 auto!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  flex-wrap:wrap!important;
+  gap:4px!important;
+  width:auto!important;
+  max-width:150px!important;
+}
+.compactExplorerDataCard .mediaCardActions button{
+  width:auto!important;
+  min-width:0!important;
+  min-height:27px!important;
+  padding:4px 7px!important;
+  border-radius:8px!important;
+  font-size:.62rem!important;
+}
+.compactExplorerDataCard .mediaCardActions .dangerSmall{
+  grid-column:auto!important;
+}
+.compactExplorerDataCard .dataText{
+  max-height:260px!important;
+}
+
+/* Reduce dead space around folder page itself */
+.folderTitle.folderTitleRow{
+  margin-bottom:16px!important;
+}
+.folderTitle .explorerHint{
+  margin-top:8px!important;
+  max-width:880px!important;
+}
+.folderTitle .customizeTop{
+  margin-top:0!important;
+}
+
+/* Mobile: same AI hierarchy; model stays right-most on row two. */
+@media(max-width:620px){
+  .aiSourceModelBar{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+    gap:4px!important;
+  }
+  .aiSourceModelBar .sourceToggleGroup{
+    grid-column:1 / -1!important;
+    width:fit-content!important;
+  }
+  .aiSourceModelBar .citationPicker{
+    grid-column:1!important;
+    margin-left:0!important;
+    justify-self:start!important;
+    width:100%!important;
+  }
+  .aiSourceModelBar .aiModeSelect{
+    grid-column:2!important;
+    justify-self:end!important;
+    width:100%!important;
+  }
+  .aiSourceModelBar .citationTrigger,
+  .aiSourceModelBar .aiModeTrigger{
+    width:100%!important;
+    max-width:none!important;
+  }
+  .aiSourceModelBar .citationTrigger small,
+  .aiSourceModelBar .aiModeTrigger small{
+    max-width:120px!important;
+  }
+
+  .aiModePopover.aiModelPopover,
+  .citationPopover,
+  .sheetBackdrop .aiModePopover,
+  .sheetBackdrop .citationPopover{
+    width:calc(100vw - 14px)!important;
+    max-width:none!important;
+    max-height:72dvh!important;
+    padding:8px!important;
+  }
+  .modelCardGrid,
+  .citationStyleGrid{
+    grid-template-columns:1fr!important;
+  }
+  .modelCard{
+    min-height:52px!important;
+  }
+
+  .nodeGrid.explorerNodeGrid,
+  .explorerItems{
+    grid-template-columns:1fr!important;
+    gap:9px!important;
+  }
+  .explorerUnifiedCard{
+    height:126px!important;
+    min-height:126px!important;
+    border-radius:16px!important;
+  }
+  .explorerUnifiedCard:has(details[open]){
+    height:auto!important;
+    min-height:126px!important;
+  }
+  .nodeCard.explorerUnifiedCard .nodeOpen{
+    padding:13px 13px 36px!important;
+  }
+  .compactExplorerDataCard .mediaCardActions{
+    max-width:120px!important;
+  }
+}
