@@ -4737,3 +4737,275 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     padding:16px!important;
   }
 }
+
+
+/* Study teaching-depth controls */
+.studyBuildOptions{
+  display:grid;
+  gap:14px;
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--soft);
+}
+.studyBuildOptions>div,
+.studyBuildOptions>label{
+  display:grid;
+  gap:8px;
+}
+.studyDepthChoices{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:7px;
+}
+.studyDepthChoice{
+  min-width:0;
+  min-height:68px;
+  border:1px solid var(--line);
+  border-radius:13px;
+  background:var(--card);
+  color:var(--ink);
+  padding:9px 10px;
+  display:grid;
+  gap:4px;
+  text-align:left;
+}
+.studyDepthChoice strong{font-size:.8rem}
+.studyDepthChoice small{
+  color:var(--muted);
+  font-size:.67rem;
+  line-height:1.35;
+}
+.studyDepthChoice.active{
+  border-color:#75a58e;
+  background:#eef8f2;
+  box-shadow:0 0 0 2px rgba(117,165,142,.1);
+}
+.binaryChoiceRow{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:7px;
+}
+.binaryChoiceRow button{
+  min-height:40px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--card);
+  color:var(--ink);
+  font-weight:800;
+}
+.binaryChoiceRow button.active{
+  border-color:var(--accent);
+  background:var(--card);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 10%,transparent);
+}
+.studyContinueBox{
+  margin-top:18px;
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--soft);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.studyContinueBox span{
+  color:var(--muted);
+  font-size:.8rem;
+}
+
+/* Citation picker available on every AI source/model bar */
+.aiSourceModelBar{
+  flex-wrap:wrap;
+  row-gap:6px;
+}
+.citationPicker{
+  position:relative;
+  min-width:0;
+}
+.citationTrigger{
+  min-width:146px;
+  max-width:250px;
+  border:1px solid var(--line);
+  background:var(--card);
+  color:var(--ink);
+  border-radius:13px;
+  padding:8px 10px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  text-align:left;
+}
+.citationPicker.compact .citationTrigger{
+  min-width:126px;
+  padding:5px 7px;
+  border:0;
+  background:transparent;
+}
+.citationTrigger>span{
+  display:grid;
+  gap:2px;
+  min-width:0;
+  flex:1;
+}
+.citationTrigger strong{
+  font-size:.75rem;
+  line-height:1.1;
+}
+.citationTrigger small{
+  color:var(--muted);
+  font-size:.61rem;
+  line-height:1.25;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.citationTrigger>b{
+  color:var(--muted);
+}
+.citationPopover{
+  position:absolute;
+  right:0;
+  bottom:calc(100% + 9px);
+  z-index:160;
+  width:min(520px,calc(100vw - 28px));
+  max-height:min(620px,78vh);
+  overflow:auto;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:var(--card);
+  box-shadow:0 20px 55px rgba(20,30,27,.18);
+  padding:10px;
+}
+.citationPopoverHead{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:10px;
+  padding:3px 3px 9px;
+}
+.citationPopoverHead>div{display:grid;gap:3px}
+.citationPopoverHead small{
+  color:var(--muted);
+  font-size:.61rem;
+  letter-spacing:.12em;
+  font-weight:900;
+}
+.citationPopoverHead strong{font-size:.9rem}
+.citationPopoverHead>button{
+  width:32px;
+  height:32px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--card);
+  color:var(--ink);
+}
+.citationStyleGrid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:7px;
+}
+.citationStyleGrid button,
+.citationOutputChoices button{
+  min-width:0;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--card);
+  color:var(--ink);
+  padding:9px 10px;
+  display:grid;
+  gap:3px;
+  text-align:left;
+}
+.citationStyleGrid button strong,
+.citationOutputChoices button strong{font-size:.76rem}
+.citationStyleGrid button small,
+.citationOutputChoices button small{
+  color:var(--muted);
+  font-size:.64rem;
+  line-height:1.35;
+}
+.citationStyleGrid button.active,
+.citationOutputChoices button.active{
+  border-color:#75a58e;
+  background:#eef8f2;
+  box-shadow:0 0 0 2px rgba(117,165,142,.1);
+}
+.citationOutputTitle{
+  margin:12px 2px 7px;
+  color:var(--muted);
+  font-size:.65rem;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.citationOutputChoices{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:7px;
+}
+.citationPreview{
+  margin-top:9px;
+  display:grid;
+  gap:3px;
+  padding:10px 11px;
+  border:1px dashed var(--line);
+  border-radius:12px;
+  background:var(--soft);
+}
+.citationPreview small{
+  color:var(--muted);
+  font-size:.6rem;
+  letter-spacing:.1em;
+  font-weight:900;
+}
+.citationPreview strong{font-size:.86rem}
+.citationPreview span{
+  color:var(--muted);
+  font-size:.68rem;
+}
+
+/* Citations/model menus in sheets must escape the scroll area */
+.sheetBackdrop .citationPopover{
+  position:fixed!important;
+  left:50%!important;
+  right:auto!important;
+  top:max(12px,env(safe-area-inset-top))!important;
+  bottom:auto!important;
+  transform:translateX(-50%)!important;
+  width:min(620px,calc(100vw - 24px))!important;
+  max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  overflow:auto!important;
+  z-index:230!important;
+}
+
+@media(max-width:767px){
+  .studyDepthChoices{grid-template-columns:1fr!important}
+  .binaryChoiceRow{grid-template-columns:1fr 1fr}
+  .studyContinueBox{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .aiSourceModelBar{
+    width:100%;
+    align-items:stretch;
+  }
+  .citationPicker.compact{
+    flex:1 1 100%;
+  }
+  .citationPicker.compact .citationTrigger{
+    width:100%;
+    max-width:none;
+    border:1px solid var(--line);
+    background:var(--card);
+    min-height:38px;
+  }
+  .citationStyleGrid,
+  .citationOutputChoices{
+    grid-template-columns:1fr;
+  }
+  .citationPopover{
+    width:calc(100vw - 16px);
+    max-height:calc(100dvh - 20px);
+  }
+}
