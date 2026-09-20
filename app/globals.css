@@ -3948,3 +3948,52 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     max-width:none;
   }
 }
+
+
+/* Touch drag for Explorer folders */
+@media (pointer:coarse){
+  .draggableFolderCard .nodeIcon{
+    touch-action:none;
+    user-select:none;
+    -webkit-user-select:none;
+    cursor:grab;
+    position:relative;
+  }
+  .draggableFolderCard .nodeIcon::after{
+    content:"⋮⋮";
+    position:absolute;
+    right:-7px;
+    bottom:-7px;
+    min-width:17px;
+    height:17px;
+    display:grid;
+    place-items:center;
+    border:1px solid var(--line);
+    border-radius:7px;
+    background:var(--card);
+    color:var(--muted);
+    font-size:.52rem;
+    line-height:1;
+    box-shadow:0 2px 7px rgba(0,0,0,.08);
+  }
+  .touchDraggingFolder{
+    opacity:.72;
+    transform:scale(.985)!important;
+    box-shadow:0 14px 35px rgba(31,48,42,.18)!important;
+  }
+  .mobileFolderDropTarget{
+    background:#e9f6ee!important;
+    color:#286848!important;
+    box-shadow:inset 0 0 0 2px #88b89d!important;
+  }
+  .nodeCard.mobileFolderDropTarget{
+    border-color:#67a17f!important;
+    box-shadow:0 0 0 3px rgba(103,161,127,.16),var(--shadow)!important;
+    transform:translateY(-2px) scale(1.01);
+  }
+  :root[data-theme="dark"] .mobileFolderDropTarget{
+    background:#183026!important;
+    color:#a9d4bd!important;
+    box-shadow:inset 0 0 0 2px #416e58!important;
+  }
+}
