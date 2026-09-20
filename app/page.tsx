@@ -22,6 +22,7 @@ import {
 const AUTH_REDIRECT_URL = "https://web-fzalmajid.vercel.app";
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study";
+type AiSourceKind = "ai" | "database" | "web";
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
   id: string;
@@ -1796,6 +1797,7 @@ function AddSheet({
   const [plannerSelection, setPlannerSelection] = useState<AiSelection>(
     defaultSelection("gemini-2.5-flash")
   );
+  const [plannerAnswerSources, setPlannerAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const plannerMode = legacyModeForSelection(plannerSelection);
 
   const plannerFolders = useMemo(
@@ -1905,6 +1907,7 @@ function AddSheet({
                 aiMode: plannerMode,
                 aiModel: plannerSelection.model,
                 aiEffort: plannerSelection.effort,
+                sourceKinds: plannerAnswerSources,
               }),
             })
           : await fetch("/api/generate-study", {
@@ -1918,6 +1921,7 @@ function AddSheet({
                 instruction: plannerInstruction.trim(),
                 count: Math.max(1, Math.min(20, Number(plannerCount || 5))),
                 quizKinds: nodeType === "quiz" ? plannerQuizKinds : undefined,
+                sourceKinds: plannerAnswerSources,
               }),
             });
 
@@ -2218,16 +2222,16 @@ function AddSheet({
               </label>
             )}
 
-            <div className="plannerModelRow">
-              <div>
-                <small className="createLabel">MODEL</small>
-                <AiModePicker
-                  value={plannerSelection}
-                  onChange={setPlannerSelection}
-                  action="study"
-                  allowLocal={false}
-                />
-              </div>
+            <div className="instructionAiBar">
+              <small className="createLabel">SUMBER & MODEL AI</small>
+              <AiSourceModelBar
+                sources={plannerAnswerSources}
+                onSourcesChange={setPlannerAnswerSources}
+                selection={plannerSelection}
+                onSelectionChange={setPlannerSelection}
+                action="study"
+                allowLocal={false}
+              />
             </div>
 
             <div className="customizeMini plannerStyle">
@@ -2294,6 +2298,7 @@ function DatabasePage({
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkStatus, setLinkStatus] = useState("");
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const aiMode = legacyModeForSelection(aiSelection);
 
   const localRecordings = recordings.filter((item) => item.node_id === node.id);
@@ -3160,6 +3165,7 @@ function StudyPage({
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [studyInstruction, setStudyInstruction] = useState("");
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-2.5-flash"));
+  const [studyAnswerSources, setStudyAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [recallAnswers, setRecallAnswers] = useState<Record<string, string>>({});
   const [recallFeedback, setRecallFeedback] = useState<Record<string, "correct" | "wrong">>({});
@@ -3250,8 +3256,10 @@ function StudyPage({
   }
 
   async function buildStudy() {
-    if (!selectedSources.length) return alert("Pilih minimal satu folder sumber.");
-    if (aiSelection.model === "local") return alert("Study terarah membutuhkan model Gemini.");
+    if (studyAnswerSources.includes("database") && !selectedSources.length) {
+      return alert("Database aktif. Pilih minimal satu folder sumber.");
+    }
+    if (aiSelection.model === "local") return alert("Study terarah membutuhkan model cloud.");
 
     setBuilding(true);
     const response = await fetch("/api/build-study", {
@@ -3264,6 +3272,7 @@ function StudyPage({
         aiMode,
         aiModel: aiSelection.model,
         aiEffort: aiSelection.effort,
+        sourceKinds: studyAnswerSources,
       }),
     });
 
@@ -3601,16 +3610,30 @@ function StudyPage({
               placeholder='Contoh: "Saya mau fokus mempelajari aspek CPOB 2024 saja." Kosongkan jika ingin mempelajari seluruh materi dari folder terpilih.'
             />
             <small className="muted">
-              Jika diisi, model Gemini yang aktif akan memakai instruksi ini saat memilih urutan bab/subbab dan merangkum materi.
+              Instruksi ini dipakai bersama sumber AI / Database / Web yang dipilih di bar bawah.
             </small>
           </label>
+
+          <div className="instructionAiBar studyInstructionAiBar">
+            <AiSourceModelBar
+              sources={studyAnswerSources}
+              onSourcesChange={setStudyAnswerSources}
+              selection={aiSelection}
+              onSelectionChange={setAiSelection}
+              action="study"
+              allowLocal={false}
+            />
+          </div>
 
           <div className="studySetupTools">
             <button className="ghost" onClick={() => setQuickDbOpen((current) => !current)}>
               + Tambah folder sumber dari sini
             </button>
-            <AiModePicker value={aiSelection} onChange={setAiSelection} action="study" allowLocal={false} />
-            <button className="primary" disabled={building || !selectedSources.length} onClick={buildStudy}>
+            <button
+              className="primary"
+              disabled={building || (studyAnswerSources.includes("database") && !selectedSources.length)}
+              onClick={buildStudy}
+            >
               {building ? "Sedang menyusun urutan belajar..." : path ? "Susun ulang Study" : "Mulai susun Study"}
             </button>
           </div>
@@ -4969,6 +4992,7 @@ function PracticePage({
         targetNodeId: node.id,
         mode,
         aiMode,
+        sourceKinds: practiceAnswerSources,
       }),
     });
 
@@ -5121,7 +5145,14 @@ function PracticePage({
 
         {mode === "flashcards" ? (
           <>
-            <AiModePicker value={aiSelection} onChange={setAiSelection} action="study" />
+            <AiSourceModelBar
+              sources={practiceAnswerSources}
+              onSourcesChange={setPracticeAnswerSources}
+              selection={aiSelection}
+              onSelectionChange={setAiSelection}
+              action="study"
+              allowLocal
+            />
             <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
               {busy ? "Membuat..." : "Buat Flashcard"}
             </button>
@@ -5129,10 +5160,17 @@ function PracticePage({
         ) : (
           <div className="quizCreateActions">
             <div>
-              <small className="createLabel">AI / MODE PENILAIAN</small>
-              <AiModePicker value={aiSelection} onChange={setAiSelection} action="study" />
+              <small className="createLabel">SUMBER & MODEL AI</small>
+              <AiSourceModelBar
+                sources={practiceAnswerSources}
+                onSourcesChange={setPracticeAnswerSources}
+                selection={aiSelection}
+                onSelectionChange={setAiSelection}
+                action="study"
+                allowLocal
+              />
               <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
-                {busy ? "Membuat..." : "Buat Kuis dari Database"}
+                {busy ? "Membuat..." : "Buat Kuis"}
               </button>
             </div>
             <div className="manualCreateBox">
@@ -5642,6 +5680,76 @@ function AiModePicker({
   );
 }
 
+
+function AiSourceModelBar({
+  sources,
+  onSourcesChange,
+  selection,
+  onSelectionChange,
+  action = "study",
+  compact = true,
+  allowLocal = false,
+  context = "general",
+}: {
+  sources: AiSourceKind[];
+  onSourcesChange: (sources: AiSourceKind[]) => void;
+  selection: AiSelection;
+  onSelectionChange: (selection: AiSelection) => void;
+  action?: "ask" | "ask_web" | "study";
+  compact?: boolean;
+  allowLocal?: boolean;
+  context?: "general" | "chat";
+}) {
+  useEffect(() => {
+    if (selection.model === "local" && (sources.length !== 1 || sources[0] !== "database")) {
+      onSourcesChange(["database"]);
+    }
+  }, [selection.model]);
+
+  function toggle(source: AiSourceKind) {
+    if (selection.model === "local" && source !== "database") return;
+    const active = sources.includes(source);
+    const next = active ? sources.filter((item) => item !== source) : [...sources, source];
+    if (!next.length) return;
+    onSourcesChange(next);
+  }
+
+  return (
+    <div className="askControls aiSourceModelBar">
+      <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
+        {([
+          { id: "ai" as const, label: "AI" },
+          { id: "database" as const, label: "Database" },
+          { id: "web" as const, label: "Web" },
+        ]).map((item) => {
+          const disabled = selection.model === "local" && item.id !== "database";
+          return (
+            <button
+              type="button"
+              key={item.id}
+              className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
+              onClick={() => toggle(item.id)}
+              aria-pressed={sources.includes(item.id)}
+              disabled={disabled}
+              title={disabled ? "Model Local memakai Database saja." : undefined}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+      <AiModePicker
+        value={selection}
+        onChange={onSelectionChange}
+        action={action === "ask" && sources.includes("web") ? "ask_web" : action}
+        context={context}
+        compact={compact}
+        allowLocal={allowLocal}
+      />
+    </div>
+  );
+}
+
 function CustomizeSheet({
   node,
   onClose,
@@ -5747,15 +5855,13 @@ function BottomAskBar({
   nodes: StudyNode[];
   onChange: () => void;
 }) {
-  type SourceKind = "ai" | "database" | "web";
-
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [answerModel, setAnswerModel] = useState("");
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
-  const [selectedSources, setSelectedSources] = useState<SourceKind[]>(["database"]);
+  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["database"]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
@@ -6738,22 +6844,6 @@ function BottomAskBar({
     onChange();
   }
 
-  function toggleSource(source: SourceKind) {
-    const provider = modelProvider(aiSelection.model);
-    if (source !== "database" && aiSelection.model === "local") {
-      setAiSelection(defaultSelection("gemini-2.5-flash-lite", "chat"));
-    } else if (source === "web" && provider === "local-openai") {
-      setAiSelection(defaultSelection("gemini-2.5-flash-lite", "chat"));
-    }
-
-    setSelectedSources((current) => {
-      if (current.includes(source)) {
-        if (current.length === 1) return current;
-        return current.filter((item) => item !== source);
-      }
-      return [...current, source];
-    });
-  }
 
   function sourcesLabel(value = selectedSources) {
     const ordered: SourceKind[] = ["ai", "database", "web"];
@@ -6919,32 +7009,16 @@ function BottomAskBar({
         </button>
         <div className="askTopRow">
           <div className="askScope" title={scopeName}>{scopeName}</div>
-          <div className="askControls">
-            <div className="sourceToggleGroup" role="group" aria-label="Sumber jawaban">
-              {([
-                { id: "ai" as const, label: "AI" },
-                { id: "database" as const, label: "Database" },
-                { id: "web" as const, label: "Web" },
-              ]).map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  className={selectedSources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
-                  onClick={() => toggleSource(item.id)}
-                  aria-pressed={selectedSources.includes(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <AiModePicker
-              value={aiSelection}
-              onChange={setAiSelection}
-              action={selectedSources.includes("web") ? "ask_web" : "ask"}
-              context="chat"
-              compact
-            />
-          </div>
+          <AiSourceModelBar
+            sources={selectedSources}
+            onSourcesChange={setSelectedSources}
+            selection={aiSelection}
+            onSelectionChange={setAiSelection}
+            action="ask"
+            context="chat"
+            compact
+            allowLocal
+          />
         </div>
         <div className="askInputRow">
           <input
