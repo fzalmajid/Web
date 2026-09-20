@@ -4621,3 +4621,119 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     max-width:none!important;
   }
 }
+
+
+/* Quiz creation modes + robust modal/popover layout */
+.quizCreationBlock{
+  display:grid;
+  gap:12px;
+}
+.quizCreationModes{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+.quizCreationMode{
+  min-width:0;
+  min-height:74px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--card);
+  color:var(--ink);
+  padding:10px 11px;
+  display:grid;
+  gap:4px;
+  text-align:left;
+}
+.quizCreationMode strong{font-size:.8rem}
+.quizCreationMode small{
+  color:var(--muted);
+  font-size:.68rem;
+  line-height:1.35;
+}
+.quizCreationMode.active{
+  border-color:var(--accent);
+  background:var(--soft);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 10%,transparent);
+}
+.manualPlannerList,.answerAiQuestions{
+  display:grid;
+  gap:9px;
+}
+.manualPlannerCard{
+  display:grid;
+  gap:9px;
+  border:1px solid var(--line);
+  border-radius:15px;
+  background:var(--soft);
+  padding:11px;
+}
+.manualPlannerHead{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.manualPlannerHead>strong{margin-right:auto;font-size:.82rem}
+.compactKinds{gap:4px}
+.compactKinds button{padding:6px 8px;font-size:.7rem}
+.manualPlannerChoices{
+  display:grid;
+  gap:7px;
+}
+.manualPlannerChoices label{
+  display:grid!important;
+  grid-template-columns:22px minmax(0,1fr);
+  gap:7px!important;
+  align-items:center;
+}
+.manualPlannerChoices input[type="radio"]{
+  width:17px;
+  height:17px;
+  margin:0;
+}
+.answerAiRow{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:7px;
+  align-items:start;
+}
+
+/* Prevent model chooser from being clipped by scrollable sheets */
+.sheetBackdrop .aiModePopover{
+  position:fixed!important;
+  left:50%!important;
+  right:auto!important;
+  top:max(12px,env(safe-area-inset-top))!important;
+  bottom:auto!important;
+  transform:translateX(-50%)!important;
+  width:min(620px,calc(100vw - 24px))!important;
+  max-width:none!important;
+  max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  overflow:auto!important;
+  z-index:220!important;
+}
+.sheetBackdrop{
+  padding:max(10px,env(safe-area-inset-top)) 10px max(10px,env(safe-area-inset-bottom))!important;
+}
+.addSheet{
+  max-height:calc(100dvh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  overscroll-behavior:contain;
+}
+.explorerAddSheet{
+  width:min(860px,100%)!important;
+}
+
+@media(max-width:767px){
+  .quizCreationModes{grid-template-columns:1fr!important}
+  .quizCreationMode{min-height:58px}
+  .answerAiRow{grid-template-columns:1fr}
+  .answerAiRow .dangerSmall{justify-self:start}
+  .sheetBackdrop .aiModePopover{
+    width:calc(100vw - 16px)!important;
+    max-height:calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  }
+  .explorerAddSheet{
+    border-radius:20px!important;
+    padding:16px!important;
+  }
+}
