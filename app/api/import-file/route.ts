@@ -452,6 +452,7 @@ export async function POST(req: NextRequest) {
         {
           models: modelPlanForSelection(aiSelection.model, aiMode, isMediaMime(mimeType) ? "audio" : "standard"),
           effort: aiSelection.effort,
+      responseLength: aiSelection.length,
           apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
