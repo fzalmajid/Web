@@ -4895,6 +4895,7 @@ function PracticePage({
   const [aiResults, setAiResults] = useState<Record<string, AiGradeResult>>({});
   const [submitted, setSubmitted] = useState(false);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
