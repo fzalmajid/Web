@@ -4568,3 +4568,56 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     grid-column:1/-1!important;
   }
 }
+
+
+/* One shared AI source/model bar across composer + instruction flows */
+.aiSourceModelBar{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+}
+.instructionAiBar{
+  display:grid;
+  gap:7px;
+  padding:11px 12px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--soft);
+}
+.instructionAiBar>.createLabel{
+  margin:0;
+}
+.instructionAiBar .aiSourceModelBar{
+  width:100%;
+  justify-content:flex-start;
+  flex-wrap:wrap;
+}
+.instructionAiBar .sourceToggleGroup{
+  flex:0 1 auto;
+}
+.instructionAiBar .aiModeSelect{
+  flex:0 0 auto;
+}
+.studyInstructionAiBar{
+  margin-top:-2px;
+}
+@media(max-width:620px){
+  .instructionAiBar{
+    padding:9px;
+    border-radius:14px;
+  }
+  .instructionAiBar .aiSourceModelBar{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:6px;
+  }
+  .instructionAiBar .sourceToggleGroup{
+    width:100%;
+  }
+  .instructionAiBar .aiModeSelect,
+  .instructionAiBar .chooseModelTrigger{
+    width:100%!important;
+    max-width:none!important;
+  }
+}
