@@ -43,8 +43,14 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     studyNodeId = String(body.studyNodeId || "");
-    const sourceNodeIds = Array.isArray(body.sourceNodeIds)
-      ? Array.from(new Set(body.sourceNodeIds.map((value: unknown) => String(value)).filter(Boolean)))
+    const sourceNodeIds: string[] = Array.isArray(body.sourceNodeIds)
+      ? Array.from(
+          new Set<string>(
+            body.sourceNodeIds
+              .map((value: unknown) => String(value))
+              .filter((value: string) => Boolean(value))
+          )
+        )
       : [];
     const aiMode = normalizeAiMode(body.aiMode);
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
