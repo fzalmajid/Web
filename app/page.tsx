@@ -170,11 +170,11 @@ type CitationPrefs = { style: CitationStyle; outputs: CitationOutput[] };
 
 const citationStyleOptions: Array<{ value: CitationStyle; label: string; preview: string }> = [
   { value: "none", label: "Tanpa sitasi", preview: "Tidak ada marker" },
-  { value: "apa", label: "APA 7", preview: "(Jung, 1921/2025) · (Nama et al., Tahun)" },
-  { value: "harvard", label: "Harvard", preview: "(Jung, 1921/2025) · (Nama et al., Tahun)" },
+  { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · (Nama, TahunAsli/TahunVersi)" },
+  { value: "harvard", label: "Harvard", preview: "(Nama, Tahun) · (Nama, TahunAsli/TahunVersi)" },
   { value: "vancouver", label: "Vancouver", preview: "(1) · (2)" },
   { value: "ieee", label: "IEEE", preview: "[1] · [2]" },
-  { value: "chicago", label: "Chicago Author-Date", preview: "(Jung 1921/2025)" },
+  { value: "chicago", label: "Chicago Author-Date", preview: "(Nama Tahun) · (Nama TahunAsli/TahunVersi)" },
 ];
 
 function readCitationPrefs(): CitationPrefs {
@@ -220,7 +220,7 @@ function citationClientInstruction() {
       : prefs.outputs.includes("bibliography")
         ? "Gunakan Daftar Pustaka saja, tanpa marker sitasi dalam teks."
         : "Gunakan sitasi dalam teks saja, tanpa Daftar Pustaka.";
-  return "Format sitasi " + prefs.style.toUpperCase() + " (" + preview + "). " + outputText + " Jangan mengarang metadata sumber. Jika sumber punya tahun asli dan tahun terjemahan/edisi, pertahankan keduanya sebagai original/terjemahan, misalnya Jung 1921/2025.";
+  return "Format sitasi " + prefs.style.toUpperCase() + " (" + preview + "). " + outputText + " Jangan mengarang metadata sumber. Jika sumber merupakan terjemahan, cetak ulang, terbitan ulang, atau terbitan kembali dan kedua tahun tersedia, pertahankan format TahunAsli/TahunVersi.";
 }
 
 const GOOGLE_OAUTH_CLIENT_ID =
