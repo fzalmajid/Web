@@ -178,6 +178,40 @@ type CitationStyle = "none" | "apa" | "mla" | "harvard" | "vancouver" | "ieee" |
 type CitationOutput = "in-text" | "bibliography";
 type CitationPrefs = { style: CitationStyle; outputs: CitationOutput[] };
 
+type AskArtifactFormat = "docx" | "pdf" | "pptx" | "txt" | "md" | "csv" | "json";
+
+function requestedArtifactFormat(value: string): AskArtifactFormat | null {
+  const text = String(value || "").toLowerCase();
+  const createIntent =
+    /\b(buat(?:kan)?|bikin(?:kan)?|jadikan|hasilkan|generate|create|export|konversi|convert|ubah(?:kan)?|simpan\s+sebagai|save\s+as|downloadkan)\b/i.test(text);
+  if (!createIntent) return null;
+  if (/\b(powerpoint|pptx?|slide\s*deck|presentasi)\b/i.test(text)) return "pptx";
+  if (/\b(word|docx?)\b/i.test(text)) return "docx";
+  if (/\b(pdf)\b/i.test(text)) return "pdf";
+  if (/\b(csv)\b/i.test(text)) return "csv";
+  if (/\b(json)\b/i.test(text)) return "json";
+  if (/\b(markdown|\.md\b|\bmd\b)\b/i.test(text)) return "md";
+  if (/\b(txt|text\s*file|file\s*teks)\b/i.test(text)) return "txt";
+  return null;
+}
+
+function artifactClientInstruction(format: AskArtifactFormat | null) {
+  if (!format) return "";
+  if (format === "pptx") {
+    return "User meminta file PPTX jadi. Susun isi dengan heading per slide memakai pola ## Slide 1 — Judul lalu bullet singkat.";
+  }
+  if (format === "docx" || format === "pdf") {
+    return "User meminta file " + format.toUpperCase() + " jadi. Susun isi final dengan judul, heading, paragraf, dan bullet yang rapi.";
+  }
+  if (format === "csv") {
+    return "User meminta file CSV jadi. Utamakan data berbentuk tabel konsisten.";
+  }
+  if (format === "json") {
+    return "User meminta file JSON jadi. Utamakan struktur JSON valid bila sesuai.";
+  }
+  return "User meminta file " + format.toUpperCase() + " jadi. Tulis isi final siap file.";
+}
+
 const citationStyleOptions: Array<{ value: CitationStyle; label: string; preview: string }> = [
   { value: "none", label: "Tanpa sitasi", preview: "Tidak ada marker" },
   { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · p./pp. untuk kutipan langsung" },
@@ -8690,6 +8724,17 @@ function BottomAskBar({
   }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
+  const [artifactBusy, setArtifactBusy] = useState(false);
+  const [artifactError, setArtifactError] = useState("");
+  const [answerArtifact, setAnswerArtifact] = useState<{
+    format: AskArtifactFormat;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    url: string;
+    storagePath: string;
+    expiresIn: number;
+  } | null>(null);
   const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["ai", "database"]);
   const [selectedSourceNodeIds, setSelectedSourceNodeIds] = useState<string[]>([]);
   const [selectedSourceFileIds, setSelectedSourceFileIds] = useState<string[]>([]);
@@ -9084,6 +9129,9 @@ function BottomAskBar({
       "Jawab jelas, ringkas, dan terstruktur.",
       citationClientInstruction(),
     ];
+
+    const requestedFile = requestedArtifactFormat(query);
+    if (requestedFile) rules.push(artifactClientInstruction(requestedFile));
 
     if (useDatabase && !useAi) {
       rules.push('Jika Database tidak cukup, jawab persis: "Materi ini belum tersedia di database."');
@@ -9701,6 +9749,41 @@ function BottomAskBar({
   }
 
 
+  async function createAnswerArtifact(
+    format: AskArtifactFormat,
+    query: string,
+    contentText: string
+  ) {
+    if (!contentText.trim()) return;
+    setArtifactBusy(true);
+    setArtifactError("");
+    setAnswerArtifact(null);
+
+    try {
+      const response = await fetch("/api/create-artifact", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + session.access_token,
+        },
+        body: JSON.stringify({
+          format,
+          question: query,
+          content: contentText,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result?.artifact?.url) {
+        throw new Error(result.error || "File belum berhasil dibuat.");
+      }
+      setAnswerArtifact(result.artifact);
+    } catch (error: any) {
+      setArtifactError(error?.message || "File belum berhasil dibuat.");
+    } finally {
+      setArtifactBusy(false);
+    }
+  }
+
   async function copyAnswerToClipboard() {
     const text = (answerBodyRef.current?.innerText || answer || "").trim();
     if (!text || busy) return;
@@ -9841,6 +9924,7 @@ function BottomAskBar({
     const typedUrl = firstUrl(question);
     const effectiveUrl = pendingLink?.url || typedUrl;
     const wantsSave = wantsDatabaseSave(question);
+    const requestedFileFormat = requestedArtifactFormat(question);
 
     if (wantsSave) {
       const suggested = suggestedDatabaseId(question);
@@ -9861,6 +9945,9 @@ function BottomAskBar({
     setSources([]);
     setWebSources([]);
     setWarning("");
+    setArtifactBusy(false);
+    setArtifactError("");
+    setAnswerArtifact(null);
 
     if (aiSelection.model === "local") {
       if (pendingAttachment?.rawText || pendingLink?.rawText) {
@@ -9872,6 +9959,9 @@ function BottomAskBar({
         setAnswerModel("Sumber RAW / Local");
         setSources([]);
         setBusy(false);
+        if (requestedFileFormat) {
+          void createAnswerArtifact(requestedFileFormat, question.trim(), raw);
+        }
         return;
       }
       const local = answerLocally(question.trim());
@@ -9879,6 +9969,9 @@ function BottomAskBar({
       setAnswerModel("Browser / Local");
       setSources(local.refs);
       setBusy(false);
+      if (requestedFileFormat) {
+        void createAnswerArtifact(requestedFileFormat, question.trim(), local.text);
+      }
       return;
     }
 
@@ -9888,6 +9981,9 @@ function BottomAskBar({
         setAnswer(local.text);
         setAnswerModel(local.model + " · Local");
         setSources(local.refs);
+        if (requestedFileFormat) {
+          void createAnswerArtifact(requestedFileFormat, question.trim(), local.text);
+        }
       } catch (error: any) {
         setAnswer(error?.message || "Local AI gagal menjawab.");
       } finally {
@@ -9940,6 +10036,14 @@ function BottomAskBar({
     setSources(data.sources || []);
     setWebSources(data.webSources || []);
     setWarning(data.warning || "");
+    const returnedArtifactFormat =
+      requestedFileFormat ||
+      (["docx", "pdf", "pptx", "txt", "md", "csv", "json"].includes(String(data.artifactFormat))
+        ? (String(data.artifactFormat) as AskArtifactFormat)
+        : null);
+    if (returnedArtifactFormat && data.answer) {
+      void createAnswerArtifact(returnedArtifactFormat, question.trim(), String(data.answer));
+    }
     if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
       setSelectedSources(data.selectedSources);
     }
@@ -9980,6 +10084,40 @@ function BottomAskBar({
               ? "Memproses dari " + activeSourcesLabel + "..."
               : <RichText text={answer || "..."} />}
           </div>
+          {!busy && (artifactBusy || answerArtifact || artifactError) && (
+            <div className="aiArtifactCard">
+              {artifactBusy && (
+                <div>
+                  <strong>Membuat file...</strong>
+                  <small>AI sedang mengubah jawaban menjadi file jadi.</small>
+                </div>
+              )}
+              {!artifactBusy && answerArtifact && (
+                <>
+                  <div>
+                    <strong>📎 {answerArtifact.fileName}</strong>
+                    <small>
+                      {answerArtifact.format.toUpperCase()} · {Math.max(1, Math.round(answerArtifact.sizeBytes / 1024))} KB
+                    </small>
+                  </div>
+                  <a
+                    href={answerArtifact.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    download={answerArtifact.fileName}
+                  >
+                    Buka / unduh file
+                  </a>
+                </>
+              )}
+              {!artifactBusy && artifactError && !answerArtifact && (
+                <div>
+                  <strong>File belum berhasil dibuat</strong>
+                  <small>{artifactError}</small>
+                </div>
+              )}
+            </div>
+          )}
           {!busy && answer && (
             <div className="aiAnswerActions">
               <button type="button" onClick={() => void copyAnswerToClipboard()}>
