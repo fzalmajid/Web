@@ -12,7 +12,7 @@ import {
   ExternalAiError,
   type ExternalAiAttachment,
 } from "@/lib/externalAi";
-import { buildKnowledgeContext, getScopeKnowledge, searchScopeKnowledge, searchSelectedKnowledge } from "@/lib/knowledge";
+import { buildKnowledgeContext, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge } from "@/lib/knowledge";
 import {
   modelPlanForSelection,
   modelProvider,
@@ -747,8 +747,15 @@ export async function POST(req: NextRequest) {
         /\b(ringkas|rangkum|overview|gambaran|jelaskan materi|apa isi|pelajari semua|seluruh materi)\b/i.test(
           question.trim()
         );
-      if (!data.length && broadDatabaseQuestion && !hasExplicitDatabaseSources) {
-        data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
+      if (!data.length && broadDatabaseQuestion) {
+        data = hasExplicitDatabaseSources
+          ? await getSelectedKnowledge(
+              supabase,
+              sourceNodeIds,
+              sourceFileIds,
+              fallbackLimit
+            )
+          : await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
       }
 
     }
