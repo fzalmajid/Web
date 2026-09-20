@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       supabase,
       quizNode.parent_id,
       hasEssay
-        ? aiMode === "high" ? 36 : aiMode === "medium" ? 28 : 20
+        ? aiMode === "high" ? 30 : aiMode === "medium" ? 24 : 16
         : aiMode === "high" ? 60 : aiMode === "medium" ? 48 : 32
     );
     if (!knowledge.length) {
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
     const context = buildKnowledgeContext(
       knowledge,
       hasEssay
-        ? aiMode === "high" ? 28000 : aiMode === "medium" ? 22000 : 15000
+        ? aiMode === "high" ? 23000 : aiMode === "medium" ? 18000 : 12000
         : aiMode === "high" ? 46000 : aiMode === "medium" ? 36000 : 24000
     );
 
@@ -165,8 +165,9 @@ Aturan:
       effort: aiSelection.effort,
       responseLength: hasEssay ? "short" : aiSelection.length,
       maxOutputTokens: hasEssay
-        ? Math.min(2400, Math.max(1200, 500 + qa.length * 160))
+        ? Math.min(4800, Math.max(1600, 900 + qa.length * 260))
         : undefined,
+      outputBudgetMultiplier: hasEssay ? 0.5 : 1.5,
       apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
