@@ -100,13 +100,13 @@ export async function POST(req: NextRequest) {
 
     const { data: entries, error: entriesError } = await supabase
       .from("knowledge_entries")
-      .select("id,node_id,title,category,content,raw_content")
+      .select("id,node_id,title,category,content,raw_content,source_type")
       .in("node_id", sourceNodeIds)
       .order("created_at", { ascending: true });
 
     if (entriesError) throw entriesError;
     if (!entries?.length) {
-      return NextResponse.json({ error: "Folder yang dipilih belum memiliki isi teks/transkrip." }, { status: 400 });
+      return NextResponse.json({ error: "Folder yang dipilih belum memiliki sumber RAW yang dapat dipakai." }, { status: 400 });
     }
 
     const modeLimit = aiMode === "high" ? 140000 : aiMode === "medium" ? 100000 : 70000;
@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
 
     for (const entry of entries) {
       if (used >= modeLimit) break;
+      if (entry.source_type === "transcript") continue;
       const folderTitle = titles.get(entry.node_id) || "Folder";
       const bodyText = String(entry.raw_content || entry.content || "").slice(0, perEntryLimit);
       const part = `[FOLDER RAW: ${folderTitle} | ${entry.title || "Materi"}]
