@@ -7071,6 +7071,63 @@ summary{
   }
 }
 
+/* Ask AI: generated file from chat instruction */
+.aiArtifactCard{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 12px;
+  margin:0 12px 10px;
+  border:1px solid var(--line);
+  border-radius:13px;
+  background:var(--card);
+}
+.aiArtifactCard>div{
+  min-width:0;
+  display:grid;
+  gap:3px;
+}
+.aiArtifactCard strong{
+  color:var(--ink);
+  font-size:.78rem;
+  overflow-wrap:anywhere;
+}
+.aiArtifactCard small{
+  color:var(--muted);
+  font-size:.67rem;
+  line-height:1.35;
+}
+.aiArtifactCard>a{
+  flex:0 0 auto;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:38px;
+  padding:8px 12px;
+  border:1px solid var(--accent);
+  border-radius:11px;
+  background:var(--accent);
+  color:#fff;
+  font-size:.72rem;
+  font-weight:800;
+  text-decoration:none;
+}
+.aiArtifactCard>a:hover{
+  filter:brightness(.97);
+}
+
+@media(max-width:430px){
+  .aiArtifactCard{
+    display:grid;
+    grid-template-columns:1fr;
+    margin:0 10px 10px;
+  }
+  .aiArtifactCard>a{
+    width:100%;
+  }
+}
+
 /* Ask AI: direct answer copy + drag/drop attachment target */
 .aiAnswerActions{
   display:flex;
