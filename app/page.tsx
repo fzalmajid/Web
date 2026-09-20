@@ -4874,7 +4874,15 @@ function BottomAskBar({
     const refs: Array<{ id: string; title: string; category: string }> = [];
 
     for (const { entry } of ranked) {
-      const chunk = ("[" + entry.title + " · " + entry.category + " · RAW/ORIGINAL]\n" + (entry.raw_content || entry.content)).trim();
+      const raw = String(entry.raw_content || entry.content || "").trim();
+      const structured = String(entry.content || "").trim();
+      const chunk = (
+        "[" + entry.title + " · " + entry.category + " · RAW/ORIGINAL]\n" +
+        raw +
+        (structured && structured !== raw
+          ? "\n\n[VERSI TERTATA · BANTUAN]\n" + structured
+          : "")
+      ).trim();
       if (!chunk) continue;
       const remaining = 18000 - used;
       if (remaining <= 0) break;
@@ -4936,6 +4944,9 @@ function BottomAskBar({
       useDatabase ? "\nDATABASE PRIBADI RAW/ORIGINAL:\n" + (database.context || "(kosong)") : "",
       pendingAttachment?.rawText
         ? "\nLAMPIRAN RAW/ORIGINAL · " + pendingAttachment.fileName + ":\n" + pendingAttachment.rawText
+        : "",
+      pendingLink?.rawText
+        ? "\nLINK RAW DIRECT · " + pendingLink.url + ":\n" + pendingLink.rawText
         : "",
     ].join("\n");
 
@@ -5548,6 +5559,22 @@ function BottomAskBar({
     e.preventDefault();
     if (!question.trim() || !selectedSources.length) return;
 
+    const typedUrl = firstUrl(question);
+    const effectiveUrl = pendingLink?.url || typedUrl;
+    const wantsSave = wantsDatabaseSave(question);
+
+    if (wantsSave) {
+      const suggested = suggestedDatabaseId(question);
+      if (suggested) setAttachmentDbId(suggested);
+      if (!effectiveUrl && !pendingAttachment && !pendingVoice) {
+        setPendingTextSave(question.trim());
+      }
+    }
+
+    if (typedUrl && !pendingLink) {
+      void prepareAskLink(typedUrl);
+    }
+
     setBusy(true);
     setOpen(true);
     setAnswer("");
@@ -5557,9 +5584,13 @@ function BottomAskBar({
     setWarning("");
 
     if (aiSelection.model === "local") {
-      if (pendingAttachment?.rawText) {
-        setAnswer(pendingAttachment.rawText);
-        setAnswerModel("Lampiran RAW / Local");
+      if (pendingAttachment?.rawText || pendingLink?.rawText) {
+        const raw = [
+          pendingAttachment?.rawText || "",
+          pendingLink?.rawText || "",
+        ].filter(Boolean).join("\n\n---\n\n");
+        setAnswer(raw);
+        setAnswerModel("Sumber RAW / Local");
         setSources([]);
         setBusy(false);
         return;
@@ -5586,6 +5617,11 @@ function BottomAskBar({
       return;
     }
 
+    const attachmentRaw = [
+      pendingAttachment?.rawText || "",
+      pendingLink?.rawText || "",
+    ].filter(Boolean).join("\n\n---\n\n");
+
     const response = await fetch("/api/ask", {
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
@@ -5594,12 +5630,18 @@ function BottomAskBar({
         scopeNodeId,
         aiMode,
         sources: selectedSources,
-        attachmentTitle: pendingAttachment?.fileName || "",
-        attachmentRaw: pendingAttachment?.rawText || "",
+        attachmentTitle:
+          pendingAttachment?.fileName ||
+          pendingLink?.title ||
+          "",
+        attachmentRaw,
+        attachmentPath: pendingAttachment?.filePath || "",
+        attachmentMimeType: pendingAttachment?.mimeType || "",
+        attachmentUrl: effectiveUrl,
       }),
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     setBusy(false);
 
     if (!response.ok) {
