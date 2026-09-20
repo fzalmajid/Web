@@ -22,6 +22,16 @@ export async function POST(req: NextRequest) {
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
     const instruction = String(body.instruction || "").trim().slice(0, 2000);
+    const allowedQuizKinds = new Set(["mcq-fixed", "essay-fixed", "mcq-ai", "essay-ai"]);
+    const quizKinds = Array.isArray(body.quizKinds)
+      ? Array.from(
+          new Set(
+            body.quizKinds
+              .map((value: unknown) => String(value))
+              .filter((value: string) => allowedQuizKinds.has(value))
+          )
+        ).slice(0, 4)
+      : ["mcq-fixed"];
     const rawCount = Number(body.count || 0);
     const requestedCount =
       Number.isFinite(rawCount) && rawCount > 0
@@ -83,6 +93,19 @@ export async function POST(req: NextRequest) {
         ? "Buat quizzes saja. flashcards harus berupa array kosong."
         : "Buat flashcards dan quizzes.";
 
+    const quizKindInstruction =
+      mode === "quiz"
+        ? [
+            "Jenis soal yang dipilih user: " + quizKinds.join(", ") + ".",
+            "Arti kode:",
+            "- mcq-fixed = pilihan ganda, jawaban benar disimpan dan dinilai langsung.",
+            "- essay-fixed = essay dengan jawaban acuan, dinilai langsung terhadap jawaban acuan.",
+            "- mcq-ai = pilihan ganda, benar/salah dinilai AI saat user menekan selesai.",
+            "- essay-ai = essay bebas, benar/salah dinilai AI saat user menekan selesai.",
+            "Bagi jumlah soal seimbang di antara jenis yang dipilih. Jangan membuat jenis lain.",
+          ].join("\n")
+        : "";
+
     const geminiResult = await geminiGenerateDetailed([{
       text: `Gunakan HANYA DATABASE berikut:
 
@@ -91,11 +114,18 @@ ${context}
 INSTRUKSI USER:
 ${instruction || "(Tidak ada instruksi tambahan.)"}
 
-${requested}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdown:
+${requested}\n${quizKindInstruction}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdown:
 {
   "flashcards":[{"front":"...","back":"..."}],
-  "quizzes":[{"question":"...","choices":["A","B","C","D"],"correct_answer":"...","explanation":"..."}]
+  "quizzes":[{"kind":"mcq-fixed|essay-fixed|mcq-ai|essay-ai","question":"...","choices":["A","B","C","D"],"correct_answer":"...","explanation":"..."}]
 }
+
+Aturan quiz:
+- mcq-fixed: choices minimal 2 (utamakan 4), correct_answer wajib sama persis dengan salah satu choices.
+- essay-fixed: choices harus [], correct_answer wajib berisi jawaban acuan ringkas berbasis RAW.
+- mcq-ai: choices minimal 2 (utamakan 4), correct_answer boleh kosong karena penilaian dilakukan AI saat submit.
+- essay-ai: choices harus [], correct_answer boleh kosong.
+- Jangan mengubah fungsi penilaian: fixed tetap fixed, AI tetap dinilai AI saat user selesai.
 
 Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? counts.quiz + " soal" : counts.cards + " flashcard dan " + counts.quiz + " soal"}. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE RAW/ORIGINAL. Ikuti INSTRUKSI USER selama masih dapat dibuktikan dari sumber.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
     }], "Jangan gunakan pengetahuan di luar database yang diberikan.", {
@@ -121,15 +151,33 @@ Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? c
       : [];
 
     const quizzes = mode === "flashcards" ? [] : Array.isArray(parsed.quizzes)
-      ? parsed.quizzes.slice(0, counts.quiz).map((x: any) => {
-          const choices = Array.isArray(x.choices) ? x.choices.slice(0, 4).map((v: any) => String(v).trim()).filter(Boolean) : [];
+      ? parsed.quizzes.slice(0, counts.quiz).map((x: any, index: number) => {
+          const requestedKind = quizKinds[index % Math.max(1, quizKinds.length)] || "mcq-fixed";
+          const rawKind = String(x.kind || "").trim();
+          const kind = quizKinds.includes(rawKind) ? rawKind : requestedKind;
+          const isMcq = kind === "mcq-fixed" || kind === "mcq-ai";
+          const isAi = kind === "mcq-ai" || kind === "essay-ai";
+          const choices = isMcq && Array.isArray(x.choices)
+            ? x.choices.slice(0, 4).map((v: any) => String(v).trim()).filter(Boolean)
+            : [];
+          const correctAnswer = String(x.correct_answer || "").trim();
           return {
+            kind,
+            quiz_type: isMcq ? "mcq" as const : "essay" as const,
+            grading_mode: isAi ? "ai" as const : "fixed" as const,
             question: String(x.question || "").trim(),
             choices,
-            correct_answer: String(x.correct_answer || "").trim(),
+            correct_answer: isAi ? "" : correctAnswer,
             explanation: String(x.explanation || "").trim(),
           };
-        }).filter((x: any) => x.question && x.choices.length >= 2 && x.choices.includes(x.correct_answer))
+        }).filter((x: any) => {
+          if (!x.question) return false;
+          if (x.quiz_type === "mcq") {
+            if (x.choices.length < 2) return false;
+            return x.grading_mode === "ai" || x.choices.includes(x.correct_answer);
+          }
+          return x.grading_mode === "ai" || Boolean(x.correct_answer);
+        })
       : [];
 
     if (flashcards.length) {
@@ -155,6 +203,8 @@ Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? c
           choices: x.choices,
           correct_answer: x.correct_answer,
           explanation: x.explanation,
+          quiz_type: x.quiz_type,
+          grading_mode: x.grading_mode,
         }))
       );
       if (error) throw error;
