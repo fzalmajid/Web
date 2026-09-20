@@ -4,8 +4,14 @@ import {
   geminiGenerateDetailed,
   GeminiWebSearchQuotaError,
   WHATSAPP_FORMAT_INSTRUCTION,
+  type GeminiPart,
 } from "@/lib/gemini";
-import { openaiGenerateDetailed, anthropicGenerateDetailed, ExternalAiError } from "@/lib/externalAi";
+import {
+  openaiGenerateDetailed,
+  anthropicGenerateDetailed,
+  ExternalAiError,
+  type ExternalAiAttachment,
+} from "@/lib/externalAi";
 import { buildKnowledgeContext, getScopeKnowledge, searchScopeKnowledge } from "@/lib/knowledge";
 import {
   modelPlanForSelection,
@@ -117,6 +123,306 @@ async function anthropicWebModelCandidates(apiKey: string, preferred = "") {
   } catch {
     return [] as string[];
   }
+}
+
+
+type RawAsset = {
+  name: string;
+  mimeType: string;
+  data?: string;
+  rawText?: string;
+  sourceUrl?: string;
+  origin: "attachment" | "database-file" | "database-recording" | "database-link";
+};
+
+function normalizeRawMime(value: string) {
+  return String(value || "application/octet-stream").split(";")[0].trim().toLowerCase();
+}
+
+function supportsDirectBinary(mimeType: string) {
+  const mime = normalizeRawMime(mimeType);
+  return (
+    mime.startsWith("image/") ||
+    mime.startsWith("audio/") ||
+    mime.startsWith("video/") ||
+    mime === "application/pdf" ||
+    mime.startsWith("text/") ||
+    mime === "application/json" ||
+    mime === "application/xml"
+  );
+}
+
+function isSafePublicUrl(raw: string) {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "::1" ||
+      host.endsWith(".local") ||
+      /^127\./.test(host) ||
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^169\.254\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    ) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+function htmlToReadableText(html: string) {
+  return decodeHtmlEntities(
+    html
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n\s*\n+/g, "\n\n")
+    .trim();
+}
+
+async function fetchExactRawLink(rawUrl: string): Promise<RawAsset | null> {
+  if (!isSafePublicUrl(rawUrl)) return null;
+  try {
+    const response = await fetch(rawUrl, {
+      redirect: "follow",
+      cache: "no-store",
+      headers: {
+        "User-Agent": "RuangBelajar/1.0",
+        Accept: "text/html,application/xhtml+xml,application/pdf,image/*,text/plain,*/*",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return null;
+
+    const mimeType = normalizeRawMime(response.headers.get("content-type") || "text/html");
+    const name = (() => {
+      try {
+        const u = new URL(response.url || rawUrl);
+        return u.hostname + (u.pathname === "/" ? "" : u.pathname);
+      } catch {
+        return rawUrl;
+      }
+    })();
+
+    if (mimeType.includes("text/html") || mimeType.startsWith("text/") || mimeType === "application/json" || mimeType === "application/xml") {
+      const text = await response.text();
+      const readable = mimeType.includes("html") ? htmlToReadableText(text) : text.trim();
+      return {
+        name,
+        mimeType,
+        rawText: readable.slice(0, 70000),
+        sourceUrl: rawUrl,
+        origin: "database-link",
+      };
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > 12 * 1024 * 1024) {
+      return {
+        name,
+        mimeType,
+        rawText: "Sumber URL berupa file binary yang terlalu besar untuk dilampirkan langsung pada request ini.",
+        sourceUrl: rawUrl,
+        origin: "database-link",
+      };
+    }
+    return {
+      name,
+      mimeType,
+      data: Buffer.from(arrayBuffer).toString("base64"),
+      sourceUrl: rawUrl,
+      origin: "database-link",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadDatabaseRawAssets(
+  supabase: any,
+  rows: any[],
+  userId: string
+): Promise<RawAsset[]> {
+  const assets: RawAsset[] = [];
+  const sourceFileIds = Array.from(
+    new Set(rows.map((row) => String(row.source_file_id || "")).filter(Boolean))
+  ).slice(0, 6);
+
+  if (sourceFileIds.length) {
+    const { data: sourceFiles } = await supabase
+      .from("source_files")
+      .select("id,user_id,file_path,file_name,mime_type,size_bytes,raw_text,source_kind,source_url")
+      .in("id", sourceFileIds)
+      .eq("user_id", userId);
+
+    for (const file of sourceFiles || []) {
+      if (assets.length >= 4) break;
+
+      if (file.source_kind === "link" && file.source_url) {
+        const live = await fetchExactRawLink(String(file.source_url));
+        if (live) {
+          live.origin = "database-link";
+          assets.push(live);
+        } else if (file.raw_text) {
+          assets.push({
+            name: file.file_name || file.source_url,
+            mimeType: "text/plain",
+            rawText: String(file.raw_text).slice(0, 70000),
+            sourceUrl: String(file.source_url),
+            origin: "database-link",
+          });
+        }
+        continue;
+      }
+
+      const mimeType = normalizeRawMime(file.mime_type);
+      const size = Number(file.size_bytes || 0);
+      if (!supportsDirectBinary(mimeType) || size > 12 * 1024 * 1024) {
+        if (file.raw_text) {
+          assets.push({
+            name: file.file_name || "Database file",
+            mimeType: "text/plain",
+            rawText: String(file.raw_text).slice(0, 70000),
+            origin: "database-file",
+          });
+        }
+        continue;
+      }
+
+      const { data: blob } = await supabase.storage.from("study-files").download(file.file_path);
+      if (!blob || blob.size > 12 * 1024 * 1024) continue;
+      const buffer = Buffer.from(await blob.arrayBuffer());
+      assets.push({
+        name: file.file_name || "Database file",
+        mimeType,
+        data: buffer.toString("base64"),
+        rawText: file.raw_text ? String(file.raw_text).slice(0, 50000) : undefined,
+        origin: "database-file",
+      });
+    }
+  }
+
+  if (assets.length < 4) {
+    const entryIds = rows.map((row) => String(row.id || "")).filter(Boolean).slice(0, 20);
+    if (entryIds.length) {
+      const { data: recordings } = await supabase
+        .from("recordings")
+        .select("id,user_id,title,file_path,mime_type,knowledge_entry_id,raw_transcript")
+        .in("knowledge_entry_id", entryIds)
+        .eq("user_id", userId)
+        .limit(4 - assets.length);
+
+      for (const recording of recordings || []) {
+        if (assets.length >= 4) break;
+        const mimeType = normalizeRawMime(recording.mime_type || "audio/webm");
+        const { data: blob } = await supabase.storage.from("recordings").download(recording.file_path);
+        if (!blob || blob.size > 12 * 1024 * 1024) continue;
+        const buffer = Buffer.from(await blob.arrayBuffer());
+        assets.push({
+          name: recording.title || "Rekaman Database",
+          mimeType,
+          data: buffer.toString("base64"),
+          rawText: recording.raw_transcript ? String(recording.raw_transcript).slice(0, 50000) : undefined,
+          origin: "database-recording",
+        });
+      }
+    }
+  }
+
+  return assets;
+}
+
+async function loadCurrentRawAttachment(
+  supabase: any,
+  userId: string,
+  body: any
+): Promise<RawAsset[]> {
+  const assets: RawAsset[] = [];
+  const path = String(body.attachmentPath || "").trim();
+  const fileName = String(body.attachmentTitle || "Lampiran").trim().slice(0, 240);
+  const mimeType = normalizeRawMime(body.attachmentMimeType || "application/octet-stream");
+
+  if (path && path.startsWith(userId + "/")) {
+    const { data: blob } = await supabase.storage.from("study-files").download(path);
+    if (blob && blob.size <= 12 * 1024 * 1024 && supportsDirectBinary(mimeType)) {
+      const buffer = Buffer.from(await blob.arrayBuffer());
+      assets.push({
+        name: fileName,
+        mimeType,
+        data: buffer.toString("base64"),
+        rawText: String(body.attachmentRaw || "").trim().slice(0, 60000) || undefined,
+        origin: "attachment",
+      });
+    }
+  }
+
+  const url = String(body.attachmentUrl || "").trim();
+  if (url) {
+    const linked = await fetchExactRawLink(url);
+    if (linked) {
+      linked.origin = "attachment";
+      assets.push(linked);
+    }
+  }
+
+  return assets;
+}
+
+function rawAssetText(assets: RawAsset[]) {
+  return assets
+    .filter((asset) => asset.rawText)
+    .map((asset) => {
+      const label = asset.sourceUrl
+        ? `RAW LINK DIRECT · ${asset.sourceUrl}`
+        : `RAW SOURCE · ${asset.name}`;
+      return `${label}:\n${asset.rawText}`;
+    })
+    .join("\n\n---\n\n");
+}
+
+function geminiRawParts(prompt: string, assets: RawAsset[]): GeminiPart[] {
+  const parts: GeminiPart[] = [{ text: prompt }];
+  for (const asset of assets) {
+    if (!asset.data || !supportsDirectBinary(asset.mimeType)) continue;
+    parts.push({ text: `RAW FILE ASLI · ${asset.name} · ${asset.mimeType}. Baca file ini langsung; jangan menggantinya dengan hasil ekstraksi teks.` });
+    parts.push({ inlineData: { mimeType: asset.mimeType, data: asset.data } });
+  }
+  return parts;
+}
+
+function externalRawAttachments(assets: RawAsset[]): ExternalAiAttachment[] {
+  return assets
+    .filter((asset) => asset.data && (
+      asset.mimeType.startsWith("image/") ||
+      asset.mimeType === "application/pdf" ||
+      asset.mimeType.startsWith("text/")
+    ))
+    .slice(0, 4)
+    .map((asset) => ({
+      name: asset.name,
+      mimeType: asset.mimeType,
+      data: asset.data as string,
+    }));
 }
 
 type SourceKind = "ai" | "database" | "web";
@@ -235,6 +541,7 @@ export async function POST(req: NextRequest) {
     const selectedSources = normalizeSources(body);
     const attachmentTitle = String(body.attachmentTitle || "").trim().slice(0, 240);
     const attachmentRaw = String(body.attachmentRaw || "").trim().slice(0, 60000);
+    const attachmentUrl = String(body.attachmentUrl || "").trim();
 
     if (!question || typeof question !== "string" || question.trim().length < 3) {
       return NextResponse.json({ error: "Pertanyaan terlalu pendek." }, { status: 400 });
@@ -287,6 +594,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const currentRawAssets = await loadCurrentRawAttachment(supabase, userData.user.id, body);
+    const databaseRawAssets = useDatabase
+      ? await loadDatabaseRawAssets(supabase, data, userData.user.id)
+      : [];
+    const rawAssets = [...currentRawAssets, ...databaseRawAssets].slice(0, 6);
+    const directRawText = rawAssetText(rawAssets);
+
     const contextLimit = aiMode === "high" ? 42000 : aiMode === "medium" ? 32000 : 22000;
     const context = data.length
       ? buildKnowledgeContext(data, contextLimit)
@@ -308,8 +622,8 @@ export async function POST(req: NextRequest) {
       useDatabase,
       useWeb,
       aiMode,
-      attachmentTitle,
-      attachmentRaw,
+      attachmentTitle: attachmentTitle || (attachmentUrl ? "Link lampiran" : ""),
+      attachmentRaw: [attachmentRaw, directRawText].filter(Boolean).join("\n\n---\n\n"),
     });
 
     const sharedGemini = selectedProvider === "gemini" && !geminiAuth.ownGemini;
@@ -329,6 +643,7 @@ export async function POST(req: NextRequest) {
           system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
           effort: aiSelection.effort,
           web: withWeb,
+          attachments: externalRawAttachments(rawAssets),
         });
       }
 
@@ -340,11 +655,12 @@ export async function POST(req: NextRequest) {
           system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
           effort: aiSelection.effort,
           web: withWeb,
+          attachments: externalRawAttachments(rawAssets),
         });
       }
 
       return geminiGenerateDetailed(
-        [{ text: targetPrompt }],
+        geminiRawParts(targetPrompt, rawAssets),
         "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
         {
           googleSearch: withWeb,
@@ -371,7 +687,7 @@ export async function POST(req: NextRequest) {
       if (!geminiAuth.ownGemini) return null;
       try {
         const result = await geminiGenerateDetailed(
-          [{ text: prompt }],
+          geminiRawParts(prompt, rawAssets),
           "Anda adalah tutor Ruang Belajar. Jawab menggunakan Web sesuai sumber yang dipilih user.",
           {
             googleSearch: true,
@@ -408,6 +724,7 @@ export async function POST(req: NextRequest) {
             system: "Anda adalah tutor Ruang Belajar. Gunakan Web sebagai sumber publik dan hormati sumber lain yang dipilih user.",
             effort: "none",
             web: true,
+            attachments: externalRawAttachments(rawAssets),
           });
           await recordAiTokenUsage(
             supabase,
@@ -442,6 +759,7 @@ export async function POST(req: NextRequest) {
             system: "Anda adalah tutor Ruang Belajar. Gunakan Web sebagai sumber publik dan hormati sumber lain yang dipilih user.",
             effort: "none",
             web: true,
+            attachments: externalRawAttachments(rawAssets),
           });
           await recordAiTokenUsage(
             supabase,
@@ -471,7 +789,7 @@ export async function POST(req: NextRequest) {
 
       try {
         const result = await geminiGenerateDetailed(
-          [{ text: prompt }],
+          geminiRawParts(prompt, rawAssets),
           "Anda adalah tutor Ruang Belajar. Jawab menggunakan Web sesuai sumber yang dipilih user.",
           {
             googleSearch: true,
