@@ -7826,3 +7826,367 @@ summary{
     padding:3px!important;
   }
 }
+
+
+/* =====================================================================
+   PREMIUM ASK COMPOSER — final visual hierarchy
+   Scope chip + one compact control rail + focused input row.
+   ===================================================================== */
+.gptComposer.bottomAsk{
+  --composer-line:color-mix(in srgb,var(--line) 88%,transparent);
+  --composer-soft:color-mix(in srgb,var(--soft) 82%,var(--card) 18%);
+  --composer-shadow:0 18px 48px rgba(22,35,31,.11);
+  border-color:var(--composer-line)!important;
+  background:color-mix(in srgb,var(--card) 95%,transparent)!important;
+  box-shadow:var(--composer-shadow)!important;
+  backdrop-filter:blur(16px) saturate(1.04)!important;
+}
+
+@media (min-width:768px){
+  .gptComposer.bottomAsk{
+    width:min(920px,calc(100% - 28px))!important;
+    max-width:920px!important;
+    padding:5px 8px 8px!important;
+    gap:5px!important;
+    border-radius:22px!important;
+  }
+
+  .gptComposer .composerDragHandle{
+    width:48px!important;
+    height:11px!important;
+    margin:-1px auto 0!important;
+  }
+  .gptComposer .composerDragHandle span{
+    width:36px!important;
+    height:3px!important;
+    opacity:.9!important;
+  }
+
+  .gptComposer .askTopRow{
+    display:flex!important;
+    align-items:center!important;
+    justify-content:flex-start!important;
+    flex-wrap:nowrap!important;
+    gap:7px!important;
+    padding:0 2px!important;
+  }
+
+  .gptComposer .askTopRow .askScope{
+    flex:0 1 auto!important;
+    width:auto!important;
+    max-width:180px!important;
+    min-height:32px!important;
+    display:flex!important;
+    align-items:center!important;
+    padding:0 10px!important;
+    border:1px solid var(--composer-line)!important;
+    border-radius:999px!important;
+    background:var(--composer-soft)!important;
+    color:var(--muted)!important;
+    font-size:.62rem!important;
+    font-weight:800!important;
+    letter-spacing:.01em!important;
+  }
+
+  .gptComposer .askTopControls{
+    flex:0 1 auto!important;
+    width:auto!important;
+    min-width:0!important;
+    display:flex!important;
+    align-items:center!important;
+    gap:2px!important;
+    padding:3px!important;
+    border:1px solid var(--composer-line)!important;
+    border-radius:15px!important;
+    background:color-mix(in srgb,var(--soft) 72%,var(--card) 28%)!important;
+  }
+
+  .gptComposer .aiDatabaseSourcePicker{
+    flex:0 0 auto!important;
+  }
+
+  .gptComposer .chooseSourcesTrigger{
+    width:auto!important;
+    min-width:124px!important;
+    max-width:150px!important;
+    height:34px!important;
+    min-height:34px!important;
+    padding:4px 8px!important;
+    border:0!important;
+    border-radius:11px!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    gap:6px!important;
+  }
+  .gptComposer .chooseSourcesTrigger:hover,
+  .gptComposer .chooseSourcesTrigger.active{
+    background:var(--card)!important;
+    box-shadow:0 1px 4px rgba(28,41,37,.07)!important;
+  }
+  .gptComposer .chooseSourcesTrigger strong{
+    font-size:.69rem!important;
+  }
+  .gptComposer .chooseSourcesTrigger small{
+    max-width:92px!important;
+    font-size:.56rem!important;
+  }
+
+  .gptComposer .aiSourceModelBar{
+    flex:0 1 auto!important;
+    width:auto!important;
+    max-width:100%!important;
+    min-width:0!important;
+    display:flex!important;
+    align-items:center!important;
+    flex-wrap:nowrap!important;
+    gap:2px!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+  }
+
+  .gptComposer .aiSourceModelBar .sourceToggleGroup{
+    flex:0 0 auto!important;
+    width:auto!important;
+    height:34px!important;
+    padding:2px!important;
+    gap:1px!important;
+    border:0!important;
+    border-radius:11px!important;
+    background:color-mix(in srgb,var(--soft) 86%,var(--card) 14%)!important;
+  }
+  .gptComposer .aiSourceModelBar .sourceToggle{
+    height:30px!important;
+    min-height:30px!important;
+    padding:4px 9px!important;
+    border-radius:9px!important;
+    font-size:.66rem!important;
+  }
+  .gptComposer .aiSourceModelBar .sourceToggle.active{
+    background:var(--card)!important;
+    box-shadow:0 1px 3px rgba(28,41,37,.08)!important;
+  }
+
+  .gptComposer .aiSourceModelBar .citationPicker,
+  .gptComposer .aiSourceModelBar .aiModeSelect{
+    flex:0 0 auto!important;
+    width:auto!important;
+    margin:0!important;
+    padding-left:2px!important;
+  }
+
+  .gptComposer .aiSourceModelBar .citationPicker{
+    border-left:1px solid var(--composer-line)!important;
+  }
+  .gptComposer .aiSourceModelBar .aiModeSelect{
+    border-left:1px solid var(--composer-line)!important;
+  }
+
+  .gptComposer .aiSourceModelBar .citationTrigger,
+  .gptComposer .aiSourceModelBar .aiModeTrigger,
+  .gptComposer .aiSourceModelBar .chooseModelTrigger{
+    width:auto!important;
+    min-width:88px!important;
+    max-width:154px!important;
+    height:34px!important;
+    min-height:34px!important;
+    padding:4px 8px!important;
+    border:0!important;
+    border-radius:10px!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    gap:5px!important;
+  }
+  .gptComposer .aiSourceModelBar .citationTrigger:hover,
+  .gptComposer .aiSourceModelBar .aiModeTrigger:hover,
+  .gptComposer .aiSourceModelBar .chooseModelTrigger:hover{
+    background:var(--card)!important;
+  }
+  .gptComposer .aiSourceModelBar .citationTrigger strong,
+  .gptComposer .aiSourceModelBar .aiModeTrigger strong{
+    font-size:.66rem!important;
+    font-weight:850!important;
+  }
+  .gptComposer .aiSourceModelBar .citationTrigger small,
+  .gptComposer .aiSourceModelBar .aiModeTrigger small{
+    max-width:118px!important;
+    font-size:.54rem!important;
+    color:var(--muted)!important;
+  }
+
+  .gptComposer .askInputRow{
+    display:grid!important;
+    grid-template-columns:40px 40px minmax(0,1fr) 44px!important;
+    align-items:center!important;
+    gap:6px!important;
+    margin-top:1px!important;
+  }
+
+  .gptComposer .askAttach,
+  .gptComposer .askMic{
+    width:40px!important;
+    height:40px!important;
+    border:1px solid var(--composer-line)!important;
+    background:var(--card)!important;
+    box-shadow:none!important;
+  }
+  .gptComposer .askAttach:hover,
+  .gptComposer .askMic:hover{
+    background:var(--composer-soft)!important;
+  }
+
+  .gptComposer .askInputRow textarea{
+    min-height:44px!important;
+    max-height:128px!important;
+    padding:11px 13px!important;
+    border:1px solid color-mix(in srgb,var(--line) 68%,transparent)!important;
+    border-radius:16px!important;
+    background:color-mix(in srgb,var(--soft) 74%,var(--card) 26%)!important;
+    box-shadow:none!important;
+  }
+  .gptComposer .askInputRow textarea:focus{
+    border-color:color-mix(in srgb,var(--accent) 34%,var(--line) 66%)!important;
+    background:var(--card)!important;
+  }
+
+  .gptComposer .askInputRow .sendAsk{
+    width:44px!important;
+    height:44px!important;
+    border:0!important;
+    border-radius:50%!important;
+    background:var(--composer-soft)!important;
+    color:var(--muted)!important;
+    box-shadow:none!important;
+  }
+  .gptComposer .askInputRow .sendAsk:not(:disabled){
+    background:var(--ink)!important;
+    color:#fff!important;
+    box-shadow:0 4px 12px rgba(25,39,35,.16)!important;
+  }
+
+  .gptComposer .aiDatabaseSourcePopover{
+    left:0!important;
+    right:auto!important;
+    bottom:calc(100% + 8px)!important;
+    width:min(420px,calc(100vw - 28px))!important;
+    max-width:420px!important;
+    max-height:min(58dvh,520px)!important;
+    border-radius:16px!important;
+  }
+}
+
+/* Mid-size laptops: preserve the same visual language but wrap gracefully. */
+@media (min-width:768px) and (max-width:980px){
+  .gptComposer.bottomAsk{
+    width:calc(100% - 20px)!important;
+    max-width:none!important;
+  }
+  .gptComposer .askTopRow{
+    flex-wrap:wrap!important;
+  }
+  .gptComposer .askTopRow .askScope{
+    max-width:220px!important;
+  }
+  .gptComposer .askTopControls{
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    scrollbar-width:none!important;
+  }
+  .gptComposer .askTopControls::-webkit-scrollbar{display:none!important}
+}
+
+/* Mobile: same design system, stacked and touch-friendly. */
+@media (max-width:767px){
+  .gptComposer.bottomAsk{
+    gap:5px!important;
+    padding:5px 6px calc(7px + env(safe-area-inset-bottom))!important;
+    border-radius:19px!important;
+  }
+
+  .gptComposer .askTopRow{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:5px!important;
+  }
+
+  .gptComposer .askTopRow .askScope{
+    justify-self:start!important;
+    width:auto!important;
+    max-width:min(78vw,260px)!important;
+    min-height:28px!important;
+    display:flex!important;
+    align-items:center!important;
+    padding:0 9px!important;
+    border:1px solid var(--composer-line)!important;
+    border-radius:999px!important;
+    background:var(--composer-soft)!important;
+  }
+
+  .gptComposer .askTopControls{
+    width:100%!important;
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:4px!important;
+    padding:0!important;
+    border:0!important;
+    background:transparent!important;
+  }
+
+  .gptComposer .chooseSourcesTrigger{
+    width:100%!important;
+    max-width:none!important;
+    min-height:36px!important;
+    border:1px solid var(--composer-line)!important;
+    border-radius:12px!important;
+    background:var(--card)!important;
+  }
+
+  .gptComposer .aiSourceModelBar{
+    width:100%!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+    gap:4px!important;
+    padding:3px!important;
+    border:1px solid var(--composer-line)!important;
+    border-radius:13px!important;
+    background:color-mix(in srgb,var(--soft) 70%,var(--card) 30%)!important;
+  }
+
+  .gptComposer .aiSourceModelBar .sourceToggleGroup{
+    grid-column:1/-1!important;
+    width:100%!important;
+    justify-content:stretch!important;
+  }
+  .gptComposer .aiSourceModelBar .sourceToggle{
+    flex:1 1 0!important;
+  }
+
+  .gptComposer .aiSourceModelBar .citationPicker,
+  .gptComposer .aiSourceModelBar .aiModeSelect{
+    width:100%!important;
+    margin:0!important;
+    border:0!important;
+    padding:0!important;
+  }
+
+  .gptComposer .aiSourceModelBar .citationTrigger,
+  .gptComposer .aiSourceModelBar .aiModeTrigger,
+  .gptComposer .aiSourceModelBar .chooseModelTrigger{
+    width:100%!important;
+    max-width:none!important;
+    min-height:34px!important;
+    border-radius:9px!important;
+  }
+
+  .gptComposer .askInputRow{
+    grid-template-columns:36px 38px minmax(0,1fr) 42px!important;
+    gap:5px!important;
+  }
+
+  .gptComposer .askInputRow textarea{
+    min-height:42px!important;
+    border-radius:14px!important;
+  }
+}
