@@ -5200,7 +5200,7 @@ function StudyPage({
         <p className="eyebrow">STUDY</p>
         <h1>{node.emoji ? node.emoji + " " : ""}{node.title}</h1>
         <p className="muted">
-          Pilih folder yang ingin dipelajari. Model Gemini yang dipilih menyusun urutan belajar,
+          Pilih folder yang ingin dipelajari. Model yang dipilih menyusun urutan belajar,
           membagi bab/subbab sesuai kompleksitas, lalu membuka materi berikutnya setelah recall benar.
         </p>
 
@@ -7171,7 +7171,7 @@ function AiModePicker({
   const openAIIds = getStoredModelIds("rb-openai-models");
   const anthropicIds = getStoredModelIds("rb-anthropic-models");
   const localAiConfig = getSessionLocalAiConfig();
-  const localModels = (action === "ask" || action === "ask_web") && localAiConfig.endpoint
+  const localModels = (textAction || action === "file_light" || action === "file_heavy") && localAiConfig.endpoint
     ? localAiConfig.models.map((model) => ({
         id: localAiModelId(model),
         provider: "local-openai" as const,
