@@ -8747,3 +8747,255 @@ summary{
     max-width:164px!important;
   }
 }
+
+
+/* =====================================================================
+   ASK SOURCE POPUP FINAL — source types live inside "Pilih sumber".
+   Main row: scope above picker | true flexible gap | Citation | Model.
+   ===================================================================== */
+.aiSourceKindsInPicker{
+  display:grid;
+  gap:7px;
+  padding:10px 11px;
+  border-bottom:1px solid var(--line);
+  background:color-mix(in srgb,var(--soft) 62%,var(--card) 38%);
+}
+.aiSourceKindsInPicker>small{
+  color:var(--muted);
+  font-size:.61rem;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.aiSourceKindsInPicker .sourceToggleGroup{
+  width:max-content!important;
+  max-width:100%!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:3px!important;
+  padding:3px!important;
+  border:1px solid var(--line)!important;
+  border-radius:12px!important;
+  background:var(--card)!important;
+}
+.aiSourceKindsInPicker .sourceToggle{
+  min-width:0!important;
+  min-height:32px!important;
+  height:32px!important;
+  padding:5px 10px!important;
+  border-radius:9px!important;
+  font-size:.68rem!important;
+}
+.aiDatabaseDisabledHint{
+  margin:9px 10px 0;
+  padding:9px 10px;
+  border:1px dashed var(--line);
+  border-radius:11px;
+  background:var(--soft);
+  color:var(--muted);
+  font-size:.69rem;
+  line-height:1.35;
+}
+.aiDatabaseSourceContent.disabled .aiDatabaseSourceTools,
+.aiDatabaseSourceContent.disabled .aiDatabaseSourceTree{
+  opacity:.34!important;
+  pointer-events:none!important;
+  user-select:none!important;
+}
+.aiDatabaseSourceContent.disabled .aiDatabaseSourceDone{
+  margin-top:8px;
+}
+
+@media (min-width:768px){
+  .gptComposer.bottomAsk{
+    width:min(1220px,calc(100% - 28px))!important;
+    max-width:1220px!important;
+  }
+
+  .gptComposer .askTopRow{
+    display:block!important;
+    width:100%!important;
+    padding:0 2px!important;
+  }
+
+  .gptComposer .askTopControls{
+    width:100%!important;
+    min-width:0!important;
+    display:grid!important;
+    grid-template-columns:auto minmax(80px,1fr) auto auto!important;
+    grid-template-rows:auto auto!important;
+    column-gap:8px!important;
+    row-gap:3px!important;
+    align-items:end!important;
+    padding:0!important;
+    border:0!important;
+    background:transparent!important;
+    overflow:visible!important;
+  }
+
+  .gptComposer .askTopControls>.askScope{
+    grid-column:1!important;
+    grid-row:1!important;
+    justify-self:start!important;
+    align-self:end!important;
+    width:auto!important;
+    max-width:190px!important;
+    min-height:0!important;
+    padding:0 2px!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    color:var(--muted)!important;
+    font-size:.58rem!important;
+    font-weight:800!important;
+    line-height:1.1!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+
+  .gptComposer .askTopControls>.aiDatabaseSourcePicker{
+    grid-column:1!important;
+    grid-row:2!important;
+    justify-self:start!important;
+    align-self:end!important;
+    margin:0!important;
+  }
+
+  /* Wrapper becomes transparent to the grid so Citation and Model can anchor right. */
+  .gptComposer .askTopControls>.aiSourceModelBar{
+    display:contents!important;
+  }
+
+  .gptComposer .askTopControls .citationPicker{
+    grid-column:3!important;
+    grid-row:2!important;
+    justify-self:end!important;
+    align-self:end!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+  }
+
+  .gptComposer .askTopControls .aiModeSelect{
+    grid-column:4!important;
+    grid-row:2!important;
+    justify-self:end!important;
+    align-self:end!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+  }
+
+  .gptComposer .askTopControls .chooseSourcesTrigger{
+    width:auto!important;
+    min-width:144px!important;
+    max-width:168px!important;
+    height:40px!important;
+    min-height:40px!important;
+    padding:5px 9px!important;
+    border:1px solid var(--line)!important;
+    border-radius:13px!important;
+    background:var(--card)!important;
+    box-shadow:none!important;
+  }
+
+  .gptComposer .askTopControls .citationTrigger{
+    width:auto!important;
+    min-width:124px!important;
+    max-width:154px!important;
+    height:40px!important;
+    min-height:40px!important;
+    padding:5px 9px!important;
+    border:1px solid var(--line)!important;
+    border-radius:13px!important;
+    background:var(--card)!important;
+  }
+
+  .gptComposer .askTopControls .aiModeTrigger,
+  .gptComposer .askTopControls .chooseModelTrigger{
+    width:auto!important;
+    min-width:166px!important;
+    max-width:198px!important;
+    height:40px!important;
+    min-height:40px!important;
+    padding:5px 9px!important;
+    border:1px solid var(--line)!important;
+    border-radius:13px!important;
+    background:var(--card)!important;
+  }
+
+  /* The actual blank separation is the second grid column. */
+  .gptComposer .askTopControls::after{
+    content:"";
+    grid-column:2!important;
+    grid-row:2!important;
+    min-width:80px!important;
+    pointer-events:none!important;
+  }
+
+  .gptComposer .aiDatabaseSourcePopover{
+    left:0!important;
+    right:auto!important;
+    bottom:calc(100% + 8px)!important;
+    width:min(440px,calc(100vw - 28px))!important;
+    max-width:440px!important;
+  }
+}
+
+@media (min-width:768px) and (max-width:980px){
+  .gptComposer .askTopControls{
+    grid-template-columns:auto minmax(24px,1fr) auto auto!important;
+    column-gap:6px!important;
+  }
+  .gptComposer .askTopControls>.askScope{
+    max-width:145px!important;
+  }
+  .gptComposer .askTopControls .chooseSourcesTrigger{
+    min-width:132px!important;
+    max-width:148px!important;
+  }
+  .gptComposer .askTopControls .citationTrigger{
+    min-width:112px!important;
+    max-width:128px!important;
+  }
+  .gptComposer .askTopControls .aiModeTrigger,
+  .gptComposer .askTopControls .chooseModelTrigger{
+    min-width:148px!important;
+    max-width:168px!important;
+  }
+}
+
+@media (max-width:767px){
+  .gptComposer .askTopControls>.askScope{
+    width:auto!important;
+    max-width:min(78vw,260px)!important;
+    justify-self:start!important;
+  }
+  .gptComposer .askTopControls>.aiDatabaseSourcePicker{
+    width:100%!important;
+  }
+  .gptComposer .askTopControls>.aiDatabaseSourcePicker .chooseSourcesTrigger{
+    width:100%!important;
+    max-width:none!important;
+  }
+  .gptComposer .askTopControls>.aiSourceModelBar{
+    display:grid!important;
+    grid-template-columns:1fr 1fr!important;
+    gap:4px!important;
+    width:100%!important;
+    padding:0!important;
+    border:0!important;
+    background:transparent!important;
+  }
+  .gptComposer .askTopControls .citationPicker,
+  .gptComposer .askTopControls .aiModeSelect{
+    width:100%!important;
+  }
+  .gptComposer .askTopControls .citationTrigger,
+  .gptComposer .askTopControls .aiModeTrigger,
+  .gptComposer .askTopControls .chooseModelTrigger{
+    width:100%!important;
+    max-width:none!important;
+  }
+}
