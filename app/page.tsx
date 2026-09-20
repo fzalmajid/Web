@@ -1220,12 +1220,29 @@ function FolderPage({
     target: HTMLElement | null;
   } | null>(null);
   const [touchDraggingNodeId, setTouchDraggingNodeId] = useState<string | null>(null);
+  const [nativeDragEnabled, setNativeDragEnabled] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const sync = () => setNativeDragEnabled(query.matches);
+    sync();
+    query.addEventListener?.("change", sync);
+    return () => query.removeEventListener?.("change", sync);
+  }, []);
 
   useEffect(() => {
     return () => {
       if (folderHoverTimerRef.current) window.clearTimeout(folderHoverTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    setDropActive(false);
+    setDropTargetId(null);
+    setTouchDraggingNodeId(null);
+    clearTouchDropTarget();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [current?.id]);
 
   const localFiles = current ? files.filter((item) => item.node_id === current.id) : [];
   const localRecordings = current ? recordings.filter((item) => item.node_id === current.id) : [];
@@ -1449,7 +1466,10 @@ function FolderPage({
       <div className="folderTitle folderTitleRow">
         <div>
           <p className="eyebrow">{current ? "FOLDER BELAJAR" : "RUANG BELAJAR"}</p>
-          <h1>{current ? (current.emoji ? current.emoji + " " : "") + current.title : "Materi saya"}</h1>
+          <h1 className="folderHeroTitle">
+            {current?.emoji && <span className="folderHeroEmoji" aria-hidden="true">{current.emoji}</span>}
+            <span>{current ? current.title : "Materi saya"}</span>
+          </h1>
           {current && (
             <p className="muted explorerHint">
               Folder ini sekaligus Database. Drop file/foto/audio di sini, atau tekan + untuk menambah file, link, teks, rekaman, subfolder, Study, Flashcard, atau Kuis.
@@ -1481,7 +1501,7 @@ function FolderPage({
               data-color={node.card_color || "default"}
               data-rb-drop-target={node.id}
               key={node.id}
-              draggable
+              draggable={nativeDragEnabled}
               onPointerDown={(event) => startTouchFolderDrag(event, node)}
               onPointerMove={moveTouchFolderDrag}
               onPointerUp={(event) => void endTouchFolderDrag(event)}
@@ -1545,7 +1565,7 @@ function FolderPage({
                 <article
                   className="explorerTextItem"
                   key={entry.id}
-                  draggable
+                  draggable={nativeDragEnabled}
                   onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
                 >
                   <div className="explorerItemMain">
@@ -1567,7 +1587,7 @@ function FolderPage({
                 <DatabaseFileCard
                   key={file.id}
                   file={file}
-                  draggable
+                  draggable={nativeDragEnabled}
                   onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
                   onDelete={() => removeFile(file)}
                 />
@@ -1577,7 +1597,7 @@ function FolderPage({
                 <DatabaseStoredRecording
                   key={item.id}
                   item={item}
-                  draggable
+                  draggable={nativeDragEnabled}
                   onDragStart={(event) => setExplorerDragData(event, "recording", item.id)}
                   onDelete={() => removeRecording(item)}
                 />
