@@ -6800,9 +6800,9 @@ function renderScientificPlainText(value: string, keyPrefix: string) {
     // formatting markers to the outer RichText parser.
     if (char === "*") {
       let left = i - 1;
-      while (left >= 0 && /\s/.test(value[left])) left--;
+      while (left >= 0 && /[ \t]/.test(value[left])) left--;
       let right = i + 1;
-      while (right < value.length && /\s/.test(value[right])) right++;
+      while (right < value.length && /[ \t]/.test(value[right])) right++;
       if (
         left >= 0 &&
         right < value.length &&
@@ -6940,8 +6940,7 @@ function RichText({ text, className = "" }: { text: string; className?: string }
       !rendered &&
       value[cursor] === "*" &&
       value[cursor + 1] &&
-      !/\s/.test(value[cursor + 1]) &&
-      !/\s/.test(value[cursor - 1] || "")
+      !/\s/.test(value[cursor + 1])
     ) {
       const close = value.indexOf("*", cursor + 1);
       if (
