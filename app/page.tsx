@@ -1112,7 +1112,7 @@ async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
       file_name: file.name,
       mime_type: mimeType,
       size_bytes: file.size,
-      processing_status: "ready",
+      processing_status: rawText ? "ready" : "processing",
       raw_text: rawText || null,
       structured_text: null,
       corrections: [],
@@ -1147,6 +1147,27 @@ async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
   }
 
   return row as SourceFile;
+}
+
+async function ensureRawFileText(session: Session, row: SourceFile) {
+  if (row.raw_text?.trim()) return row;
+  const extractionSelection = defaultSelection("gemini-2.5-flash");
+  const response = await fetch("/api/import-file", {
+    method: "POST",
+    headers: aiRequestHeaders(session, extractionSelection),
+    body: JSON.stringify({
+      sourceFileId: row.id,
+      filePath: row.file_path,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      nodeId: row.node_id,
+      aiMode: legacyModeForSelection(extractionSelection),
+      operation: "raw",
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "Gagal membaca RAW file.");
+  return row;
 }
 
 async function moveExplorerItemToFolder(
@@ -1451,7 +1472,8 @@ function FolderPage({
     setDropBusy(true);
     try {
       for (const file of incoming) {
-        await saveRawFileToFolder(user, targetNodeId, file);
+        const row = await saveRawFileToFolder(user, targetNodeId, file);
+        if (!row.raw_text) await ensureRawFileText(session, row);
       }
       onChange();
     } catch (error: any) {
@@ -2116,8 +2138,12 @@ function AddSheet({
     setBusy(true);
     setStatus("Menyimpan file asli...");
     try {
-      await saveRawFileToFolder(user, parent.id, selectedFile);
-      setStatus("File RAW/original sudah masuk folder.");
+      const row = await saveRawFileToFolder(user, parent.id, selectedFile);
+      if (!row.raw_text) {
+        setStatus("File asli tersimpan. Membaca RAW...");
+        await ensureRawFileText(session, row);
+      }
+      setStatus("File RAW/original sudah masuk folder. Versi AI belum dibuat.");
       onAdded();
     } catch (error: any) {
       setStatus("");
