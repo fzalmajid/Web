@@ -629,8 +629,11 @@ function buildPrompt({
     "Aturan:",
     "- Jika ada LAMPIRAN RAW/ORIGINAL, baca sumber mentah itu secara langsung dan jadikan isi literalnya sebagai konteks utama lampiran.",
     "- Untuk Database, prioritaskan RAW/ORIGINAL content. Versi tertata/ringkasan hanya bantuan dan tidak boleh menggantikan fakta yang ada pada raw.",
-    "- Jika beberapa sumber Database relevan, sintesis lintas sumber. Jangan mengabaikan handbook/referensi utama hanya karena materi kuliah lain memakai istilah yang lebih mirip dengan pertanyaan.",
-    "- Untuk daftar pustaka/sitasi Database, gunakan nama sumber yang benar-benar hadir pada konteks Database; jangan mengarang atau mengganti judul sumber.",
+    "- Jika beberapa sumber Database relevan, sintesis lintas sumber dan manfaatkan sebanyak mungkin referensi BERBEDA yang benar-benar mendukung jawaban.",
+    "- Fokus relevansi pada ISI sumber, bukan nama file atau judul. Jangan memasukkan, mengutip, atau menampilkan sumber yang hanya kebetulan memiliki judul mirip tetapi isi chunk tidak mendukung pertanyaan.",
+    "- Sumber yang hanya menyebut topik secara sepintas tidak perlu dipakai. Lebih baik sedikit sumber yang sangat relevan daripada banyak sumber yang lemah/tidak cocok.",
+    "- Jangan mengabaikan handbook/referensi utama hanya karena materi kuliah lain memakai istilah yang lebih mirip dengan pertanyaan.",
+    "- Untuk daftar pustaka/sitasi Database, gunakan hanya sumber yang benar-benar dipakai untuk mendukung isi jawaban dan hadir pada konteks Database; jangan mengarang atau mengganti judul sumber.",
     "- Jika konteks Database memuat label HALAMAN PDF, angka itu adalah nomor halaman file PDF sumber. Untuk pertanyaan halaman/lokasi monografi, gunakan metadata halaman tersebut dan jangan menebak nomor halaman.",
     "- Jika user meminta memasukkan/menyimpan sesuatu ke Database, jangan pernah mengklaim bahwa penyimpanan sudah dilakukan. Jawab isi pertanyaannya seperlunya; aplikasi akan meminta konfirmasi lewat tombol Simpan ke Database.",
   ];
