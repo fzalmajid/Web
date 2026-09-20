@@ -1,5 +1,10 @@
 import { GEMINI_MODEL } from "./config";
-import { thinkingConfigForModel, type AiEffort } from "./aiModels";
+import {
+  responseLengthInstruction,
+  thinkingConfigForModel,
+  type AiEffort,
+  type AiResponseLength,
+} from "./aiModels";
 
 export type GeminiPart = { text?: string; inlineData?: { mimeType: string; data: string } };
 export type GeminiWebSource = { title: string; uri: string };
@@ -215,10 +220,20 @@ export async function geminiGenerateDetailed(
     accessToken?: string;
     projectId?: string;
     effort?: AiEffort;
+    responseLength?: AiResponseLength;
     responseMimeType?: "application/json";
     maxOutputTokens?: number;
   }
 ) {
+  const lengthInstruction = options?.responseLength
+    ? responseLengthInstruction(options.responseLength)
+    : "";
+  const effectiveSystemInstruction = [systemInstruction, lengthInstruction]
+    .filter(Boolean)
+    .join("\n\n");
+  const requestedOutputBudget = Number(options?.maxOutputTokens || 8192);
+  const boostedOutputBudget = Math.ceil(requestedOutputBudget * 1.5);
+
   const accessToken = String(options?.accessToken || "").trim();
   const projectId = String(options?.projectId || "").trim();
   const key = String(options?.apiKey || (!accessToken ? process.env.GEMINI_API_KEY : "") || "").trim();
@@ -261,8 +276,8 @@ export async function geminiGenerateDetailed(
           method: "POST",
           headers: geminiAuthHeaders(accessToken, projectId, key),
           body: JSON.stringify({
-            systemInstruction: systemInstruction
-              ? { parts: [{ text: systemInstruction }] }
+            systemInstruction: effectiveSystemInstruction
+              ? { parts: [{ text: effectiveSystemInstruction }] }
               : undefined,
             contents: [{ role: "user", parts }],
             tools: options?.googleSearch ? [{ google_search: {} }] : undefined,
@@ -271,7 +286,7 @@ export async function geminiGenerateDetailed(
                 model === "gemini-3.5-transcribe" || model.startsWith("gemini-3")
                   ? undefined
                   : 0.2,
-              maxOutputTokens: Math.max(1024, Math.min(Number(options?.maxOutputTokens || 8192), 32768)),
+              maxOutputTokens: Math.max(1536, Math.min(boostedOutputBudget, 32768)),
               responseMimeType: options?.responseMimeType,
               thinkingConfig: thinkingConfigForModel(model, options?.effort || "none"),
               audioTranscriptionConfig:
