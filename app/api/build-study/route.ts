@@ -186,7 +186,7 @@ ${bodyText}`;
         {
           user_id: userData.user.id,
           node_id: studyNodeId,
-          source_node_ids: sourceNodeIds,
+          source_node_ids: useDatabase ? sourceNodeIds : [],
           ai_mode: aiMode,
           ai_model: aiSelection.model,
           ai_effort: aiSelection.effort,
@@ -371,7 +371,7 @@ ${raw.slice(0, 50000)}`,
     const { error: readyError } = await supabase
       .from("study_paths")
       .update({
-        source_node_ids: sourceNodeIds,
+        source_node_ids: useDatabase ? sourceNodeIds : [],
         ai_mode: aiMode,
         ai_model: aiSelection.model,
         ai_effort: aiSelection.effort,
