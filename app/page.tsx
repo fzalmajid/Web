@@ -2080,22 +2080,21 @@ function FolderPage({
                     text: entry.raw_content || entry.content,
                   })}
                 >
-                  <div className="explorerItemMain">
-                    <span className="explorerFileIcon">📝</span>
+                  <div className="dataHead">
                     <div>
                       <small>{entry.category || "Catatan RAW"}</small>
-                      <strong>{entry.title}</strong>
+                      <h3>{entry.title}</h3>
                     </div>
-                  </div>
-                  <div className="cardOverflowActions">
-                    <button
-                      type="button"
-                      className="iconDots"
-                      onClick={(event) => openDotsMenu(event, { kind: "entry", id: entry.id })}
-                      aria-label="Opsi teks"
-                    >
-                      ...
-                    </button>
+                    <div className="mediaCardActions">
+                      <button
+                        type="button"
+                        className="ghost iconDots"
+                        onClick={(event) => openDotsMenu(event, { kind: "entry", id: entry.id })}
+                        aria-label="Opsi teks"
+                      >
+                        ...
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))}
