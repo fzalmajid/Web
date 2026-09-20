@@ -60,6 +60,8 @@ type SourceFile = {
   structured_text: string | null;
   corrections: Correction[];
   error_message: string | null;
+  source_kind?: "file" | "link";
+  source_url?: string | null;
   created_at: string;
 };
 type Recording = {
@@ -1311,7 +1313,9 @@ function DatabasePage({
   async function removeFile(file: SourceFile) {
     if (!confirm("Hapus file dan hasil olahannya?")) return;
     await supabase.from("knowledge_entries").delete().eq("source_file_id", file.id);
-    await supabase.storage.from("study-files").remove([file.file_path]);
+    if (file.source_kind !== "link") {
+      await supabase.storage.from("study-files").remove([file.file_path]);
+    }
     const { error } = await supabase.from("source_files").delete().eq("id", file.id);
     if (error) alert(error.message);
     else onChange();
@@ -1471,6 +1475,7 @@ function DatabaseFileCard({
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
+  const isLink = file.source_kind === "link" || Boolean(file.source_url);
   const isImage = file.mime_type.startsWith("image/");
   const isAudio = file.mime_type.startsWith("audio/");
   const isVideo = file.mime_type.startsWith("video/");
@@ -1478,6 +1483,11 @@ function DatabaseFileCard({
   const canInlinePreview = isImage || isAudio || isVideo || isPdf;
 
   async function preview() {
+    if (isLink) {
+      const url = file.source_url || file.file_path;
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
     setPreviewBusy(true);
     const { data, error } = await supabase.storage
       .from("study-files")
@@ -1501,26 +1511,38 @@ function DatabaseFileCard({
       <div className="dataHead">
         <div>
           <small>
-            {file.processing_status === "processing"
-              ? "Sedang diproses..."
-              : file.processing_status === "ready"
-                ? "Ready"
-                : "Gagal diproses"}
-            {" · "}{formatBytes(file.size_bytes)}
+            {isLink
+              ? "Link RAW"
+              : file.processing_status === "processing"
+                ? "Sedang diproses..."
+                : file.processing_status === "ready"
+                  ? "Ready"
+                  : "Gagal diproses"}
+            {!isLink && " · " + formatBytes(file.size_bytes)}
           </small>
           <h3>{file.file_name}</h3>
         </div>
         <div className="mediaCardActions">
           <button className="ghost" type="button" disabled={previewBusy} onClick={preview}>
-            {previewBusy ? "Membuka..." : previewUrl ? "Tutup" : canInlinePreview ? "Lihat / Putar" : "Buka"}
+            {isLink
+              ? "Buka sumber"
+              : previewBusy
+                ? "Membuka..."
+                : previewUrl
+                  ? "Tutup"
+                  : canInlinePreview
+                    ? "Lihat / Putar"
+                    : "Buka"}
           </button>
-          <button
-            className="ghost"
-            type="button"
-            onClick={() => downloadStorageObject("study-files", file.file_path, file.file_name)}
-          >
-            Download
-          </button>
+          {!isLink && (
+            <button
+              className="ghost"
+              type="button"
+              onClick={() => downloadStorageObject("study-files", file.file_path, file.file_name)}
+            >
+              Download
+            </button>
+          )}
           <button className="dangerSmall" type="button" onClick={onDelete}>Hapus</button>
         </div>
       </div>
@@ -4579,7 +4601,20 @@ function BottomAskBar({
     fileName: string;
     mimeType: string;
     rawText: string;
+    filePath: string;
   } | null>(null);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [linkInputOpen, setLinkInputOpen] = useState(false);
+  const [linkDraft, setLinkDraft] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkStatus, setLinkStatus] = useState("");
+  const [pendingLink, setPendingLink] = useState<{
+    url: string;
+    title: string;
+    mimeType: string;
+    rawText: string;
+  } | null>(null);
+  const [pendingTextSave, setPendingTextSave] = useState<string | null>(null);
 
   const askVoiceDatabases = useMemo(() => {
     const all = nodes.filter((item) => item.node_type === "database");
@@ -4634,6 +4669,116 @@ function BottomAskBar({
       window.removeEventListener("resize", update);
     };
   }, []);
+
+  function firstUrl(value: string) {
+    return value.match(/https?:\/\/[^\s<>"')\]]+/i)?.[0] || "";
+  }
+
+  function wantsDatabaseSave(value: string) {
+    const text = value.toLowerCase();
+    const saveWord = /(masukin|masukkan|masukkin|simpan|save|tambahkan|tambahin)/i.test(text);
+    return saveWord && /(database|\bdb\b)/i.test(text);
+  }
+
+  function suggestedDatabaseId(value: string) {
+    const lower = value.toLowerCase();
+    const exact = askVoiceDatabases
+      .slice()
+      .sort((a, b) => b.title.length - a.title.length)
+      .find((item) => lower.includes(item.title.toLowerCase()));
+    return exact?.id || attachmentDbId || askVoiceDatabases[0]?.id || "";
+  }
+
+  async function prepareAskLink(rawUrl: string) {
+    const url = rawUrl.trim();
+    if (!url) return;
+    setLinkBusy(true);
+    setLinkStatus("Membaca link RAW langsung...");
+    const response = await fetch("/api/ask-link", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({ url }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setLinkBusy(false);
+
+    if (!response.ok) {
+      setLinkStatus("");
+      alert(result.error || "Link tidak dapat dibaca.");
+      return;
+    }
+
+    setPendingLink({
+      url: String(result.url || url),
+      title: String(result.title || url),
+      mimeType: String(result.mimeType || "text/html"),
+      rawText: String(result.rawText || ""),
+    });
+    setLinkDraft("");
+    setLinkInputOpen(false);
+    setAttachMenuOpen(false);
+    setLinkStatus("Link RAW siap dipakai AI. Belum disimpan ke Database.");
+  }
+
+  function discardPendingLink() {
+    setPendingLink(null);
+    setLinkStatus("Link diabaikan.");
+  }
+
+  async function savePendingLinkToDatabase() {
+    if (!pendingLink || !attachmentDbId) return;
+    const target = askVoiceDatabases.find((item) => item.id === attachmentDbId);
+    if (!target) return;
+
+    setLinkBusy(true);
+    setLinkStatus("Menyimpan link RAW ke Database...");
+    const response = await fetch("/api/import-link", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({ nodeId: target.id, url: pendingLink.url }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setLinkBusy(false);
+
+    if (!response.ok) {
+      setLinkStatus("");
+      return alert(result.error || "Gagal menyimpan link.");
+    }
+
+    setPendingLink(null);
+    setLinkStatus("Link RAW sudah masuk Database: " + target.title + ".");
+    onChange();
+  }
+
+  async function saveQuestionTextToDatabase() {
+    const text = String(pendingTextSave || question).trim();
+    if (!text || !attachmentDbId) return;
+    const target = askVoiceDatabases.find((item) => item.id === attachmentDbId);
+    if (!target) return;
+
+    setAttachmentBusy(true);
+    const { error } = await supabase.from("knowledge_entries").insert({
+      user_id: session.user.id,
+      node_id: target.id,
+      title: "Catatan dari AI Bar - " + new Date().toLocaleString("id-ID"),
+      category: "Teks dari AI Bar",
+      content: text,
+      raw_content: text,
+      source_type: "manual",
+    });
+    setAttachmentBusy(false);
+
+    if (error) return alert(error.message);
+    setPendingTextSave(null);
+    setAttachmentStatus("Teks sudah masuk Database: " + target.title + ".");
+    onChange();
+  }
 
   function startDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -4729,7 +4874,15 @@ function BottomAskBar({
     const refs: Array<{ id: string; title: string; category: string }> = [];
 
     for (const { entry } of ranked) {
-      const chunk = ("[" + entry.title + " · " + entry.category + " · RAW/ORIGINAL]\n" + (entry.raw_content || entry.content)).trim();
+      const raw = String(entry.raw_content || entry.content || "").trim();
+      const structured = String(entry.content || "").trim();
+      const chunk = (
+        "[" + entry.title + " · " + entry.category + " · RAW/ORIGINAL]\n" +
+        raw +
+        (structured && structured !== raw
+          ? "\n\n[VERSI TERTATA · BANTUAN]\n" + structured
+          : "")
+      ).trim();
       if (!chunk) continue;
       const remaining = 18000 - used;
       if (remaining <= 0) break;
@@ -4791,6 +4944,9 @@ function BottomAskBar({
       useDatabase ? "\nDATABASE PRIBADI RAW/ORIGINAL:\n" + (database.context || "(kosong)") : "",
       pendingAttachment?.rawText
         ? "\nLAMPIRAN RAW/ORIGINAL · " + pendingAttachment.fileName + ":\n" + pendingAttachment.rawText
+        : "",
+      pendingLink?.rawText
+        ? "\nLINK RAW DIRECT · " + pendingLink.url + ":\n" + pendingLink.rawText
         : "",
     ].join("\n");
 
@@ -5212,8 +5368,12 @@ function BottomAskBar({
       return;
     }
 
+    if (pendingAttachment?.filePath) {
+      await supabase.storage.from("study-files").remove([pendingAttachment.filePath]);
+    }
+
     setAttachmentBusy(true);
-    setAttachmentStatus("Membaca sumber RAW...");
+    setAttachmentStatus("Membaca sumber RAW dan menyiapkan file asli...");
     const form = new FormData();
     form.append("file", file);
     form.append("aiMode", aiMode);
@@ -5228,24 +5388,47 @@ function BottomAskBar({
       body: form,
     });
     const result = await response.json().catch(() => ({}));
-    setAttachmentBusy(false);
 
     if (!response.ok) {
+      setAttachmentBusy(false);
       setAttachmentStatus("");
       alert(result.error || "Gagal membaca lampiran.");
+      return;
+    }
+
+    const mimeType = String(result.mimeType || inferMime(file));
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+    const filePath =
+      session.user.id + "/questions/" + crypto.randomUUID() + "-" + safeName;
+    const upload = await supabase.storage
+      .from("study-files")
+      .upload(filePath, file, { contentType: mimeType });
+
+    setAttachmentBusy(false);
+    if (upload.error) {
+      setAttachmentStatus("");
+      alert(upload.error.message);
       return;
     }
 
     setPendingAttachment({
       file,
       fileName: String(result.fileName || file.name),
-      mimeType: String(result.mimeType || inferMime(file)),
+      mimeType,
       rawText: String(result.rawText || ""),
+      filePath,
     });
-    setAttachmentStatus("Lampiran RAW siap dipakai AI. Belum disimpan ke Database.");
+    setAttachMenuOpen(false);
+    setAttachmentStatus(
+      "File asli + RAW siap dibaca AI. Belum disimpan ke Database."
+    );
   }
 
-  function discardPendingAttachment() {
+  async function discardPendingAttachment() {
+    const current = pendingAttachment;
+    if (current?.filePath) {
+      await supabase.storage.from("study-files").remove([current.filePath]);
+    }
     setPendingAttachment(null);
     setAttachmentStatus("Lampiran diabaikan.");
     if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
@@ -5257,19 +5440,11 @@ function BottomAskBar({
     if (!target) return;
 
     setAttachmentBusy(true);
-    setAttachmentStatus("Menyimpan file asli + RAW ke Database...");
+    setAttachmentStatus("Menyimpan file asli ke Database dan menyiapkan versi tertata...");
 
     const file = pendingAttachment.file;
     const mimeType = pendingAttachment.mimeType || inferMime(file);
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
-    const path = session.user.id + "/" + target.id + "/" + crypto.randomUUID() + "-" + safeName;
-
-    const upload = await supabase.storage.from("study-files").upload(path, file, { contentType: mimeType });
-    if (upload.error) {
-      setAttachmentBusy(false);
-      setAttachmentStatus("");
-      return alert(upload.error.message);
-    }
+    const path = pendingAttachment.filePath;
 
     const { data: row, error: fileError } = await supabase
       .from("source_files")
@@ -5280,36 +5455,74 @@ function BottomAskBar({
         file_name: file.name,
         mime_type: mimeType,
         size_bytes: file.size,
-        processing_status: "ready",
+        processing_status: aiSelection.model === "local" ? "ready" : "processing",
         raw_text: pendingAttachment.rawText,
-        structured_text: pendingAttachment.rawText,
+        structured_text: aiSelection.model === "local" ? pendingAttachment.rawText : null,
         corrections: [],
+        source_kind: "file",
+        source_url: null,
       })
       .select("id")
       .single();
 
     if (fileError) {
-      await supabase.storage.from("study-files").remove([path]);
       setAttachmentBusy(false);
       setAttachmentStatus("");
       return alert(fileError.message);
     }
 
-    const { error: entryError } = await supabase.from("knowledge_entries").insert({
-      user_id: session.user.id,
-      node_id: target.id,
-      title: file.name,
-      category: "Lampiran RAW",
-      content: pendingAttachment.rawText,
-      raw_content: pendingAttachment.rawText,
-      source_type: "file",
-      source_file_id: row.id,
-    });
+    if (aiSelection.model === "local") {
+      const { error: entryError } = await supabase.from("knowledge_entries").insert({
+        user_id: session.user.id,
+        node_id: target.id,
+        title: file.name,
+        category: "Lampiran RAW",
+        content: pendingAttachment.rawText || file.name,
+        raw_content: pendingAttachment.rawText || file.name,
+        source_type: "file",
+        source_file_id: row.id,
+      });
+      setAttachmentBusy(false);
+      if (entryError) return alert(entryError.message);
+    } else {
+      const response = await fetch("/api/import-file", {
+        method: "POST",
+        headers: aiRequestHeaders(session, aiSelection),
+        body: JSON.stringify({
+          sourceFileId: row.id,
+          filePath: path,
+          fileName: file.name,
+          mimeType,
+          nodeId: target.id,
+          aiMode,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      setAttachmentBusy(false);
 
-    setAttachmentBusy(false);
-    if (entryError) return alert(entryError.message);
+      if (!response.ok) {
+        await supabase.from("knowledge_entries").insert({
+          user_id: session.user.id,
+          node_id: target.id,
+          title: file.name,
+          category: "Lampiran RAW",
+          content: pendingAttachment.rawText || file.name,
+          raw_content: pendingAttachment.rawText || file.name,
+          source_type: "file",
+          source_file_id: row.id,
+        });
+        setAttachmentStatus(
+          "File asli sudah masuk Database; versi tertata belum selesai."
+        );
+        setPendingAttachment(null);
+        onChange();
+        return;
+      }
+    }
 
-    setAttachmentStatus("File asli + RAW sudah masuk Database: " + target.title + ".");
+    setAttachmentStatus(
+      "File asli + RAW sudah masuk Database: " + target.title + "."
+    );
     setPendingAttachment(null);
     if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
     onChange();
@@ -5346,6 +5559,22 @@ function BottomAskBar({
     e.preventDefault();
     if (!question.trim() || !selectedSources.length) return;
 
+    const typedUrl = firstUrl(question);
+    const effectiveUrl = pendingLink?.url || typedUrl;
+    const wantsSave = wantsDatabaseSave(question);
+
+    if (wantsSave) {
+      const suggested = suggestedDatabaseId(question);
+      if (suggested) setAttachmentDbId(suggested);
+      if (!effectiveUrl && !pendingAttachment && !pendingVoice) {
+        setPendingTextSave(question.trim());
+      }
+    }
+
+    if (typedUrl && !pendingLink) {
+      void prepareAskLink(typedUrl);
+    }
+
     setBusy(true);
     setOpen(true);
     setAnswer("");
@@ -5355,9 +5584,13 @@ function BottomAskBar({
     setWarning("");
 
     if (aiSelection.model === "local") {
-      if (pendingAttachment?.rawText) {
-        setAnswer(pendingAttachment.rawText);
-        setAnswerModel("Lampiran RAW / Local");
+      if (pendingAttachment?.rawText || pendingLink?.rawText) {
+        const raw = [
+          pendingAttachment?.rawText || "",
+          pendingLink?.rawText || "",
+        ].filter(Boolean).join("\n\n---\n\n");
+        setAnswer(raw);
+        setAnswerModel("Sumber RAW / Local");
         setSources([]);
         setBusy(false);
         return;
@@ -5384,6 +5617,11 @@ function BottomAskBar({
       return;
     }
 
+    const attachmentRaw = [
+      pendingAttachment?.rawText || "",
+      pendingLink?.rawText || "",
+    ].filter(Boolean).join("\n\n---\n\n");
+
     const response = await fetch("/api/ask", {
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
@@ -5392,12 +5630,18 @@ function BottomAskBar({
         scopeNodeId,
         aiMode,
         sources: selectedSources,
-        attachmentTitle: pendingAttachment?.fileName || "",
-        attachmentRaw: pendingAttachment?.rawText || "",
+        attachmentTitle:
+          pendingAttachment?.fileName ||
+          pendingLink?.title ||
+          "",
+        attachmentRaw,
+        attachmentPath: pendingAttachment?.filePath || "",
+        attachmentMimeType: pendingAttachment?.mimeType || "",
+        attachmentUrl: effectiveUrl,
       }),
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     setBusy(false);
 
     if (!response.ok) {
@@ -5505,11 +5749,11 @@ function BottomAskBar({
           />
           <button
             type="button"
-            className="askAttach"
+            className={attachMenuOpen ? "askAttach active" : "askAttach"}
             disabled={attachmentBusy}
-            onClick={() => askAttachmentInputRef.current?.click()}
-            aria-label="Tambahkan file atau foto"
-            title="Tambahkan file atau foto"
+            onClick={() => setAttachMenuOpen((value) => !value)}
+            aria-label="Tambahkan file, foto, atau link"
+            title="Tambahkan sumber"
           >
             {attachmentBusy ? "…" : "+"}
           </button>
@@ -5538,6 +5782,61 @@ function BottomAskBar({
             {busy ? "..." : "↑"}
           </button>
         </div>
+
+        {attachMenuOpen && (
+          <div className="askAttachMenu">
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setAttachMenuOpen(false);
+                askAttachmentInputRef.current?.click();
+              }}
+            >
+              📎 File / Foto
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setLinkInputOpen(true);
+                setAttachMenuOpen(false);
+              }}
+            >
+              🔗 Link
+            </button>
+          </div>
+        )}
+
+        {linkInputOpen && (
+          <div className="askLinkInputRow">
+            <input
+              type="url"
+              value={linkDraft}
+              onChange={(e) => setLinkDraft(e.target.value)}
+              placeholder="https://..."
+              autoFocus
+            />
+            <button
+              type="button"
+              className="primary"
+              disabled={linkBusy || !linkDraft.trim()}
+              onClick={() => void prepareAskLink(linkDraft)}
+            >
+              {linkBusy ? "Membaca..." : "Tambahkan"}
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setLinkInputOpen(false);
+                setLinkDraft("");
+              }}
+            >
+              Batal
+            </button>
+          </div>
+        )}
 
         {(askVoiceStatus || pendingVoice) && (
           <div className="askVoicePanel">
@@ -5578,7 +5877,7 @@ function BottomAskBar({
               <>
                 <div className="askAttachmentName">
                   <strong>{pendingAttachment.fileName}</strong>
-                  <small>{formatBytes(pendingAttachment.file.size)} · RAW siap dibaca AI</small>
+                  <small>{formatBytes(pendingAttachment.file.size)} · file asli + RAW siap dibaca AI</small>
                 </div>
                 <div className="askVoiceSaveRow">
                   <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
@@ -5591,7 +5890,7 @@ function BottomAskBar({
                     type="button"
                     className="ghost"
                     disabled={attachmentBusy}
-                    onClick={discardPendingAttachment}
+                    onClick={() => void discardPendingAttachment()}
                   >
                     Abaikan
                   </button>
@@ -5599,13 +5898,85 @@ function BottomAskBar({
                     type="button"
                     className="primary"
                     disabled={attachmentBusy || !attachmentDbId}
-                    onClick={savePendingAttachmentToDatabase}
+                    onClick={() => void savePendingAttachmentToDatabase()}
                   >
                     Simpan ke Database
                   </button>
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {(linkStatus || pendingLink) && (
+          <div className="askAttachmentPanel">
+            {linkStatus && <small>{linkStatus}</small>}
+            {pendingLink && (
+              <>
+                <div className="askAttachmentName">
+                  <strong>🔗 {pendingLink.title}</strong>
+                  <small>{pendingLink.url} · sumber link RAW dibaca langsung</small>
+                </div>
+                <div className="askVoiceSaveRow">
+                  <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
+                    <option value="">Pilih Database</option>
+                    {askVoiceDatabases.map((database) => (
+                      <option key={database.id} value={database.id}>{database.title}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={linkBusy}
+                    onClick={discardPendingLink}
+                  >
+                    Abaikan
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={linkBusy || !attachmentDbId}
+                    onClick={() => void savePendingLinkToDatabase()}
+                  >
+                    Simpan ke Database
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {pendingTextSave && (
+          <div className="askAttachmentPanel">
+            <small>Instruksi menyimpan ke Database terdeteksi. Teks tidak disimpan sebelum user menekan Simpan.</small>
+            <div className="askAttachmentName">
+              <strong>📝 Teks dari AI Bar</strong>
+              <small>{pendingTextSave.slice(0, 180)}{pendingTextSave.length > 180 ? "…" : ""}</small>
+            </div>
+            <div className="askVoiceSaveRow">
+              <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
+                <option value="">Pilih Database</option>
+                {askVoiceDatabases.map((database) => (
+                  <option key={database.id} value={database.id}>{database.title}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="ghost"
+                disabled={attachmentBusy}
+                onClick={() => setPendingTextSave(null)}
+              >
+                Abaikan
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={attachmentBusy || !attachmentDbId}
+                onClick={() => void saveQuestionTextToDatabase()}
+              >
+                Simpan ke Database
+              </button>
+            </div>
           </div>
         )}
       </form>

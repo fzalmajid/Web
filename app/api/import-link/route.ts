@@ -109,23 +109,56 @@ export async function POST(req: NextRequest) {
     const pageTitle = titleMatch ? htmlToText(titleMatch[1]).slice(0, 180) : url.hostname;
     const rawText = ("SOURCE URL: " + url.toString() + "\n\n" + extracted).slice(0, 120000);
 
+    const title = pageTitle || url.hostname;
+    const { data: source, error: sourceError } = await supabase
+      .from("source_files")
+      .insert({
+        user_id: userData.user.id,
+        node_id: nodeId,
+        file_path: url.toString(),
+        file_name: title,
+        mime_type: "text/html",
+        size_bytes: new TextEncoder().encode(rawText).length,
+        processing_status: "ready",
+        raw_text: rawText,
+        structured_text: extracted.slice(0, 120000),
+        corrections: [],
+        error_message: null,
+        source_kind: "link",
+        source_url: url.toString(),
+      })
+      .select("id")
+      .single();
+
+    if (sourceError) throw sourceError;
+
     const { data: entry, error } = await supabase
       .from("knowledge_entries")
       .insert({
         user_id: userData.user.id,
         node_id: nodeId,
-        title: pageTitle || url.hostname,
+        title,
         category: "Link",
-        content: rawText,
+        content: extracted.slice(0, 120000),
         raw_content: rawText,
-        source_type: "manual",
+        source_type: "file",
+        source_file_id: source.id,
       })
       .select("id")
       .single();
 
-    if (error) throw error;
+    if (error) {
+      await supabase.from("source_files").delete().eq("id", source.id);
+      throw error;
+    }
 
-    return NextResponse.json({ id: entry.id, title: pageTitle || url.hostname, rawText });
+    return NextResponse.json({
+      id: entry.id,
+      sourceFileId: source.id,
+      title,
+      url: url.toString(),
+      rawText,
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.name === "AbortError" ? "Link terlalu lama merespons." : error?.message || "Gagal membaca link." }, { status: 500 });
   }

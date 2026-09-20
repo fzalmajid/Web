@@ -7,6 +7,7 @@ export type KnowledgeSource = {
   category: string;
   content: string;
   raw_content?: string | null;
+  source_file_id?: string | null;
 };
 
 async function hydrateRawContent(
@@ -18,20 +19,27 @@ async function hydrateRawContent(
 
   const { data } = await supabase
     .from("knowledge_entries")
-    .select("id,raw_content,content")
+    .select("id,raw_content,content,source_file_id")
     .in("id", ids);
 
-  const rawById = new Map(
+  const byId = new Map(
     (data || []).map((item: any) => [
       String(item.id),
-      String(item.raw_content || item.content || "").trim(),
+      {
+        raw: String(item.raw_content || item.content || "").trim(),
+        sourceFileId: item.source_file_id ? String(item.source_file_id) : null,
+      },
     ])
   );
 
-  return rows.map((row) => ({
-    ...row,
-    raw_content: rawById.get(row.id) || row.raw_content || row.content,
-  }));
+  return rows.map((row) => {
+    const hydrated = byId.get(row.id);
+    return {
+      ...row,
+      raw_content: hydrated?.raw || row.raw_content || row.content,
+      source_file_id: hydrated?.sourceFileId || row.source_file_id || null,
+    };
+  });
 }
 
 export async function getScopeKnowledge(
@@ -67,11 +75,26 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000)
   const parts: string[] = [];
   for (const row of rows) {
     if (used >= maxChars) break;
+
     const raw = String(row.raw_content || row.content || "").trim();
-    const body = raw.slice(0, 2400);
-    const part = `[${row.title}${row.category ? ` | ${row.category}` : ""} | RAW/ORIGINAL]\n${body}`;
+    const structured = String(row.content || "").trim();
+    const rawBudget = Math.min(3200, Math.max(1200, maxChars - used));
+    const rawBody = raw.slice(0, rawBudget);
+
+    const sections = [
+      `[${row.title}${row.category ? ` | ${row.category}` : ""} | RAW/ORIGINAL]\n${rawBody}`,
+    ];
+
+    if (structured && structured !== raw) {
+      const structuredBudget = Math.min(1800, Math.max(0, maxChars - used - sections[0].length));
+      if (structuredBudget > 200) {
+        sections.push(`[VERSI TERTATA · BANTUAN, BUKAN PENGGANTI RAW]\n${structured.slice(0, structuredBudget)}`);
+      }
+    }
+
+    const part = sections.join("\n\n");
     parts.push(part);
     used += part.length;
   }
-  return parts.join("\n\n");
+  return parts.join("\n\n---\n\n");
 }

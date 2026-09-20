@@ -3596,3 +3596,52 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     font-size:1.15rem;
   }
 }
+
+
+/* AI bar attachment hub */
+.askAttach.active{
+  border-color:var(--accent);
+  background:var(--soft);
+}
+.askAttachMenu{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:7px;
+  padding:7px;
+  border:1px solid var(--line);
+  border-radius:13px;
+  background:var(--soft);
+}
+.askAttachMenu button{
+  width:100%;
+  min-height:40px;
+}
+.askLinkInputRow{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  gap:7px;
+  padding:8px;
+  border:1px solid var(--line);
+  border-radius:13px;
+  background:var(--soft);
+}
+.askLinkInputRow input{
+  min-width:0;
+}
+.askAttachmentName small{
+  overflow-wrap:anywhere;
+  white-space:normal;
+}
+@media(max-width:620px){
+  .askAttachMenu{
+    grid-template-columns:1fr 1fr;
+  }
+  .askLinkInputRow{
+    grid-template-columns:1fr 1fr;
+  }
+  .askLinkInputRow input{
+    grid-column:1/-1;
+  }
+}
