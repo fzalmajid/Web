@@ -1035,6 +1035,59 @@ async function moveExplorerItemToFolder(
   if (error) throw error;
 }
 
+type ExplorerDragItem = {
+  kind: "file" | "recording" | "entry" | "node";
+  id: string;
+};
+
+function readExplorerDragItem(event: any): ExplorerDragItem | null {
+  const raw = event.dataTransfer?.getData("application/x-rb-explorer-item");
+  if (!raw) return null;
+  try {
+    const item = JSON.parse(raw);
+    if (!["file", "recording", "entry", "node"].includes(item?.kind) || !item?.id) return null;
+    return { kind: item.kind, id: String(item.id) } as ExplorerDragItem;
+  } catch {
+    return null;
+  }
+}
+
+async function moveExplorerDraggedItem(
+  nodes: StudyNode[],
+  item: ExplorerDragItem,
+  targetNodeId: string | null
+) {
+  if (item.kind === "node") {
+    const movingNode = nodes.find((node) => node.id === item.id);
+    if (!movingNode) return false;
+
+    if (targetNodeId) {
+      const targetNode = nodes.find((node) => node.id === targetNodeId);
+      if (!targetNode || !isFolderLikeNode(targetNode)) return false;
+      if (movingNode.id === targetNode.id) {
+        throw new Error("Folder tidak bisa dimasukkan ke dirinya sendiri.");
+      }
+      const movingTreeIds = new Set(collectSubtreeIds(nodes, movingNode.id));
+      if (movingTreeIds.has(targetNode.id)) {
+        throw new Error("Folder tidak bisa dipindahkan ke dalam anak/subfolder-nya sendiri.");
+      }
+    }
+
+    if ((movingNode.parent_id || null) === targetNodeId) return true;
+
+    const { error } = await supabase
+      .from("study_nodes")
+      .update({ parent_id: targetNodeId })
+      .eq("id", movingNode.id);
+    if (error) throw error;
+    return true;
+  }
+
+  if (!targetNodeId) return false;
+  await moveExplorerItemToFolder(item.kind, item.id, targetNodeId);
+  return true;
+}
+
 function setExplorerDragData(
   event: any,
   kind: "file" | "recording" | "entry" | "node",
