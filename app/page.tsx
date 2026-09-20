@@ -170,11 +170,11 @@ type CitationPrefs = { style: CitationStyle; outputs: CitationOutput[] };
 
 const citationStyleOptions: Array<{ value: CitationStyle; label: string; preview: string }> = [
   { value: "none", label: "Tanpa sitasi", preview: "Tidak ada marker" },
-  { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · (Nama et al., Tahun)" },
-  { value: "harvard", label: "Harvard", preview: "(Nama, Tahun) · (Nama et al., Tahun)" },
+  { value: "apa", label: "APA 7", preview: "(Jung, 1921/2025) · (Nama et al., Tahun)" },
+  { value: "harvard", label: "Harvard", preview: "(Jung, 1921/2025) · (Nama et al., Tahun)" },
   { value: "vancouver", label: "Vancouver", preview: "(1) · (2)" },
   { value: "ieee", label: "IEEE", preview: "[1] · [2]" },
-  { value: "chicago", label: "Chicago Author-Date", preview: "(Nama Tahun)" },
+  { value: "chicago", label: "Chicago Author-Date", preview: "(Jung 1921/2025)" },
 ];
 
 function readCitationPrefs(): CitationPrefs {
@@ -220,7 +220,7 @@ function citationClientInstruction() {
       : prefs.outputs.includes("bibliography")
         ? "Gunakan Daftar Pustaka saja, tanpa marker sitasi dalam teks."
         : "Gunakan sitasi dalam teks saja, tanpa Daftar Pustaka.";
-  return "Format sitasi " + prefs.style.toUpperCase() + " (" + preview + "). " + outputText + " Jangan mengarang metadata sumber.";
+  return "Format sitasi " + prefs.style.toUpperCase() + " (" + preview + "). " + outputText + " Jangan mengarang metadata sumber. Jika sumber punya tahun asli dan tahun terjemahan/edisi, pertahankan keduanya sebagai original/terjemahan, misalnya Jung 1921/2025.";
 }
 
 const GOOGLE_OAUTH_CLIENT_ID =
@@ -1245,6 +1245,19 @@ type ExplorerDragItem = {
   id: string;
 };
 
+type ExplorerClipboardItem = ExplorerDragItem | null;
+
+type ExplorerPreviewItem =
+  | { kind: "entry"; title: string; label: string; text: string }
+  | { kind: "file"; file: SourceFile }
+  | { kind: "recording"; recording: Recording };
+
+type ExplorerContextMenu = {
+  x: number;
+  y: number;
+  item: ExplorerDragItem;
+} | null;
+
 function hasExplorerDragItem(event: any) {
   const types = Array.from(event.dataTransfer?.types || []).map(String);
   return types.includes("application/x-rb-explorer-item");
@@ -1307,6 +1320,115 @@ function setExplorerDragData(
   event.dataTransfer.setData("application/x-rb-explorer-item", JSON.stringify({ kind, id }));
 }
 
+function copyTitle(title: string) {
+  return "Copy by AI - " + title.replace(/^Copy by AI\s*[-:]\s*/i, "").trim();
+}
+
+async function pasteExplorerItem(
+  user: User,
+  item: ExplorerDragItem,
+  targetNodeId: string,
+  nodes: StudyNode[],
+  entries: KnowledgeEntry[],
+  files: SourceFile[],
+  recordings: Recording[]
+) {
+  if (item.kind === "node") {
+    const node = nodes.find((row) => row.id === item.id);
+    if (!node) throw new Error("Folder yang dicopy tidak ditemukan.");
+    const { error } = await supabase.from("study_nodes").insert({
+      user_id: user.id,
+      parent_id: targetNodeId,
+      title: node.title + " (copy)",
+      node_type: node.node_type,
+      description: node.description || "",
+      emoji: node.emoji || "📁",
+      card_color: node.card_color || "default",
+      position: Date.now(),
+    });
+    if (error) throw error;
+    return;
+  }
+
+  if (item.kind === "entry") {
+    const entry = entries.find((row) => row.id === item.id);
+    if (!entry) throw new Error("Teks yang dicopy tidak ditemukan.");
+    const { error } = await supabase.from("knowledge_entries").insert({
+      user_id: user.id,
+      node_id: targetNodeId,
+      title: entry.title + " (copy)",
+      category: entry.category,
+      content: entry.content,
+      raw_content: entry.raw_content,
+      source_type: entry.source_type,
+      source_file_id: null,
+    });
+    if (error) throw error;
+    return;
+  }
+
+  if (item.kind === "file") {
+    const file = files.find((row) => row.id === item.id);
+    if (!file) throw new Error("File yang dicopy tidak ditemukan.");
+    let nextPath = file.file_path;
+    if (file.source_kind !== "link") {
+      const parts = file.file_path.split("/");
+      const originalName = parts.pop() || file.file_name;
+      nextPath = [user.id, targetNodeId, crypto.randomUUID() + "-" + originalName].join("/");
+      const copied = await supabase.storage.from("study-files").copy(file.file_path, nextPath);
+      if (copied.error) throw copied.error;
+    }
+    const { data: inserted, error } = await supabase
+      .from("source_files")
+      .insert({
+        user_id: user.id,
+        node_id: targetNodeId,
+        file_path: nextPath,
+        file_name: file.file_name + " (copy)",
+        mime_type: file.mime_type,
+        size_bytes: file.size_bytes,
+        processing_status: file.processing_status,
+        raw_text: file.raw_text,
+        structured_text: null,
+        corrections: [],
+        error_message: file.error_message,
+        source_kind: file.source_kind || "file",
+        source_url: file.source_url || null,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    if (file.raw_text?.trim()) {
+      const { error: entryError } = await supabase.from("knowledge_entries").insert({
+        user_id: user.id,
+        node_id: targetNodeId,
+        title: file.file_name + " (copy)",
+        category: file.source_kind === "link" ? "Link RAW" : "RAW file",
+        content: file.raw_text,
+        raw_content: file.raw_text,
+        source_type: "file",
+        source_file_id: inserted.id,
+      });
+      if (entryError) throw entryError;
+    }
+    return;
+  }
+
+  const recording = recordings.find((row) => row.id === item.id);
+  if (!recording) throw new Error("Rekaman yang dicopy tidak ditemukan.");
+  const { error } = await supabase.from("knowledge_entries").insert({
+    user_id: user.id,
+    node_id: targetNodeId,
+    title: recording.title + " (copy)",
+    category: "Salinan transkrip rekaman",
+    content: recording.structured_transcript || recording.raw_transcript || recording.transcript || "",
+    raw_content: recording.raw_transcript || recording.transcript || "",
+    source_type: "transcript",
+    source_file_id: null,
+  });
+  if (error) throw error;
+}
+
 function FolderPage({
   session,
   user,
@@ -1350,6 +1472,9 @@ function FolderPage({
   } | null>(null);
   const [touchDraggingNodeId, setTouchDraggingNodeId] = useState<string | null>(null);
   const [nativeDragEnabled, setNativeDragEnabled] = useState(false);
+  const [clipboardItem, setClipboardItem] = useState<ExplorerClipboardItem>(null);
+  const [contextMenu, setContextMenu] = useState<ExplorerContextMenu>(null);
+  const [previewItem, setPreviewItem] = useState<ExplorerPreviewItem | null>(null);
 
   useEffect(() => {
     const query = window.matchMedia("(hover: hover) and (pointer: fine)");
@@ -1388,6 +1513,78 @@ function FolderPage({
     : [];
 
   const hasAssets = !!(localFiles.length || localRecordings.length || localEntries.length);
+
+  function openContextMenu(event: any, item: ExplorerDragItem) {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ x: event.clientX || 24, y: event.clientY || 24, item });
+  }
+
+  function openDotsMenu(event: any, item: ExplorerDragItem) {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    setContextMenu({ x: rect.right - 8, y: rect.bottom + 6, item });
+  }
+
+  function closeContextMenu() {
+    setContextMenu(null);
+  }
+
+  async function pasteIntoCurrent() {
+    if (!clipboardItem || !current) return;
+    try {
+      await pasteExplorerItem(user, clipboardItem, current.id, nodes, entries, files, recordings);
+      closeContextMenu();
+      onChange();
+    } catch (error: any) {
+      alert(error?.message || "Gagal paste item.");
+    }
+  }
+
+  function copyItem(item: ExplorerDragItem) {
+    setClipboardItem(item);
+    closeContextMenu();
+  }
+
+  function previewContextItem(item: ExplorerDragItem) {
+    closeContextMenu();
+    if (item.kind === "entry") {
+      const entry = entries.find((row) => row.id === item.id);
+      if (entry) {
+        setPreviewItem({
+          kind: "entry",
+          title: entry.title,
+          label: entry.category || "Teks",
+          text: entry.raw_content || entry.content,
+        });
+      }
+      return;
+    }
+    if (item.kind === "file") {
+      const file = files.find((row) => row.id === item.id);
+      if (file) setPreviewItem({ kind: "file", file });
+      return;
+    }
+    if (item.kind === "recording") {
+      const recording = recordings.find((row) => row.id === item.id);
+      if (recording) setPreviewItem({ kind: "recording", recording });
+      return;
+    }
+    const node = nodes.find((row) => row.id === item.id);
+    if (node) onOpen(node.id);
+  }
+
+  async function downloadContextItem(item: ExplorerDragItem) {
+    const file = item.kind === "file" ? files.find((row) => row.id === item.id) : null;
+    const recording = item.kind === "recording" ? recordings.find((row) => row.id === item.id) : null;
+    closeContextMenu();
+    if (file && file.source_kind !== "link") {
+      await downloadStorageObject("study-files", file.file_path, file.file_name);
+    } else if (recording) {
+      await downloadStorageObject("recordings", recording.file_path, recording.title || "rekaman.webm");
+    }
+  }
 
   function clearFolderHover() {
     if (folderHoverTimerRef.current) {
@@ -1636,6 +1833,7 @@ function FolderPage({
               onPointerMove={moveTouchFolderDrag}
               onPointerUp={(event) => void endTouchFolderDrag(event)}
               onPointerCancel={cancelTouchFolderDrag}
+              onContextMenu={(event) => openContextMenu(event, { kind: "node", id: node.id })}
               onDragStart={(event) => {
                 event.stopPropagation();
                 setExplorerDragData(event, "node", node.id);
@@ -1674,6 +1872,7 @@ function FolderPage({
                 </div>
               </button>
               <div className="nodeTools">
+                <button onClick={(event) => openDotsMenu(event, { kind: "node", id: node.id })}>...</button>
                 <button onClick={() => onCustomize(node)}>Ubah</button>
                 <button className="nodeDelete" onClick={() => onDelete(node)}>Hapus</button>
               </div>
@@ -1697,6 +1896,13 @@ function FolderPage({
                   key={entry.id}
                   draggable={nativeDragEnabled}
                   onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
+                  onContextMenu={(event) => openContextMenu(event, { kind: "entry", id: entry.id })}
+                  onClick={() => setPreviewItem({
+                    kind: "entry",
+                    title: entry.title,
+                    label: entry.category || "Teks",
+                    text: entry.raw_content || entry.content,
+                  })}
                 >
                   <div className="explorerItemMain">
                     <span className="explorerFileIcon">📝</span>
@@ -1705,11 +1911,17 @@ function FolderPage({
                       <strong>{entry.title}</strong>
                     </div>
                   </div>
-                  <details>
-                    <summary>Lihat isi</summary>
-                    <div className="dataText raw"><RichText text={entry.raw_content || entry.content} /></div>
-                  </details>
-                  <button className="dangerSmall" type="button" onClick={() => removeEntry(entry.id)}>Hapus</button>
+                  <div className="cardOverflowActions">
+                    <button
+                      type="button"
+                      className="iconDots"
+                      onClick={(event) => openDotsMenu(event, { kind: "entry", id: entry.id })}
+                      aria-label="Opsi teks"
+                    >
+                      ...
+                    </button>
+                    <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); removeEntry(entry.id); }}>Hapus</button>
+                  </div>
                 </article>
               ))}
 
@@ -1723,6 +1935,9 @@ function FolderPage({
                   compact
                   onDragStart={(event) => setExplorerDragData(event, "file", file.id)}
                   onDelete={() => removeFile(file)}
+                  onPreview={(item) => setPreviewItem({ kind: "file", file: item })}
+                  onContextMenu={(event) => openContextMenu(event, { kind: "file", id: file.id })}
+                  onOpenMenu={(event) => openDotsMenu(event, { kind: "file", id: file.id })}
                 />
               ))}
 
@@ -1734,9 +1949,16 @@ function FolderPage({
                   compact
                   onDragStart={(event) => setExplorerDragData(event, "recording", item.id)}
                   onDelete={() => removeRecording(item)}
+                  onContextMenu={(event) => openContextMenu(event, { kind: "recording", id: item.id })}
+                  onClick={() => setPreviewItem({ kind: "recording", recording: item })}
                 />
               ))}
             </div>
+            {clipboardItem && (
+              <button className="pasteFloatingAction" type="button" onClick={pasteIntoCurrent}>
+                Paste di folder ini
+              </button>
+            )}
         </>
       )}
 
@@ -1746,8 +1968,179 @@ function FolderPage({
         </div>
       )}
 
+      {contextMenu && (
+        <ExplorerActionMenu
+          menu={contextMenu}
+          clipboardItem={clipboardItem}
+          current={current}
+          files={files}
+          recordings={recordings}
+          onClose={closeContextMenu}
+          onPreview={() => previewContextItem(contextMenu.item)}
+          onCopy={() => copyItem(contextMenu.item)}
+          onPaste={pasteIntoCurrent}
+          onDownload={() => void downloadContextItem(contextMenu.item)}
+          onDelete={() => {
+            const item = contextMenu.item;
+            closeContextMenu();
+            if (item.kind === "entry") void removeEntry(item.id);
+            if (item.kind === "file") {
+              const file = files.find((row) => row.id === item.id);
+              if (file) void removeFile(file);
+            }
+            if (item.kind === "recording") {
+              const recording = recordings.find((row) => row.id === item.id);
+              if (recording) void removeRecording(recording);
+            }
+            if (item.kind === "node") {
+              const node = nodes.find((row) => row.id === item.id);
+              if (node) void onDelete(node);
+            }
+          }}
+        />
+      )}
+
+      {previewItem && (
+        <ExplorerPreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />
+      )}
+
       <button className="bigPlus" onClick={onAdd} aria-label="Tambah">+</button>
     </section>
+  );
+}
+
+function ExplorerActionMenu({
+  menu,
+  clipboardItem,
+  current,
+  files,
+  recordings,
+  onClose,
+  onPreview,
+  onCopy,
+  onPaste,
+  onDownload,
+  onDelete,
+}: {
+  menu: NonNullable<ExplorerContextMenu>;
+  clipboardItem: ExplorerClipboardItem;
+  current: StudyNode | null;
+  files: SourceFile[];
+  recordings: Recording[];
+  onClose: () => void;
+  onPreview: () => void;
+  onCopy: () => void;
+  onPaste: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+}) {
+  const file = menu.item.kind === "file" ? files.find((row) => row.id === menu.item.id) : null;
+  const recording = menu.item.kind === "recording" ? recordings.find((row) => row.id === menu.item.id) : null;
+  const canDownload = Boolean((file && file.source_kind !== "link") || recording);
+
+  return (
+    <div className="contextDismissLayer" onMouseDown={onClose}>
+      <div
+        className="explorerContextMenu"
+        style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 260) }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button type="button" onClick={onPreview}>Lihat isi</button>
+        <button type="button" onClick={onCopy}>Copy</button>
+        {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
+        {canDownload && <button type="button" onClick={onDownload}>Download</button>}
+        <button type="button" className="dangerMenuItem" onClick={onDelete}>Hapus</button>
+      </div>
+    </div>
+  );
+}
+
+function ExplorerPreviewModal({
+  item,
+  onClose,
+}: {
+  item: ExplorerPreviewItem;
+  onClose: () => void;
+}) {
+  return (
+    <div className="sheetBackdrop previewBackdrop" onMouseDown={onClose}>
+      <section className="addSheet explorerPreviewSheet" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="sheetHead">
+          <div>
+            <p className="eyebrow">
+              {item.kind === "file" ? "FILE" : item.kind === "recording" ? "REKAMAN" : item.label}
+            </p>
+            <h2>{item.kind === "file" ? item.file.file_name : item.kind === "recording" ? item.recording.title : item.title}</h2>
+          </div>
+          <button className="closeBtn" type="button" onClick={onClose}>×</button>
+        </div>
+        {item.kind === "file" && (
+          <FilePreviewBody file={item.file} />
+        )}
+        {item.kind === "recording" && (
+          <div className="dataText raw">
+            <RichText text={item.recording.raw_transcript || item.recording.transcript || item.recording.structured_transcript || "Belum ada transkrip."} />
+          </div>
+        )}
+        {item.kind === "entry" && (
+          <div className="dataText raw">
+            <RichText text={item.text || "Belum ada isi."} />
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function FilePreviewBody({ file }: { file: SourceFile }) {
+  const [signedUrl, setSignedUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const isLink = file.source_kind === "link" || Boolean(file.source_url);
+  const isImage = file.mime_type.startsWith("image/");
+  const isAudio = file.mime_type.startsWith("audio/");
+  const isVideo = file.mime_type.startsWith("video/");
+  const isPdf = file.mime_type === "application/pdf";
+
+  useEffect(() => {
+    if (isLink) return;
+    let active = true;
+    setBusy(true);
+    supabase.storage
+      .from("study-files")
+      .createSignedUrl(file.file_path, 60 * 60)
+      .then(({ data }) => {
+        if (active) setSignedUrl(data?.signedUrl || "");
+      })
+      .finally(() => active && setBusy(false));
+    return () => {
+      active = false;
+    };
+  }, [file.id]);
+
+  if (isLink) {
+    return (
+      <div className="previewStack">
+        <a className="primary previewExternalLink" href={file.source_url || file.file_path} target="_blank" rel="noreferrer">
+          Buka link sumber
+        </a>
+        <div className="dataText raw"><RichText text={file.raw_text || "Belum ada isi link."} /></div>
+      </div>
+    );
+  }
+
+  if (busy) return <div className="notice">Menyiapkan preview...</div>;
+
+  return (
+    <div className="previewStack">
+      {signedUrl && isImage && <img className="floatingPreviewMedia" src={signedUrl} alt={file.file_name} />}
+      {signedUrl && isAudio && <audio controls preload="metadata" src={signedUrl} />}
+      {signedUrl && isVideo && <video className="floatingPreviewMedia" controls preload="metadata" src={signedUrl} />}
+      {signedUrl && isPdf && <iframe className="floatingPreviewFrame" title={file.file_name} src={signedUrl} />}
+      {!isImage && !isAudio && !isVideo && !isPdf && (
+        <div className="notice">Preview visual belum tersedia untuk format ini. Isi RAW tetap bisa dibaca di bawah.</div>
+      )}
+      {file.raw_text && <div className="dataText raw"><RichText text={file.raw_text} /></div>}
+    </div>
   );
 }
 
@@ -3757,6 +4150,9 @@ function DatabaseFileCard({
   draggable = false,
   compact = false,
   onDragStart,
+  onPreview,
+  onContextMenu,
+  onOpenMenu,
 }: {
   file: SourceFile;
   session: Session;
@@ -3765,6 +4161,9 @@ function DatabaseFileCard({
   draggable?: boolean;
   compact?: boolean;
   onDragStart?: (event: any) => void;
+  onPreview?: (file: SourceFile) => void;
+  onContextMenu?: (event: any) => void;
+  onOpenMenu?: (event: any) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -3843,6 +4242,8 @@ function DatabaseFileCard({
       className={compact ? "dataCard mediaDataCard explorerUnifiedCard compactExplorerDataCard" : "dataCard mediaDataCard"}
       draggable={draggable}
       onDragStart={onDragStart}
+      onContextMenu={onContextMenu}
+      onClick={() => onPreview?.(file)}
     >
       <div className="dataHead">
         <div>
@@ -3859,32 +4260,38 @@ function DatabaseFileCard({
           <h3>{file.file_name}</h3>
         </div>
         <div className="mediaCardActions">
-          <button className="ghost" type="button" disabled={previewBusy} onClick={preview}>
+          <button
+            className="ghost iconDots"
+            type="button"
+            onClick={(event) => onOpenMenu?.(event)}
+            aria-label="Opsi file"
+          >
+            ...
+          </button>
+          <button className="ghost" type="button" disabled={previewBusy} onClick={(event) => { event.stopPropagation(); preview(); }}>
             {isLink
               ? "Buka sumber"
               : previewBusy
                 ? "Membuka..."
                 : previewUrl
                   ? "Tutup"
-                  : canInlinePreview
-                    ? "Lihat / Putar"
-                    : "Buka"}
+                  : "Buka"}
           </button>
           {!isLink && (
             <button
               className="ghost"
               type="button"
-              onClick={() => downloadStorageObject("study-files", file.file_path, file.file_name)}
+              onClick={(event) => { event.stopPropagation(); downloadStorageObject("study-files", file.file_path, file.file_name); }}
             >
               Download
             </button>
           )}
-          {!isLink && file.raw_text && (
-            <button className="ghost" type="button" onClick={() => setCopyOpen((current) => !current)}>
-              {file.structured_text ? "Atur ulang AI" : "Buat versi AI"}
+          {file.raw_text && (
+            <button className="ghost" type="button" onClick={(event) => { event.stopPropagation(); setCopyOpen((current) => !current); }}>
+              Buat versi AI
             </button>
           )}
-          <button className="dangerSmall" type="button" onClick={onDelete}>Hapus</button>
+          <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
         </div>
       </div>
 
@@ -3948,7 +4355,7 @@ function DatabaseFileCard({
           </div>
 
           <button className="primary" type="button" disabled={copyBusy} onClick={createAiCopy}>
-            {copyBusy ? "Membuat salinan AI..." : file.structured_text ? "Buat ulang versi AI" : "Buat salinan versi AI"}
+            {copyBusy ? "Membuat salinan AI..." : "Buat salinan versi AI"}
           </button>
           <small className="muted">
             RAW/original tidak diubah. Versi AI dibuat sebagai salinan terpisah dengan target panjang sekitar
@@ -3958,18 +4365,9 @@ function DatabaseFileCard({
       )}
 
       {file.raw_text && (
-        <details open={!compact}>
-          <summary>RAW / original source</summary>
+        <details open={!compact} onClick={(event) => event.stopPropagation()}>
+          <summary>Lihat isi</summary>
           <div className="dataText raw"><RichText text={file.raw_text} /></div>
-        </details>
-      )}
-      {file.structured_text && file.structured_text !== file.raw_text && (
-        <details>
-          <summary>
-            Salinan AI{file.ai_copy_ratio ? " · sekitar " + file.ai_copy_ratio + "%" : ""}
-            {file.ai_copy_model ? " · " + file.ai_copy_model : ""}
-          </summary>
-          <div className="dataText"><RichText text={file.structured_text} /></div>
         </details>
       )}
       {!!file.corrections?.length && <CorrectionList corrections={file.corrections} />}
@@ -3983,12 +4381,16 @@ function DatabaseStoredRecording({
   draggable = false,
   compact = false,
   onDragStart,
+  onContextMenu,
+  onClick,
 }: {
   item: Recording;
   onDelete: () => void;
   draggable?: boolean;
   compact?: boolean;
   onDragStart?: (event: any) => void;
+  onContextMenu?: (event: any) => void;
+  onClick?: () => void;
 }) {
   const [audioUrl, setAudioUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -4024,6 +4426,8 @@ function DatabaseStoredRecording({
       }
       draggable={draggable}
       onDragStart={onDragStart}
+      onContextMenu={onContextMenu}
+      onClick={onClick}
     >
       <div className="dataHead">
         <div>
@@ -4031,17 +4435,20 @@ function DatabaseStoredRecording({
           <h3>{item.title}</h3>
         </div>
         <div className="mediaCardActions">
-          <button className="ghost" type="button" disabled={busy} onClick={toggleAudio}>
-            {busy ? "Membuka..." : audioUrl ? "Tutup audio" : "Dengarkan"}
+          <button className="ghost iconDots" type="button" onClick={(event) => { event.stopPropagation(); onContextMenu?.(event); }}>
+            ...
+          </button>
+          <button className="ghost" type="button" disabled={busy} onClick={(event) => { event.stopPropagation(); toggleAudio(); }}>
+            {busy ? "Membuka..." : audioUrl ? "Tutup audio" : "Buka"}
           </button>
           <button
             className="ghost"
             type="button"
-            onClick={() => downloadStorageObject("recordings", item.file_path, fileName)}
+            onClick={(event) => { event.stopPropagation(); downloadStorageObject("recordings", item.file_path, fileName); }}
           >
             Download
           </button>
-          <button className="dangerSmall" type="button" onClick={onDelete}>Hapus</button>
+          <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
         </div>
       </div>
 
@@ -4052,8 +4459,8 @@ function DatabaseStoredRecording({
       )}
 
       {(item.raw_transcript || item.transcript || item.structured_transcript) && (
-        <details open={!compact} className="transcriptPanel">
-          <summary>Transkrip mentah / verbatim</summary>
+        <details open={!compact} className="transcriptPanel" onClick={(event) => event.stopPropagation()}>
+          <summary>Lihat isi</summary>
           <div className="dataText raw">
             <RichText text={item.raw_transcript || item.transcript || item.structured_transcript || ""} />
           </div>
@@ -4395,6 +4802,7 @@ function StudyPage({
   const [quickDbStatus, setQuickDbStatus] = useState("");
   const [quickBusy, setQuickBusy] = useState(false);
   const [quickFileBusy, setQuickFileBusy] = useState(false);
+  const firstLoadRef = useRef(true);
 
   const branchIds = useMemo(
     () => node.parent_id ? collectSubtreeIds(nodes, node.parent_id) : [],
@@ -4409,7 +4817,11 @@ function StudyPage({
   }, [node.id]);
 
   async function loadStudy() {
-    setLoading(true);
+    const showLoading = firstLoadRef.current;
+    if (showLoading) {
+      setLoading(true);
+      firstLoadRef.current = false;
+    }
     const { data: pathData, error: pathError } = await supabase
       .from("study_paths")
       .select("*")
@@ -4734,6 +5146,7 @@ function StudyPage({
   }
 
   async function completeStudyUnit(unit: StudyUnit, markRecallCorrect = false) {
+    const scrollTop = window.scrollY;
     const now = new Date().toISOString();
     const { error } = await supabase
       .from("study_units")
@@ -4755,6 +5168,9 @@ function StudyPage({
       setRecallFeedback((current) => ({ ...current, [unit.id]: "correct" }));
     }
     await loadStudy();
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: scrollTop, left: 0, behavior: "auto" });
+    });
   }
 
   async function checkRecall(unit: StudyUnit) {
@@ -6914,16 +7330,6 @@ function AiModePicker({
               <strong>{selected?.label || "Local"}</strong>
             </div>
             <div className="modelPickerActions">
-              <button
-                type="button"
-                className="modelPluginButton"
-                onClick={() => {
-                  setOpen(false);
-                  window.dispatchEvent(new Event("rb-open-plugins"));
-                }}
-              >
-                + Plugin
-              </button>
               <button type="button" className="modelPickerClose" onClick={() => setOpen(false)}>×</button>
             </div>
           </div>
@@ -6969,6 +7375,16 @@ function AiModePicker({
               </div>
             </div>
           )}
+          <button
+            type="button"
+            className="modelPluginButton modelPluginButtonBottom"
+            onClick={() => {
+              setOpen(false);
+              window.dispatchEvent(new Event("rb-open-plugins"));
+            }}
+          >
+            + Plugin Model
+          </button>
         </div>
       )}
     </div>
@@ -9801,3 +10217,4 @@ function formatTime(value: number) {
   const seconds = Math.max(0, value % 60);
   return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
 }
+
