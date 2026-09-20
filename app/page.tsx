@@ -1037,7 +1037,7 @@ async function moveExplorerItemToFolder(
 
 function setExplorerDragData(
   event: any,
-  kind: "file" | "recording" | "entry",
+  kind: "file" | "recording" | "entry" | "node",
   id: string
 ) {
   event.dataTransfer.effectAllowed = "move";
@@ -1049,6 +1049,7 @@ function FolderPage({
   user,
   current,
   children,
+  nodes,
   entries,
   files,
   recordings,
@@ -1113,7 +1114,37 @@ function FolderPage({
     if (!raw) return false;
     try {
       const item = JSON.parse(raw);
-      if (!["file", "recording", "entry"].includes(item?.kind) || !item?.id) return false;
+      if (!["file", "recording", "entry", "node"].includes(item?.kind) || !item?.id) return false;
+
+      if (item.kind === "node") {
+        const nodeId = String(item.id);
+        const movingNode = nodes.find((node) => node.id === nodeId);
+        const targetNode = nodes.find((node) => node.id === targetNodeId);
+
+        if (!movingNode || !targetNode || !isFolderLikeNode(targetNode)) return false;
+        if (movingNode.id === targetNode.id) {
+          alert("Folder tidak bisa dimasukkan ke dirinya sendiri.");
+          return true;
+        }
+
+        const movingTreeIds = new Set(collectSubtreeIds(nodes, movingNode.id));
+        if (movingTreeIds.has(targetNode.id)) {
+          alert("Folder tidak bisa dipindahkan ke dalam anak/subfolder-nya sendiri.");
+          return true;
+        }
+
+        if (movingNode.parent_id === targetNode.id) return true;
+
+        const { error } = await supabase
+          .from("study_nodes")
+          .update({ parent_id: targetNode.id })
+          .eq("id", movingNode.id);
+
+        if (error) throw error;
+        onChange();
+        return true;
+      }
+
       await moveExplorerItemToFolder(item.kind, String(item.id), targetNodeId);
       onChange();
       return true;
@@ -1202,9 +1233,14 @@ function FolderPage({
         <div className="nodeGrid explorerNodeGrid">
           {children.map((node) => (
             <article
-              className="nodeCard"
+              className="nodeCard draggableFolderCard"
               data-color={node.card_color || "default"}
               key={node.id}
+              draggable
+              onDragStart={(event) => {
+                event.stopPropagation();
+                setExplorerDragData(event, "node", node.id);
+              }}
               onDragOver={(event) => {
                 if (!isFolderLikeNode(node)) return;
                 event.preventDefault();
@@ -1233,15 +1269,15 @@ function FolderPage({
           <div className="folderAssetsHead">
             <div>
               <small>ISI FOLDER · RAW/ORIGINAL</small>
-              <strong>{localFiles.length + localRecordings.length + localEntries.length} item</strong>
+              <strong>{children.length + localFiles.length + localRecordings.length + localEntries.length} item</strong>
             </div>
-            <span>{dropBusy ? "Mengupload..." : "Tarik & drop file ke area folder"}</span>
+            <span>{dropBusy ? "Mengupload..." : "Folder, file, foto, audio, dan catatan bisa di-drag ke folder lain"}</span>
           </div>
 
-          {!hasAssets && (
+          {!children.length && !hasAssets && (
             <div className="explorerEmpty">
               <span>📂</span>
-              <p>Belum ada file atau catatan. Drop file di sini atau tekan +.</p>
+              <p>Belum ada isi folder. Drop file di sini atau tekan +.</p>
             </div>
           )}
 
