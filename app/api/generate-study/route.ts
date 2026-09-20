@@ -5,6 +5,7 @@ import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { citationInstruction, normalizeCitationOptions } from "@/lib/citations";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest) {
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
     const instruction = String(body.instruction || "").trim().slice(0, 2000);
+    const { citationStyle, citationOutputs } = normalizeCitationOptions(body);
     const allowedSourceKinds = new Set(["ai", "database", "web"]);
     const sourceKinds = Array.isArray(body.sourceKinds)
       ? Array.from(new Set(body.sourceKinds.map((value: unknown) => String(value)).filter((value: string) => allowedSourceKinds.has(value))))
@@ -157,6 +159,8 @@ export async function POST(req: NextRequest) {
           ].join("\n")
         : "";
 
+    const citationRule = citationInstruction(citationStyle, citationOutputs);
+
     const geminiResult = await geminiGenerateDetailed([{
       text: `KONFIGURASI SUMBER:
 ${sourcePolicy}
@@ -167,7 +171,7 @@ ${context || "(Database tidak aktif.)"}
 INSTRUKSI USER:
 ${instruction || "(Tidak ada instruksi tambahan.)"}
 
-${requested}\n${quizKindInstruction}\n${answerAiInstruction}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdown:
+${requested}\n${quizKindInstruction}\n${answerAiInstruction}\n${citationRule}\n${aiModeInstruction(aiMode)}\n\nKeluarkan JSON valid tanpa markdown:
 {
   "flashcards":[{"front":"...","back":"..."}],
   "quizzes":[{"kind":"mcq-fixed|essay-fixed|mcq-ai|essay-ai","question":"...","choices":["A","B","C","D"],"correct_answer":"...","explanation":"..."}]
