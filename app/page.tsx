@@ -7365,7 +7365,7 @@ function PracticePage({
 }) {
   type AiGradeResult = {
     gradable: boolean;
-    verdict?: "benar" | "kurang_tepat" | "salah" | "tidak_dapat_dinilai";
+    verdict?: "benar" | "hampir_benar" | "benar_sebagian" | "benar_sedikit" | "salah" | "tidak_dapat_dinilai";
     correct: boolean;
     score: number;
     feedback: string;
@@ -7923,15 +7923,19 @@ function PracticePage({
                   )}
 
                   {submitted && aiResult && (
-                    <div className={aiResult.correct ? "answerState ok" : aiResult.score > 0 ? "answerState" : "answerState bad"}>
+                    <div className={aiResult.correct ? "answerState ok" : aiResult.score > 0 ? "answerState partial" : "answerState bad"}>
                       <strong>{
                         !aiResult.gradable
                           ? "Belum dapat dinilai · 0/100"
-                          : aiResult.correct
+                          : aiResult.score === 100
                             ? "Benar · 100/100"
-                            : aiResult.verdict === "kurang_tepat" || aiResult.score > 0
-                              ? "Kurang tepat · " + aiResult.score + "/100"
-                              : "Salah · 0/100"
+                            : aiResult.score === 70
+                              ? "Hampir benar · 70/100"
+                              : aiResult.score === 50
+                                ? "Benar sebagian · 50/100"
+                                : aiResult.score === 25
+                                  ? "Benar sedikit · 25/100"
+                                  : "Salah · 0/100"
                       }</strong>
                       {aiResult.feedback && <><br /><RichText text={aiResult.feedback} /></>}
                       {quiz.quiz_type === "essay" && quiz.correct_answer && (
