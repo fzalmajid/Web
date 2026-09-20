@@ -1793,7 +1793,18 @@ function AddSheet({
   const [plannerSourceId, setPlannerSourceId] = useState("");
   const [plannerInstruction, setPlannerInstruction] = useState("");
   const [plannerCount, setPlannerCount] = useState(5);
-  const [plannerQuizKinds, setPlannerQuizKinds] = useState<Array<"mcq-fixed" | "essay-fixed" | "mcq-ai" | "essay-ai">>(["mcq-fixed"]);
+  const [plannerQuizKinds, setPlannerQuizKinds] = useState<Array<"mcq-fixed" | "essay-fixed">>(["mcq-fixed"]);
+  const [quizCreationMode, setQuizCreationMode] = useState<"auto" | "manual" | "answer-ai">("auto");
+  const [manualQuizItems, setManualQuizItems] = useState<Array<{
+    type: "mcq" | "essay";
+    question: string;
+    choices: string[];
+    correctIndex: number;
+    answer: string;
+  }>>([
+    { type: "mcq", question: "", choices: ["", "", "", ""], correctIndex: 0, answer: "" },
+  ]);
+  const [answerAiQuestions, setAnswerAiQuestions] = useState<string[]>([""]);
   const [plannerSelection, setPlannerSelection] = useState<AiSelection>(
     defaultSelection("gemini-2.5-flash")
   );
@@ -1854,7 +1865,10 @@ function AddSheet({
   async function createPlannedTool(e: FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-    if (!plannerSourceId) {
+    const isManualQuiz = kind === "quiz" && quizCreationMode === "manual";
+    const isAnswerAiQuiz = kind === "quiz" && quizCreationMode === "answer-ai";
+
+    if (!isManualQuiz && !plannerSourceId) {
       setStatus("Pilih folder sumber terlebih dahulu.");
       return;
     }
@@ -1862,9 +1876,34 @@ function AddSheet({
       setStatus("Pilih minimal satu jenis soal.");
       return;
     }
+    if (isManualQuiz) {
+      const valid = manualQuizItems.filter((item) => item.question.trim());
+      if (!valid.length) {
+        setStatus("Tulis minimal satu pertanyaan.");
+        return;
+      }
+      for (const item of valid) {
+        if (item.type === "mcq") {
+          const choices = item.choices.map((choice) => choice.trim()).filter(Boolean);
+          const correct = item.choices[item.correctIndex]?.trim();
+          if (choices.length < 2 || !correct || !choices.includes(correct)) {
+            setStatus("Setiap PG perlu minimal 2 pilihan dan satu jawaban benar.");
+            return;
+          }
+        } else if (!item.answer.trim()) {
+          setStatus("Setiap Essay perlu jawaban acuan.");
+          return;
+        }
+      }
+    }
+    if (isAnswerAiQuiz && !answerAiQuestions.some((question) => question.trim())) {
+      setStatus("Tulis minimal satu pertanyaan yang akan dijawab AI.");
+      return;
+    }
 
     const nodeType = kind as "study" | "flashcards" | "quiz";
-    const placementParentId = parent?.id || plannerSourceId;
+    const placementParentId =
+      parent?.id || (isManualQuiz ? null : plannerSourceId);
 
     setBusy(true);
     setStatus(
@@ -1895,6 +1934,35 @@ function AddSheet({
     }
 
     try {
+      if (nodeType === "quiz" && quizCreationMode === "manual") {
+        const rows = manualQuizItems
+          .filter((item) => item.question.trim())
+          .map((item) => {
+            const isMcq = item.type === "mcq";
+            const choices = isMcq ? item.choices.map((choice) => choice.trim()).filter(Boolean) : [];
+            const correctAnswer = isMcq
+              ? item.choices[item.correctIndex]?.trim() || ""
+              : item.answer.trim();
+            return {
+              user_id: user.id,
+              material_id: null,
+              scope_node_id: data.id,
+              question: item.question.trim(),
+              choices,
+              correct_answer: correctAnswer,
+              explanation: "Kuis dibuat sendiri.",
+              quiz_type: item.type,
+              grading_mode: "fixed",
+            };
+          });
+        const { error: manualError } = await supabase.from("quizzes").insert(rows);
+        if (manualError) throw manualError;
+        setBusy(false);
+        setStatus("");
+        onCreated(data.id);
+        return;
+      }
+
       const response =
         nodeType === "study"
           ? await fetch("/api/build-study", {
@@ -1919,8 +1987,16 @@ function AddSheet({
                 mode: nodeType,
                 aiMode: plannerMode,
                 instruction: plannerInstruction.trim(),
-                count: Math.max(1, Math.min(20, Number(plannerCount || 5))),
+                count:
+                  nodeType === "quiz" && quizCreationMode === "answer-ai"
+                    ? answerAiQuestions.filter((question) => question.trim()).length
+                    : Math.max(1, Math.min(20, Number(plannerCount || 5))),
                 quizKinds: nodeType === "quiz" ? plannerQuizKinds : undefined,
+                quizCreationMode: nodeType === "quiz" ? quizCreationMode : undefined,
+                manualQuestions:
+                  nodeType === "quiz" && quizCreationMode === "answer-ai"
+                    ? answerAiQuestions.filter((question) => question.trim())
+                    : undefined,
                 sourceKinds: plannerAnswerSources,
               }),
             });
@@ -2177,39 +2253,195 @@ function AddSheet({
             </label>
 
             {kind === "quiz" && (
-              <div className="plannerQuizKinds">
-                <span className="fieldLabel">Jenis soal</span>
-                <small className="muted">Bisa pilih lebih dari satu. Fungsi penilaian lama tetap dipertahankan.</small>
-                <div className="quizKindTabs fourKinds plannerKinds">
+              <div className="quizCreationBlock">
+                <span className="fieldLabel">Cara membuat kuis</span>
+                <div className="quizCreationModes">
                   {[
-                    { value: "mcq-fixed" as const, label: "Pilihan Ganda" },
-                    { value: "essay-fixed" as const, label: "Essay" },
-                    { value: "mcq-ai" as const, label: "PG dinilai AI" },
-                    { value: "essay-ai" as const, label: "Essay dinilai AI" },
-                  ].map((item) => {
-                    const active = plannerQuizKinds.includes(item.value);
-                    return (
-                      <button
-                        type="button"
-                        key={item.value}
-                        className={active ? "active" : ""}
-                        onClick={() =>
-                          setPlannerQuizKinds((current) =>
-                            active
-                              ? current.filter((value) => value !== item.value)
-                              : [...current, item.value]
-                          )
-                        }
-                      >
-                        {active ? "✓ " : ""}{item.label}
-                      </button>
-                    );
-                  })}
+                    { value: "auto" as const, title: "Auto generate", desc: "AI membuat pertanyaan + jawaban" },
+                    { value: "manual" as const, title: "Bikin sendiri", desc: "Pertanyaan + jawaban ditulis sendiri" },
+                    { value: "answer-ai" as const, title: "Pertanyaan sendiri", desc: "Pertanyaan dari kamu, jawaban dari AI" },
+                  ].map((item) => (
+                    <button
+                      key={item.value}
+                      type="button"
+                      className={quizCreationMode === item.value ? "quizCreationMode active" : "quizCreationMode"}
+                      onClick={() => {
+                        setQuizCreationMode(item.value);
+                        setStatus("");
+                      }}
+                    >
+                      <strong>{item.title}</strong>
+                      <small>{item.desc}</small>
+                    </button>
+                  ))}
                 </div>
+
+                <div className="plannerQuizKinds">
+                  <span className="fieldLabel">Format soal</span>
+                  <div className="quizKindTabs plannerKinds">
+                    {[
+                      { value: "mcq-fixed" as const, label: "PG" },
+                      { value: "essay-fixed" as const, label: "Essay" },
+                    ].map((item) => {
+                      const active = plannerQuizKinds.includes(item.value);
+                      return (
+                        <button
+                          type="button"
+                          key={item.value}
+                          className={active ? "active" : ""}
+                          onClick={() =>
+                            setPlannerQuizKinds((current) =>
+                              active
+                                ? current.filter((value) => value !== item.value)
+                                : [...current, item.value]
+                            )
+                          }
+                        >
+                          {active ? "✓ " : ""}{item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {quizCreationMode === "manual" && (
+                  <div className="manualPlannerList">
+                    {manualQuizItems.map((item, index) => (
+                      <article className="manualPlannerCard" key={index}>
+                        <div className="manualPlannerHead">
+                          <strong>Soal {index + 1}</strong>
+                          <div className="quizKindTabs compactKinds">
+                            <button
+                              type="button"
+                              className={item.type === "mcq" ? "active" : ""}
+                              onClick={() =>
+                                setManualQuizItems((current) =>
+                                  current.map((entry, i) => i === index ? { ...entry, type: "mcq" } : entry)
+                                )
+                              }
+                            >PG</button>
+                            <button
+                              type="button"
+                              className={item.type === "essay" ? "active" : ""}
+                              onClick={() =>
+                                setManualQuizItems((current) =>
+                                  current.map((entry, i) => i === index ? { ...entry, type: "essay" } : entry)
+                                )
+                              }
+                            >Essay</button>
+                          </div>
+                          {manualQuizItems.length > 1 && (
+                            <button
+                              className="dangerSmall"
+                              type="button"
+                              onClick={() => setManualQuizItems((current) => current.filter((_, i) => i !== index))}
+                            >Hapus</button>
+                          )}
+                        </div>
+                        <textarea
+                          rows={2}
+                          value={item.question}
+                          onChange={(e) =>
+                            setManualQuizItems((current) =>
+                              current.map((entry, i) => i === index ? { ...entry, question: e.target.value } : entry)
+                            )
+                          }
+                          placeholder="Tulis pertanyaan..."
+                        />
+                        {item.type === "mcq" ? (
+                          <div className="manualPlannerChoices">
+                            {item.choices.map((choice, choiceIndex) => (
+                              <label key={choiceIndex}>
+                                <input
+                                  type="radio"
+                                  checked={item.correctIndex === choiceIndex}
+                                  onChange={() =>
+                                    setManualQuizItems((current) =>
+                                      current.map((entry, i) => i === index ? { ...entry, correctIndex: choiceIndex } : entry)
+                                    )
+                                  }
+                                />
+                                <input
+                                  value={choice}
+                                  onChange={(e) =>
+                                    setManualQuizItems((current) =>
+                                      current.map((entry, i) =>
+                                        i === index
+                                          ? {
+                                              ...entry,
+                                              choices: entry.choices.map((value, ci) => ci === choiceIndex ? e.target.value : value),
+                                            }
+                                          : entry
+                                      )
+                                    )
+                                  }
+                                  placeholder={"Pilihan " + String.fromCharCode(65 + choiceIndex)}
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <textarea
+                            rows={3}
+                            value={item.answer}
+                            onChange={(e) =>
+                              setManualQuizItems((current) =>
+                                current.map((entry, i) => i === index ? { ...entry, answer: e.target.value } : entry)
+                              )
+                            }
+                            placeholder="Jawaban acuan..."
+                          />
+                        )}
+                      </article>
+                    ))}
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() =>
+                        setManualQuizItems((current) => [
+                          ...current,
+                          { type: "mcq", question: "", choices: ["", "", "", ""], correctIndex: 0, answer: "" },
+                        ])
+                      }
+                    >+ Tambah pertanyaan</button>
+                  </div>
+                )}
+
+                {quizCreationMode === "answer-ai" && (
+                  <div className="answerAiQuestions">
+                    <small className="muted">Tulis pertanyaan. AI hanya membuat jawabannya berdasarkan sumber aktif.</small>
+                    {answerAiQuestions.map((question, index) => (
+                      <div className="answerAiRow" key={index}>
+                        <textarea
+                          rows={2}
+                          value={question}
+                          onChange={(e) =>
+                            setAnswerAiQuestions((current) =>
+                              current.map((value, i) => i === index ? e.target.value : value)
+                            )
+                          }
+                          placeholder={"Pertanyaan " + (index + 1)}
+                        />
+                        {answerAiQuestions.length > 1 && (
+                          <button
+                            type="button"
+                            className="dangerSmall"
+                            onClick={() => setAnswerAiQuestions((current) => current.filter((_, i) => i !== index))}
+                          >×</button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => setAnswerAiQuestions((current) => [...current, ""])}
+                    >+ Tambah pertanyaan</button>
+                  </div>
+                )}
               </div>
             )}
 
-            {kind !== "study" && (
+            {kind !== "study" && !(kind === "quiz" && quizCreationMode !== "auto") && (
               <label>
                 Jumlah {kind === "quiz" ? "soal total" : "kartu"}
                 <input
@@ -2222,17 +2454,19 @@ function AddSheet({
               </label>
             )}
 
-            <div className="instructionAiBar">
-              <small className="createLabel">SUMBER & MODEL AI</small>
-              <AiSourceModelBar
-                sources={plannerAnswerSources}
-                onSourcesChange={setPlannerAnswerSources}
-                selection={plannerSelection}
-                onSelectionChange={setPlannerSelection}
-                action="study"
-                allowLocal={false}
-              />
-            </div>
+            {!(kind === "quiz" && quizCreationMode === "manual") && (
+              <div className="instructionAiBar">
+                <small className="createLabel">SUMBER & MODEL AI</small>
+                <AiSourceModelBar
+                  sources={plannerAnswerSources}
+                  onSourcesChange={setPlannerAnswerSources}
+                  selection={plannerSelection}
+                  onSelectionChange={setPlannerSelection}
+                  action="study"
+                  allowLocal={false}
+                />
+              </div>
+            )}
 
             <div className="customizeMini plannerStyle">
               <div>
@@ -2253,7 +2487,10 @@ function AddSheet({
               </div>
             </div>
 
-            <button className="primary" disabled={busy || !title.trim() || !plannerSourceId}>
+            <button
+              className="primary"
+              disabled={busy || !title.trim() || (!(kind === "quiz" && quizCreationMode === "manual") && !plannerSourceId)}
+            >
               {busy
                 ? status || "Membuat..."
                 : kind === "study"
