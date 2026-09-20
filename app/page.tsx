@@ -5357,8 +5357,12 @@ function BottomAskBar({
       return;
     }
 
+    if (pendingAttachment?.filePath) {
+      await supabase.storage.from("study-files").remove([pendingAttachment.filePath]);
+    }
+
     setAttachmentBusy(true);
-    setAttachmentStatus("Membaca sumber RAW...");
+    setAttachmentStatus("Membaca sumber RAW dan menyiapkan file asli...");
     const form = new FormData();
     form.append("file", file);
     form.append("aiMode", aiMode);
@@ -5373,24 +5377,47 @@ function BottomAskBar({
       body: form,
     });
     const result = await response.json().catch(() => ({}));
-    setAttachmentBusy(false);
 
     if (!response.ok) {
+      setAttachmentBusy(false);
       setAttachmentStatus("");
       alert(result.error || "Gagal membaca lampiran.");
+      return;
+    }
+
+    const mimeType = String(result.mimeType || inferMime(file));
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+    const filePath =
+      session.user.id + "/questions/" + crypto.randomUUID() + "-" + safeName;
+    const upload = await supabase.storage
+      .from("study-files")
+      .upload(filePath, file, { contentType: mimeType });
+
+    setAttachmentBusy(false);
+    if (upload.error) {
+      setAttachmentStatus("");
+      alert(upload.error.message);
       return;
     }
 
     setPendingAttachment({
       file,
       fileName: String(result.fileName || file.name),
-      mimeType: String(result.mimeType || inferMime(file)),
+      mimeType,
       rawText: String(result.rawText || ""),
+      filePath,
     });
-    setAttachmentStatus("Lampiran RAW siap dipakai AI. Belum disimpan ke Database.");
+    setAttachMenuOpen(false);
+    setAttachmentStatus(
+      "File asli + RAW siap dibaca AI. Belum disimpan ke Database."
+    );
   }
 
-  function discardPendingAttachment() {
+  async function discardPendingAttachment() {
+    const current = pendingAttachment;
+    if (current?.filePath) {
+      await supabase.storage.from("study-files").remove([current.filePath]);
+    }
     setPendingAttachment(null);
     setAttachmentStatus("Lampiran diabaikan.");
     if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
@@ -5402,19 +5429,11 @@ function BottomAskBar({
     if (!target) return;
 
     setAttachmentBusy(true);
-    setAttachmentStatus("Menyimpan file asli + RAW ke Database...");
+    setAttachmentStatus("Menyimpan file asli ke Database dan menyiapkan versi tertata...");
 
     const file = pendingAttachment.file;
     const mimeType = pendingAttachment.mimeType || inferMime(file);
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
-    const path = session.user.id + "/" + target.id + "/" + crypto.randomUUID() + "-" + safeName;
-
-    const upload = await supabase.storage.from("study-files").upload(path, file, { contentType: mimeType });
-    if (upload.error) {
-      setAttachmentBusy(false);
-      setAttachmentStatus("");
-      return alert(upload.error.message);
-    }
+    const path = pendingAttachment.filePath;
 
     const { data: row, error: fileError } = await supabase
       .from("source_files")
@@ -5425,36 +5444,74 @@ function BottomAskBar({
         file_name: file.name,
         mime_type: mimeType,
         size_bytes: file.size,
-        processing_status: "ready",
+        processing_status: aiSelection.model === "local" ? "ready" : "processing",
         raw_text: pendingAttachment.rawText,
-        structured_text: pendingAttachment.rawText,
+        structured_text: aiSelection.model === "local" ? pendingAttachment.rawText : null,
         corrections: [],
+        source_kind: "file",
+        source_url: null,
       })
       .select("id")
       .single();
 
     if (fileError) {
-      await supabase.storage.from("study-files").remove([path]);
       setAttachmentBusy(false);
       setAttachmentStatus("");
       return alert(fileError.message);
     }
 
-    const { error: entryError } = await supabase.from("knowledge_entries").insert({
-      user_id: session.user.id,
-      node_id: target.id,
-      title: file.name,
-      category: "Lampiran RAW",
-      content: pendingAttachment.rawText,
-      raw_content: pendingAttachment.rawText,
-      source_type: "file",
-      source_file_id: row.id,
-    });
+    if (aiSelection.model === "local") {
+      const { error: entryError } = await supabase.from("knowledge_entries").insert({
+        user_id: session.user.id,
+        node_id: target.id,
+        title: file.name,
+        category: "Lampiran RAW",
+        content: pendingAttachment.rawText || file.name,
+        raw_content: pendingAttachment.rawText || file.name,
+        source_type: "file",
+        source_file_id: row.id,
+      });
+      setAttachmentBusy(false);
+      if (entryError) return alert(entryError.message);
+    } else {
+      const response = await fetch("/api/import-file", {
+        method: "POST",
+        headers: aiRequestHeaders(session, aiSelection),
+        body: JSON.stringify({
+          sourceFileId: row.id,
+          filePath: path,
+          fileName: file.name,
+          mimeType,
+          nodeId: target.id,
+          aiMode,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      setAttachmentBusy(false);
 
-    setAttachmentBusy(false);
-    if (entryError) return alert(entryError.message);
+      if (!response.ok) {
+        await supabase.from("knowledge_entries").insert({
+          user_id: session.user.id,
+          node_id: target.id,
+          title: file.name,
+          category: "Lampiran RAW",
+          content: pendingAttachment.rawText || file.name,
+          raw_content: pendingAttachment.rawText || file.name,
+          source_type: "file",
+          source_file_id: row.id,
+        });
+        setAttachmentStatus(
+          "File asli sudah masuk Database; versi tertata belum selesai."
+        );
+        setPendingAttachment(null);
+        onChange();
+        return;
+      }
+    }
 
-    setAttachmentStatus("File asli + RAW sudah masuk Database: " + target.title + ".");
+    setAttachmentStatus(
+      "File asli + RAW sudah masuk Database: " + target.title + "."
+    );
     setPendingAttachment(null);
     if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
     onChange();
