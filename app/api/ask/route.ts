@@ -29,6 +29,7 @@ import {
   recordAiTokenUsage,
 } from "@/lib/aiQuota";
 import { citationInstruction, normalizeCitationOptions, type CitationOutput, type CitationStyle } from "@/lib/citations";
+import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } from "@/lib/artifacts";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -592,6 +593,7 @@ function buildPrompt({
   attachmentRaw,
   citationStyle,
   citationOutputs,
+  artifactFormat,
 }: {
   question: string;
   context: string;
@@ -603,6 +605,7 @@ function buildPrompt({
   attachmentRaw?: string;
   citationStyle: CitationStyle;
   citationOutputs: CitationOutput[];
+  artifactFormat?: ArtifactFormat | null;
 }) {
   const sections = ["PERTANYAAN:", question.trim()];
 
@@ -665,6 +668,10 @@ function buildPrompt({
     rules.push('- Bila fakta penting berasal dari pengetahuan internal model, tandai sebagai "Pengetahuan AI" bila perlu.');
   }
 
+  if (artifactFormat) {
+    rules.push(artifactPromptInstruction(artifactFormat));
+  }
+
   rules.push(
     citationInstruction(citationStyle, citationOutputs),
     aiModeInstruction(aiMode),
@@ -702,6 +709,7 @@ export async function POST(req: NextRequest) {
     const attachmentRaw = String(body.attachmentRaw || "").trim().slice(0, 60000);
     const attachmentUrl = String(body.attachmentUrl || "").trim();
     const { citationStyle, citationOutputs } = normalizeCitationOptions(body);
+    const artifactFormat = detectArtifactFormat(String(question || ""));
 
     if (!question || typeof question !== "string" || question.trim().length < 3) {
       return NextResponse.json({ error: "Pertanyaan terlalu pendek." }, { status: 400 });
@@ -852,6 +860,7 @@ export async function POST(req: NextRequest) {
       attachmentRaw: [attachmentRaw, directRawText].filter(Boolean).join("\n\n---\n\n"),
       citationStyle,
       citationOutputs,
+      artifactFormat,
     });
 
     const sharedGemini = selectedProvider === "gemini" && !geminiAuth.ownGemini;
@@ -1094,6 +1103,7 @@ export async function POST(req: NextRequest) {
         model: result.model,
         aiUsage,
         provider: selectedUsageProvider(),
+        artifactFormat,
       });
     } catch (error: any) {
       const fallbackSources = selectedSources.filter((source) => source !== "web");
@@ -1115,6 +1125,7 @@ export async function POST(req: NextRequest) {
           model: alternate.result.model,
           aiUsage: alternate.aiUsage,
           provider: alternate.provider,
+          artifactFormat,
         });
       }
 
@@ -1138,6 +1149,7 @@ export async function POST(req: NextRequest) {
         aiMode,
         citationStyle,
         citationOutputs,
+        artifactFormat,
       });
 
       const fallbackResult = await generateSelected(fallbackPrompt, false);
@@ -1165,6 +1177,7 @@ export async function POST(req: NextRequest) {
         model: fallbackResult.model,
         aiUsage,
         provider: selectedUsageProvider(),
+        artifactFormat,
       });
     }
   } catch (error: any) {
