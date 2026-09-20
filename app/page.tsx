@@ -67,6 +67,13 @@ type SourceFile = {
   ai_copy_ratio?: number | null;
   ai_copy_model?: string | null;
   ai_copy_updated_at?: string | null;
+  processing_page?: number;
+  processing_total_pages?: number;
+  processing_chunks?: number;
+  processing_chars?: number;
+  processing_strategy?: string | null;
+  processing_started_at?: string | null;
+  processing_updated_at?: string | null;
   created_at: string;
 };
 type Recording = {
@@ -1187,24 +1194,73 @@ async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
   return row as SourceFile;
 }
 
-async function ensureRawFileText(session: Session, row: SourceFile) {
-  if (row.raw_text?.trim()) return row;
+async function processRawFileUntilReady(
+  session: Session,
+  row: SourceFile,
+  options?: {
+    reset?: boolean;
+    onProgress?: (currentPage: number, totalPages: number, chunks: number) => void;
+  }
+) {
   const extractionSelection = defaultSelection("gemini-2.5-flash");
-  const response = await fetch("/api/import-file", {
-    method: "POST",
-    headers: aiRequestHeaders(session, extractionSelection),
-    body: JSON.stringify({
-      sourceFileId: row.id,
-      filePath: row.file_path,
-      fileName: row.file_name,
-      mimeType: row.mime_type,
-      nodeId: row.node_id,
-      aiMode: legacyModeForSelection(extractionSelection),
-      operation: "raw",
-    }),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || "Gagal membaca RAW file.");
+  let reset = Boolean(options?.reset);
+  let transientRetries = 0;
+
+  for (let iteration = 0; iteration < 120; iteration++) {
+    let response: Response;
+    try {
+      response = await fetch("/api/import-file", {
+        method: "POST",
+        headers: aiRequestHeaders(session, extractionSelection),
+        body: JSON.stringify({
+          sourceFileId: row.id,
+          filePath: row.file_path,
+          fileName: row.file_name,
+          mimeType: row.mime_type,
+          nodeId: row.node_id,
+          aiMode: legacyModeForSelection(extractionSelection),
+          operation: "raw",
+          reset,
+        }),
+      });
+    } catch (error) {
+      if (transientRetries >= 4) throw error;
+      transientRetries++;
+      await new Promise((resolve) => window.setTimeout(resolve, 700 * transientRetries));
+      continue;
+    }
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status >= 500 && transientRetries < 4) {
+        transientRetries++;
+        await new Promise((resolve) => window.setTimeout(resolve, 700 * transientRetries));
+        reset = false;
+        continue;
+      }
+      throw new Error(result.error || "Gagal membaca file.");
+    }
+
+    transientRetries = 0;
+    reset = false;
+
+    const currentPage = Number(result.currentPage || 0);
+    const totalPages = Number(result.totalPages || 0);
+    const chunks = Number(result.indexedChunks || 0);
+    options?.onProgress?.(currentPage, totalPages, chunks);
+
+    if (result.processingComplete !== false) return result;
+
+    // Yield between resumable batches so long PDFs do not create one giant request chain.
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+  }
+
+  throw new Error("Proses file belum selesai setelah terlalu banyak batch. Gunakan menu ... > Proses ulang file untuk melanjutkan.");
+}
+
+async function ensureRawFileText(session: Session, row: SourceFile) {
+  if (row.processing_status === "ready" || row.raw_text?.trim()) return row;
+  await processRawFileUntilReady(session, row);
   return row;
 }
 
