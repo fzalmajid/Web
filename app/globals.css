@@ -3813,3 +3813,26 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   .explorerTypeChoices{grid-template-columns:1fr}
   .explorerTextItem{padding:12px}
 }
+
+
+/* Explorer folder drag-and-drop */
+.draggableFolderCard{
+  cursor:grab;
+}
+.draggableFolderCard:active{
+  cursor:grabbing;
+}
+.draggableFolderCard[draggable="true"]:hover{
+  border-color:#a9bbb4;
+}
+.explorerNodeGrid .nodeCard{
+  transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.explorerNodeGrid .nodeCard:has(.nodeOpen:hover){
+  transform:translateY(-1px);
+}
+@media (pointer:coarse){
+  .draggableFolderCard{
+    cursor:default;
+  }
+}
