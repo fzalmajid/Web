@@ -142,6 +142,8 @@ function buildPrompt({
   useDatabase,
   useWeb,
   aiMode,
+  attachmentTitle,
+  attachmentRaw,
 }: {
   question: string;
   context: string;
@@ -149,8 +151,20 @@ function buildPrompt({
   useDatabase: boolean;
   useWeb: boolean;
   aiMode: ReturnType<typeof normalizeAiMode>;
+  attachmentTitle?: string;
+  attachmentRaw?: string;
 }) {
   const sections = ["PERTANYAAN:", question.trim()];
+
+  if (attachmentRaw?.trim()) {
+    sections.push(
+      "",
+      "LAMPIRAN RAW/ORIGINAL" + (attachmentTitle ? " · " + attachmentTitle : "") + ":",
+      attachmentRaw.trim(),
+      "",
+      "Lampiran di atas adalah sumber mentah untuk pertanyaan ini. Jangan menggantinya dengan hasil ringkasan/rapihan."
+    );
+  }
 
   if (useDatabase) {
     sections.push("", "DATABASE PRIBADI:", context);
@@ -163,6 +177,8 @@ function buildPrompt({
     "- Web: " + (useWeb ? "AKTIF" : "TIDAK"),
     "",
     "Aturan:",
+    "- Jika ada LAMPIRAN RAW/ORIGINAL, baca sumber mentah itu secara langsung dan jadikan isi literalnya sebagai konteks utama lampiran.",
+    "- Untuk Database, prioritaskan RAW/ORIGINAL content. Versi tertata/ringkasan tidak boleh menggantikan fakta yang ada pada raw.",
   ];
 
   if (useDatabase) {
@@ -217,6 +233,8 @@ export async function POST(req: NextRequest) {
     const openAIKey = String(req.headers.get("x-rb-openai-key") || "").trim();
     const anthropicKey = String(req.headers.get("x-rb-anthropic-key") || "").trim();
     const selectedSources = normalizeSources(body);
+    const attachmentTitle = String(body.attachmentTitle || "").trim().slice(0, 240);
+    const attachmentRaw = String(body.attachmentRaw || "").trim().slice(0, 60000);
 
     if (!question || typeof question !== "string" || question.trim().length < 3) {
       return NextResponse.json({ error: "Pertanyaan terlalu pendek." }, { status: 400 });
@@ -290,6 +308,8 @@ export async function POST(req: NextRequest) {
       useDatabase,
       useWeb,
       aiMode,
+      attachmentTitle,
+      attachmentRaw,
     });
 
     const sharedGemini = selectedProvider === "gemini" && !geminiAuth.ownGemini;

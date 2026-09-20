@@ -6,7 +6,33 @@ export type KnowledgeSource = {
   title: string;
   category: string;
   content: string;
+  raw_content?: string | null;
 };
+
+async function hydrateRawContent(
+  supabase: SupabaseClient,
+  rows: KnowledgeSource[]
+): Promise<KnowledgeSource[]> {
+  const ids = rows.map((row) => row.id).filter(Boolean);
+  if (!ids.length) return rows;
+
+  const { data } = await supabase
+    .from("knowledge_entries")
+    .select("id,raw_content,content")
+    .in("id", ids);
+
+  const rawById = new Map(
+    (data || []).map((item: any) => [
+      String(item.id),
+      String(item.raw_content || item.content || "").trim(),
+    ])
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    raw_content: rawById.get(row.id) || row.raw_content || row.content,
+  }));
+}
 
 export async function getScopeKnowledge(
   supabase: SupabaseClient,
@@ -18,7 +44,7 @@ export async function getScopeKnowledge(
     result_limit: limit,
   });
   if (error) throw error;
-  return (data || []) as KnowledgeSource[];
+  return hydrateRawContent(supabase, (data || []) as KnowledgeSource[]);
 }
 
 export async function searchScopeKnowledge(
@@ -33,7 +59,7 @@ export async function searchScopeKnowledge(
     scope_node_id: scopeNodeId,
   });
   if (error) throw error;
-  return (data || []) as KnowledgeSource[];
+  return hydrateRawContent(supabase, (data || []) as KnowledgeSource[]);
 }
 
 export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000) {
@@ -41,8 +67,9 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000)
   const parts: string[] = [];
   for (const row of rows) {
     if (used >= maxChars) break;
-    const body = row.content.slice(0, 1800);
-    const part = `[${row.title}${row.category ? ` | ${row.category}` : ""}]\n${body}`;
+    const raw = String(row.raw_content || row.content || "").trim();
+    const body = raw.slice(0, 2400);
+    const part = `[${row.title}${row.category ? ` | ${row.category}` : ""} | RAW/ORIGINAL]\n${body}`;
     parts.push(part);
     used += part.length;
   }
