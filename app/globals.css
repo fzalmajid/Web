@@ -8392,3 +8392,191 @@ summary{
   background:#302817;
   color:#f0d28a;
 }
+
+
+/* =====================================================================
+   ASK BAR ORDER — scope | source picker | flexible space | citation | model | AI sources
+   ===================================================================== */
+.gptComposer .chooseSourcesTrigger.disabled,
+.gptComposer .chooseSourcesTrigger:disabled{
+  opacity:.42!important;
+  cursor:not-allowed!important;
+  border-color:var(--line)!important;
+  background:transparent!important;
+  box-shadow:none!important;
+}
+.gptComposer .chooseSourcesTrigger.disabled:hover,
+.gptComposer .chooseSourcesTrigger:disabled:hover{
+  background:transparent!important;
+  box-shadow:none!important;
+}
+
+@media (min-width:768px){
+  .gptComposer.bottomAsk{
+    width:min(1220px,calc(100% - 28px))!important;
+    max-width:1220px!important;
+  }
+
+  .gptComposer .askTopRow{
+    display:grid!important;
+    grid-template-columns:auto minmax(0,1fr)!important;
+    align-items:center!important;
+    gap:14px!important;
+    width:100%!important;
+    padding:0 2px!important;
+  }
+
+  /* Plain scope label at the far left. */
+  .gptComposer .askTopRow .askScope{
+    width:auto!important;
+    max-width:190px!important;
+    min-height:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    color:var(--muted)!important;
+    font-size:.64rem!important;
+    font-weight:850!important;
+    line-height:1.2!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+
+  /* Source picker stays left; the remaining controls use the whole rest of the row. */
+  .gptComposer .askTopControls{
+    width:100%!important;
+    min-width:0!important;
+    display:flex!important;
+    align-items:center!important;
+    gap:8px!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    overflow:visible!important;
+  }
+
+  .gptComposer .aiDatabaseSourcePicker{
+    flex:0 0 auto!important;
+  }
+
+  .gptComposer .chooseSourcesTrigger{
+    min-width:142px!important;
+    max-width:160px!important;
+    height:40px!important;
+    min-height:40px!important;
+    padding:5px 9px!important;
+    border:1px solid var(--line)!important;
+    border-radius:13px!important;
+    background:var(--card)!important;
+  }
+
+  .gptComposer .aiSourceModelBar{
+    order:2!important;
+    flex:1 1 auto!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:none!important;
+    display:flex!important;
+    align-items:center!important;
+    flex-wrap:nowrap!important;
+    gap:5px!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+  }
+
+  /* Large empty flexible space appears before Citation. */
+  .gptComposer .aiSourceModelBar .citationPicker{
+    order:1!important;
+    flex:0 0 auto!important;
+    margin-left:auto!important;
+    padding:0!important;
+    border:0!important;
+  }
+  .gptComposer .aiSourceModelBar .aiModeSelect{
+    order:2!important;
+    flex:0 0 auto!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+  }
+  .gptComposer .aiSourceModelBar .sourceToggleGroup{
+    order:3!important;
+    flex:0 0 auto!important;
+    margin-left:3px!important;
+    width:auto!important;
+    height:40px!important;
+    padding:3px!important;
+    border:1px solid var(--line)!important;
+    border-radius:13px!important;
+    background:var(--soft)!important;
+  }
+
+  .gptComposer .aiSourceModelBar .citationTrigger{
+    min-width:122px!important;
+    max-width:150px!important;
+    height:40px!important;
+    min-height:40px!important;
+    padding:5px 9px!important;
+    border:1px solid var(--line)!important;
+    border-radius:13px!important;
+    background:var(--card)!important;
+  }
+  .gptComposer .aiSourceModelBar .aiModeTrigger,
+  .gptComposer .aiSourceModelBar .chooseModelTrigger{
+    min-width:160px!important;
+    max-width:190px!important;
+    height:40px!important;
+    min-height:40px!important;
+    padding:5px 9px!important;
+    border:1px solid var(--line)!important;
+    border-radius:13px!important;
+    background:var(--card)!important;
+  }
+
+  .gptComposer .aiSourceModelBar .sourceToggle{
+    height:32px!important;
+    min-height:32px!important;
+    padding:5px 10px!important;
+    border-radius:9px!important;
+    font-size:.68rem!important;
+  }
+
+  .gptComposer .aiSourceModelBar .citationTrigger strong,
+  .gptComposer .aiSourceModelBar .aiModeTrigger strong{
+    font-size:.68rem!important;
+  }
+  .gptComposer .aiSourceModelBar .citationTrigger small,
+  .gptComposer .aiSourceModelBar .aiModeTrigger small{
+    font-size:.56rem!important;
+  }
+}
+
+/* Keep the same hierarchy on narrower laptops, but allow the center gap to shrink first. */
+@media (min-width:768px) and (max-width:1050px){
+  .gptComposer.bottomAsk{
+    width:calc(100% - 20px)!important;
+    max-width:none!important;
+  }
+  .gptComposer .askTopRow{
+    gap:9px!important;
+  }
+  .gptComposer .askTopRow .askScope{
+    max-width:130px!important;
+  }
+  .gptComposer .chooseSourcesTrigger{
+    min-width:132px!important;
+  }
+  .gptComposer .aiSourceModelBar .citationTrigger{
+    min-width:112px!important;
+  }
+  .gptComposer .aiSourceModelBar .aiModeTrigger,
+  .gptComposer .aiSourceModelBar .chooseModelTrigger{
+    min-width:145px!important;
+    max-width:165px!important;
+  }
+}
