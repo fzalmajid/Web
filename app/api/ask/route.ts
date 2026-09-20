@@ -629,6 +629,8 @@ function buildPrompt({
     "Aturan:",
     "- Jika ada LAMPIRAN RAW/ORIGINAL, baca sumber mentah itu secara langsung dan jadikan isi literalnya sebagai konteks utama lampiran.",
     "- Untuk Database, prioritaskan RAW/ORIGINAL content. Versi tertata/ringkasan hanya bantuan dan tidak boleh menggantikan fakta yang ada pada raw.",
+    "- Jika beberapa sumber Database relevan, sintesis lintas sumber. Jangan mengabaikan handbook/referensi utama hanya karena materi kuliah lain memakai istilah yang lebih mirip dengan pertanyaan.",
+    "- Untuk daftar pustaka/sitasi Database, gunakan nama sumber yang benar-benar hadir pada konteks Database; jangan mengarang atau mengganti judul sumber.",
     "- Jika konteks Database memuat label HALAMAN PDF, angka itu adalah nomor halaman file PDF sumber. Untuk pertanyaan halaman/lokasi monografi, gunakan metadata halaman tersebut dan jangan menebak nomor halaman.",
     "- Jika user meminta memasukkan/menyimpan sesuatu ke Database, jangan pernah mengklaim bahwa penyimpanan sudah dilakukan. Jawab isi pertanyaannya seperlunya; aplikasi akan meminta konfirmasi lewat tombol Simpan ke Database.",
   ];
@@ -728,8 +730,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
     }
 
-    const searchLimit = aiMode === "high" ? 16 : aiMode === "medium" ? 12 : 8;
-    const fallbackLimit = aiMode === "high" ? 40 : aiMode === "medium" ? 28 : 20;
+    // 1.5× retrieval breadth: give more relevant files/chunks a chance to enter context.
+    const searchLimit = aiMode === "high" ? 24 : aiMode === "medium" ? 18 : 12;
+    const fallbackLimit = aiMode === "high" ? 60 : aiMode === "medium" ? 42 : 30;
     let data: any[] = [];
 
     if (useDatabase) {
@@ -817,7 +820,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const contextLimit = aiMode === "high" ? 42000 : aiMode === "medium" ? 32000 : 22000;
+    // 1.5× context budget to match the broader retrieval pass.
+    const contextLimit = aiMode === "high" ? 63000 : aiMode === "medium" ? 48000 : 33000;
     const context = data.length
       ? buildKnowledgeContext(data, contextLimit)
       : "(Database pribadi kosong atau tidak dipilih.)";
