@@ -5908,54 +5908,69 @@ function BottomAskBar({
     }
 
     setAttachmentBusy(true);
-    setAttachmentStatus("Membaca sumber RAW dan menyiapkan file asli...");
-    const form = new FormData();
-    form.append("file", file);
-    form.append("aiMode", aiMode);
+    setAttachmentStatus("Mengupload file RAW/original...");
 
-    const headers = aiRequestHeaders(session, aiSelection) as Record<string, string>;
-    delete headers["Content-Type"];
-    delete headers["content-type"];
-
-    const response = await fetch("/api/ask-attachment", {
-      method: "POST",
-      headers,
-      body: form,
-    });
-    const result = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      setAttachmentBusy(false);
-      setAttachmentStatus("");
-      alert(result.error || "Gagal membaca lampiran.");
-      return;
-    }
-
-    const mimeType = String(result.mimeType || inferMime(file));
+    const mimeType = inferMime(file) || "application/octet-stream";
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
     const filePath =
       session.user.id + "/questions/" + crypto.randomUUID() + "-" + safeName;
+
     const upload = await supabase.storage
       .from("study-files")
       .upload(filePath, file, { contentType: mimeType });
 
-    setAttachmentBusy(false);
     if (upload.error) {
+      setAttachmentBusy(false);
       setAttachmentStatus("");
       alert(upload.error.message);
       return;
     }
 
+    // The original file is the authoritative source. Text extraction is only a
+    // best-effort helper for providers/formats that cannot consume the binary directly.
+    let extractedRaw = "";
+    let extractedName = file.name;
+    let extractedMime = mimeType;
+
+    try {
+      setAttachmentStatus("File RAW tersimpan. Membaca teks mentah sebagai bantuan...");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("aiMode", aiMode);
+
+      const headers = aiRequestHeaders(session, aiSelection) as Record<string, string>;
+      delete headers["Content-Type"];
+      delete headers["content-type"];
+
+      const response = await fetch("/api/ask-attachment", {
+        method: "POST",
+        headers,
+        body: form,
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (response.ok) {
+        extractedRaw = String(result.rawText || "");
+        extractedName = String(result.fileName || file.name);
+        extractedMime = String(result.mimeType || mimeType);
+      }
+    } catch {
+      // Keep the uploaded original even when OCR/transcription/extraction is unavailable.
+    }
+
     setPendingAttachment({
       file,
-      fileName: String(result.fileName || file.name),
-      mimeType,
-      rawText: String(result.rawText || ""),
+      fileName: extractedName,
+      mimeType: extractedMime,
+      rawText: extractedRaw,
       filePath,
     });
     setAttachMenuOpen(false);
+    setAttachmentBusy(false);
     setAttachmentStatus(
-      "File asli + RAW siap dibaca AI. Belum disimpan ke folder."
+      extractedRaw
+        ? "File RAW/original + teks mentah siap dibaca AI. Belum disimpan ke folder."
+        : "File RAW/original siap dibaca AI langsung. Ekstraksi teks tidak tersedia, tapi file asli tetap dipakai."
     );
   }
 
