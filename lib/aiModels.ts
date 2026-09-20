@@ -331,7 +331,7 @@ export function providerModelId(model: AiModelId) {
 export function normalizeAiModel(value: unknown, context: AiContext = "general"): AiModelId {
   const candidate = String(value || "") as AiModelId;
   if (
-    context === "chat" &&
+    context !== "transcription" &&
     (candidate.startsWith("local-openai:") || candidate.startsWith("openai:") || candidate.startsWith("anthropic:") || candidate.startsWith("gemini-"))
   ) return candidate;
   const found = AI_MODEL_CATALOG.find((item) => item.id === candidate && item.contexts.includes(context));
