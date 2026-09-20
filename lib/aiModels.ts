@@ -319,7 +319,7 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
 export function modelCapability(model: AiModelId): AiModelCapability {
   if (model.startsWith("local-openai:")) {
     const localModel = model.slice("local-openai:".length) || "Local model";
-    return { id:model, provider:"local-openai", label:localModel, subtitle:"Perangkat user · OpenAI-compatible", contexts:["chat"], efforts:[], defaultEffort:"none", freeTier:true, freeWeb:false };
+    return { id:model, provider:"local-openai", label:localModel, subtitle:"Perangkat user · OpenAI-compatible", contexts:["general","chat"], efforts:[], defaultEffort:"none", freeTier:true, freeWeb:false };
   }
   const known = AI_MODEL_CATALOG.find((item) => item.id === model);
   if (known) return known;
