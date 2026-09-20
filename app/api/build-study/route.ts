@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { geminiGenerateDetailed, parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
-import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
-import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
+import { parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
+import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 import { citationInstruction, normalizeCitationOptions } from "@/lib/citations";
 
@@ -54,9 +53,8 @@ export async function POST(req: NextRequest) {
         )
       : [];
     const aiMode = normalizeAiMode(body.aiMode);
-    const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
-    const geminiAuth = geminiUserAuthFromHeaders(req.headers);
-    const ownGemini = geminiAuth.ownGemini;
+    const aiInfo = getTextAiRequestInfo(req, aiMode);
+    const aiSelection = aiInfo.selection;
     const studyInstruction = String(body.studyInstruction || "").trim().slice(0, 2000);
     const teachingDepth =
       body.teachingDepth === "simple" || body.teachingDepth === "complex"
@@ -220,7 +218,7 @@ ${bodyText}`;
 
     if (pathError) throw pathError;
 
-    const preflight = ownGemini ? null : await checkAiCredits(supabase, "study", aiMode);
+    const preflight = aiInfo.sharedGemini ? await checkAiCredits(supabase, "study", aiMode) : null;
     if (preflight && !preflight.allowed) {
       await supabase
         .from("study_paths")
@@ -259,9 +257,10 @@ ${bodyText}`;
 
     const citationRule = citationInstruction(citationStyle, citationOutputs);
 
-    const geminiResult = await geminiGenerateDetailed(
-      [{
-        text: `NAMA STUDY:
+    const aiResult = await generateTextAi(
+      aiInfo,
+      aiMode,
+      `NAMA STUDY:
 ${studyNode.title}
 
 KONFIGURASI SUMBER:
@@ -317,29 +316,24 @@ Aturan wajib:
 - Jika QUIZ PER BAB aktif: setiap unit memiliki tepat 1 recall_question pilihan ganda dengan 4 pilihan; recall_question hanya menguji materi yang SUDAH diajarkan; recall_correct_answer harus sama persis dengan salah satu recall_choices; recall_explanation singkat dan membantu mengingat konsep.
 - Jika QUIZ PER BAB nonaktif: jangan buat soal; seluruh field recall harus kosong sesuai instruksi.
 - Jangan bocorkan materi unit-unit berikutnya di unit sebelumnya.\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
-      }],
       "Anda menyusun kurikulum belajar bertahap. Patuhi sumber AI / Database / Web yang diaktifkan user dan jangan memakai sumber yang dinonaktifkan.",
       {
-      models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
-      effort: aiSelection.effort,
-      responseMimeType: "application/json",
-      maxOutputTokens: aiMode === "high" ? 24576 : aiMode === "medium" ? 18432 : 14336,
-      googleSearch: useWeb,
-      apiKey: geminiAuth.apiKey,
-      accessToken: geminiAuth.accessToken,
-      projectId: geminiAuth.projectId,
-    }
+        web: useWeb,
+        json: true,
+        maxOutputTokens: aiMode === "high" ? 24576 : aiMode === "medium" ? 18432 : 14336,
+      }
     );
-    await recordAiTokenUsage(supabase, geminiResult.usage, geminiResult.model, geminiAuth.provider);
-    const raw = geminiResult.text;
+    await recordAiTokenUsage(supabase, aiResult.usage, aiResult.model, aiResult.provider);
+    const raw = aiResult.text;
 
     let parsed: any;
     try {
       parsed = parseJsonSafely(raw);
     } catch {
-      const repair = await geminiGenerateDetailed(
-        [{
-          text: `Perbaiki output JSON berikut menjadi JSON valid.
+      const repair = await generateTextAi(
+        aiInfo,
+        aiMode,
+        `Perbaiki output JSON berikut menjadi JSON valid.
 Pertahankan semua unit yang lengkap.
 Jika unit terakhir terpotong/tidak lengkap, buang hanya unit terakhir itu.
 Jangan menambahkan fakta atau unit baru.
@@ -347,19 +341,15 @@ Keluarkan JSON valid saja, tanpa markdown.
 
 OUTPUT RUSAK:
 ${raw.slice(0, 50000)}`,
-        }],
         "Anda hanya memperbaiki sintaks JSON tanpa menambah isi baru.",
         {
-          models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
-          effort: "low",
-          responseMimeType: "application/json",
+          web: false,
+          json: true,
           maxOutputTokens: 16384,
-          apiKey: geminiAuth.apiKey,
-          accessToken: geminiAuth.accessToken,
-          projectId: geminiAuth.projectId,
+          effortOverride: "low",
         }
       );
-      await recordAiTokenUsage(supabase, repair.usage, repair.model, geminiAuth.provider);
+      await recordAiTokenUsage(supabase, repair.usage, repair.model, repair.provider);
       try {
         parsed = parseJsonSafely(repair.text);
       } catch {
@@ -401,7 +391,7 @@ ${raw.slice(0, 50000)}`,
       });
 
     if (!units.length) {
-      throw new Error("Gemini belum berhasil menyusun unit Study yang valid.");
+      throw new Error("Model AI belum berhasil menyusun unit Study yang valid.");
     }
 
     const { error: deleteError } = await supabase
@@ -433,15 +423,15 @@ ${raw.slice(0, 50000)}`,
       .eq("id", pathRow.id);
     if (readyError) throw readyError;
 
-    const aiUsage = ownGemini ? null : await finalizeAiCredits(supabase, "study", aiMode);
+    const aiUsage = aiInfo.sharedGemini ? await finalizeAiCredits(supabase, "study", aiMode) : null;
 
     return NextResponse.json({
       pathId: pathRow.id,
       overview,
       unitCount: units.length,
       aiUsage,
-      model: geminiResult.model,
-      provider: geminiAuth.provider,
+      model: aiResult.model,
+      provider: aiResult.provider,
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
