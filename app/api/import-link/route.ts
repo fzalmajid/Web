@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
         size_bytes: new TextEncoder().encode(rawText).length,
         processing_status: "ready",
         raw_text: rawText,
-        structured_text: extracted.slice(0, 120000),
+        structured_text: null,
         corrections: [],
         error_message: null,
         source_kind: "link",
@@ -138,8 +138,8 @@ export async function POST(req: NextRequest) {
         user_id: userData.user.id,
         node_id: nodeId,
         title,
-        category: "Link",
-        content: extracted.slice(0, 120000),
+        category: "Link RAW",
+        content: rawText,
         raw_content: rawText,
         source_type: "file",
         source_file_id: source.id,
@@ -163,3 +163,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error?.name === "AbortError" ? "Link terlalu lama merespons." : error?.message || "Gagal membaca link." }, { status: 500 });
   }
 }
+
