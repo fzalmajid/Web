@@ -1993,6 +1993,13 @@ function FolderPage({
               window.dispatchEvent(new CustomEvent("rb-open-ai-copy", { detail: { fileId: item.id } }));
             }
           }}
+          onRetryRaw={() => {
+            const item = contextMenu.item;
+            closeContextMenu();
+            if (item.kind === "file") {
+              window.dispatchEvent(new CustomEvent("rb-retry-raw-file", { detail: { fileId: item.id } }));
+            }
+          }}
           onDelete={() => {
             const item = contextMenu.item;
             closeContextMenu();
@@ -2034,6 +2041,7 @@ function ExplorerActionMenu({
   onPaste,
   onDownload,
   onAiCopy,
+  onRetryRaw,
   onDelete,
 }: {
   menu: NonNullable<ExplorerContextMenu>;
@@ -2047,6 +2055,7 @@ function ExplorerActionMenu({
   onPaste: () => void;
   onDownload: () => void;
   onAiCopy: () => void;
+  onRetryRaw: () => void;
   onDelete: () => void;
 }) {
   const file = menu.item.kind === "file" ? files.find((row) => row.id === menu.item.id) : null;
@@ -2064,6 +2073,7 @@ function ExplorerActionMenu({
         <button type="button" onClick={onCopy}>Copy</button>
         {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
         {canDownload && <button type="button" onClick={onDownload}>Download</button>}
+        {file?.processing_status === "error" && <button type="button" onClick={onRetryRaw}>Proses ulang file</button>}
         {file?.raw_text && <button type="button" onClick={onAiCopy}>Buat versi AI</button>}
         <button type="button" className="dangerMenuItem" onClick={onDelete}>Hapus</button>
       </div>
@@ -4202,6 +4212,41 @@ function DatabaseFileCard({
     window.addEventListener("rb-open-ai-copy", handleOpenAiCopy);
     return () => window.removeEventListener("rb-open-ai-copy", handleOpenAiCopy);
   }, [compact, file.id]);
+
+  useEffect(() => {
+    if (!compact) return;
+    const handleRetryRaw = (event: Event) => {
+      const detail = (event as CustomEvent<{ fileId?: string }>).detail;
+      if (detail?.fileId === file.id) void retryRawProcessing();
+    };
+    window.addEventListener("rb-retry-raw-file", handleRetryRaw);
+    return () => window.removeEventListener("rb-retry-raw-file", handleRetryRaw);
+  }, [compact, file.id, file.file_path, file.file_name, file.mime_type, file.node_id]);
+
+  async function retryRawProcessing() {
+    const selection = defaultSelection("gemini-2.5-flash");
+    const response = await fetch("/api/import-file", {
+      method: "POST",
+      headers: aiRequestHeaders(session, selection),
+      body: JSON.stringify({
+        sourceFileId: file.id,
+        filePath: file.file_path,
+        fileName: file.file_name,
+        mimeType: file.mime_type,
+        nodeId: file.node_id,
+        aiMode: legacyModeForSelection(selection),
+        operation: "raw",
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(result.error || "Gagal memproses ulang file.");
+    onChange();
+    alert(
+      result.indexedChunks
+        ? `File berhasil diproses dan diindeks menjadi ${result.indexedChunks} bagian.`
+        : "File berhasil diproses ulang."
+    );
+  }
 
   async function createAiCopy() {
     if (!file.raw_text?.trim()) {
