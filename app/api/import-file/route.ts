@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
-// Import the parser implementation directly; the package entrypoint runs its test fixture when bundled.
-const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer) => Promise<{ text?: string }>;
 import JSZip from "jszip";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
@@ -156,10 +154,6 @@ export async function POST(req: NextRequest) {
     if (!rawText && (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.toLowerCase().endsWith(".docx"))) {
       const extracted = await mammoth.extractRawText({ buffer: buffer! });
       rawText = extracted.value.trim();
-    } else if (!rawText && mimeType === "application/pdf") {
-      // Read the complete text layer first. AI is only a fallback for scanned/image-only PDFs.
-      const extracted = await pdfParse(buffer!);
-      rawText = String(extracted.text || "").trim();
     } else if (!rawText && (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || fileName.toLowerCase().endsWith(".pptx"))) {
       rawText = (await extractPptxText(buffer!)).trim();
     } else if (!rawText && isTextMime(mimeType)) {
