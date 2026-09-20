@@ -1104,6 +1104,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         scopeNodeId={aiScopeId}
         scopeName={aiScopeName}
         entries={entries}
+        files={files}
         nodes={nodes}
         onChange={refresh}
       />
@@ -1477,7 +1478,7 @@ function setExplorerDragData(
   kind: "file" | "recording" | "entry" | "node",
   id: string
 ) {
-  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.effectAllowed = "copyMove";
   event.dataTransfer.setData("application/x-rb-explorer-item", JSON.stringify({ kind, id }));
 }
 
@@ -8142,6 +8143,7 @@ function BottomAskBar({
   scopeNodeId,
   scopeName,
   entries,
+  files,
   nodes,
   onChange,
 }: {
@@ -8149,6 +8151,7 @@ function BottomAskBar({
   scopeNodeId: string | null;
   scopeName: string;
   entries: KnowledgeEntry[];
+  files: SourceFile[];
   nodes: StudyNode[];
   onChange: () => void;
 }) {
@@ -8174,6 +8177,11 @@ function BottomAskBar({
   const [composerHeight, setComposerHeight] = useState(118);
   const dragRef = useRef<{ y: number; bottom: number } | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
+  const answerBodyRef = useRef<HTMLDivElement | null>(null);
+  const answerCopyTimerRef = useRef<number | null>(null);
+  const askDropDepthRef = useRef(0);
+  const [answerCopyState, setAnswerCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const [askDropActive, setAskDropActive] = useState(false);
   const askVoiceRecorderRef = useRef<MediaRecorder | null>(null);
   const askVoiceChunksRef = useRef<Blob[]>([]);
   const askVoiceStreamRef = useRef<MediaStream | null>(null);
@@ -8253,6 +8261,7 @@ function BottomAskBar({
       } catch {}
       askVoiceStreamRef.current?.getTracks().forEach((track) => track.stop());
       if (askVoiceTimerRef.current) window.clearInterval(askVoiceTimerRef.current);
+      if (answerCopyTimerRef.current) window.clearTimeout(answerCopyTimerRef.current);
     };
   }, []);
 
@@ -9151,6 +9160,117 @@ function BottomAskBar({
   }
 
 
+  async function copyAnswerToClipboard() {
+    const text = (answerBodyRef.current?.innerText || answer || "").trim();
+    if (!text || busy) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.setAttribute("readonly", "");
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        const copied = document.execCommand("copy");
+        area.remove();
+        if (!copied) throw new Error("copy failed");
+      }
+
+      setAnswerCopyState("copied");
+      if (answerCopyTimerRef.current) window.clearTimeout(answerCopyTimerRef.current);
+      answerCopyTimerRef.current = window.setTimeout(() => setAnswerCopyState("idle"), 1800);
+    } catch {
+      setAnswerCopyState("error");
+      if (answerCopyTimerRef.current) window.clearTimeout(answerCopyTimerRef.current);
+      answerCopyTimerRef.current = window.setTimeout(() => setAnswerCopyState("idle"), 2200);
+    }
+  }
+
+  function isAskDrop(event: any) {
+    const types = Array.from(event?.dataTransfer?.types || []) as string[];
+    return types.includes("Files") || types.includes("application/x-rb-explorer-item");
+  }
+
+  function handleAskDragEnter(event: any) {
+    if (!isAskDrop(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    askDropDepthRef.current += 1;
+    setAskDropActive(true);
+  }
+
+  function handleAskDragOver(event: any) {
+    if (!isAskDrop(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    setAskDropActive(true);
+  }
+
+  function handleAskDragLeave(event: any) {
+    if (!isAskDrop(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    askDropDepthRef.current = Math.max(0, askDropDepthRef.current - 1);
+    if (askDropDepthRef.current === 0) setAskDropActive(false);
+  }
+
+  async function attachExplorerFile(fileId: string) {
+    const source = files.find((item) => item.id === fileId);
+    if (!source) return alert("File tidak ditemukan.");
+    if (source.source_kind === "link" || source.source_url) {
+      return alert("Item ini adalah link. Gunakan tombol + lalu pilih Link.");
+    }
+
+    setAttachmentBusy(true);
+    setAttachmentStatus("Mengambil file dari Database...");
+    const { data, error } = await supabase.storage.from("study-files").download(source.file_path);
+    setAttachmentBusy(false);
+
+    if (error || !data) {
+      setAttachmentStatus("");
+      return alert(error?.message || "File dari Database tidak dapat dibaca.");
+    }
+
+    const draggedFile = new File([data], source.file_name, {
+      type: source.mime_type || data.type || "application/octet-stream",
+      lastModified: Date.now(),
+    });
+    await processAskAttachment(draggedFile);
+  }
+
+  async function handleAskDrop(event: any) {
+    if (!isAskDrop(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    askDropDepthRef.current = 0;
+    setAskDropActive(false);
+
+    if (attachmentBusy) return;
+
+    const explorerPayload = String(
+      event.dataTransfer?.getData("application/x-rb-explorer-item") || ""
+    );
+    if (explorerPayload) {
+      try {
+        const item = JSON.parse(explorerPayload) as { kind?: string; id?: string };
+        if (item.kind === "file" && item.id) {
+          await attachExplorerFile(item.id);
+          return;
+        }
+      } catch {}
+    }
+
+    const droppedFiles = Array.from(event.dataTransfer?.files || []) as File[];
+    const file = droppedFiles[0];
+    if (!file) return;
+    await processAskAttachment(file);
+  }
+
   function sourcesLabel(value = selectedSources) {
     const ordered: AiSourceKind[] = ["ai", "database", "web"];
     const labels: Record<AiSourceKind, string> = {
@@ -9300,11 +9420,30 @@ function BottomAskBar({
             <button onClick={() => setOpen(false)}>×</button>
           </div>
           {warning && <div className="aiWarning"><RichText text={warning} /></div>}
-          <div className="aiAnswerBody">
+          <div ref={answerBodyRef} className="aiAnswerBody">
             {busy
               ? "Memproses dari " + activeSourcesLabel + "..."
               : <RichText text={answer || "..."} />}
           </div>
+          {!busy && answer && (
+            <div className="aiAnswerActions">
+              <button type="button" onClick={() => void copyAnswerToClipboard()}>
+                <span aria-hidden="true">⧉</span>
+                <strong>
+                  {answerCopyState === "copied"
+                    ? "Tersalin"
+                    : answerCopyState === "error"
+                      ? "Copy gagal"
+                      : "Copy jawaban"}
+                </strong>
+              </button>
+              <small>
+                {answerCopyState === "copied"
+                  ? "Jawaban sudah masuk clipboard."
+                  : "Salin jawaban yang tampil tanpa marker format mentah."}
+              </small>
+            </div>
+          )}
           {(!!sources.length || !!webSources.length) && (
             <div className="aiSources">
               {sources.map((source) => {
@@ -9328,7 +9467,24 @@ function BottomAskBar({
         </div>
       )}
 
-      <form ref={composerRef} className="bottomAsk gptComposer" style={{ bottom: composerBottom }} onSubmit={ask}>
+      <form
+        ref={composerRef}
+        className={askDropActive ? "bottomAsk gptComposer askDropActive" : "bottomAsk gptComposer"}
+        style={{ bottom: composerBottom }}
+        onSubmit={ask}
+        onDragEnter={handleAskDragEnter}
+        onDragOver={handleAskDragOver}
+        onDragLeave={handleAskDragLeave}
+        onDrop={(event) => void handleAskDrop(event)}
+      >
+        {askDropActive && (
+          <div className="askDropOverlay" aria-hidden="true">
+            <div>
+              <strong>Lepas file di sini</strong>
+              <small>File langsung jadi lampiran untuk Tanya AI</small>
+            </div>
+          </div>
+        )}
         <button type="button" className="composerDragHandle" onPointerDown={startDrag} aria-label="Geser bar">
           <span />
         </button>
