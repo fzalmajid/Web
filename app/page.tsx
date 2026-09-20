@@ -3092,7 +3092,7 @@ function TaskPage({
     const { error } = await supabase
       .from("study_tasks")
       .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq("id", activeTask.id)
+      .eq("id", activeTask!.id)
       .eq("user_id", user.id);
     if (error) {
       alert(error.message);
@@ -3131,8 +3131,8 @@ function TaskPage({
       submission_format: submissionFormat,
       submission_format_other: submissionFormat === "other" ? submissionOther.trim() : "",
       notes: notes.trim(),
-      quiz_items: activeTask.task_type === "quiz" ? cleanedQuiz : [],
-      todo_items: activeTask.task_type === "todo" ? cleanedTodo : [],
+      quiz_items: activeTask!.task_type === "quiz" ? cleanedQuiz : [],
+      todo_items: activeTask!.task_type === "todo" ? cleanedTodo : [],
     }, true);
     setSaving(false);
     if (ok) setEditing(false);
@@ -3152,14 +3152,14 @@ function TaskPage({
   }
 
   async function toggleComplete() {
-    await persist({ completed: !activeTask.completed }, true);
+    await persist({ completed: !activeTask!.completed }, true);
   }
 
   return (
     <section className="toolPage taskPage">
       <div className="toolHeader taskHeader">
         <div>
-          <p className="eyebrow">TUGAS · {activeTask.task_type === "quiz" ? "SOAL / QUIZ" : "TO-DO LIST"}</p>
+          <p className="eyebrow">TUGAS · {activeTask!.task_type === "quiz" ? "SOAL / QUIZ" : "TO-DO LIST"}</p>
           <h1>{node.title}</h1>
           {notes && !editing && <p className="muted">{notes}</p>}
         </div>
@@ -3167,8 +3167,8 @@ function TaskPage({
           <button className="ghost" type="button" onClick={() => setEditing((current) => !current)}>
             {editing ? "Tutup edit" : "Edit Tugas"}
           </button>
-          <button className={activeTask.completed ? "primary" : "ghost"} type="button" onClick={toggleComplete}>
-            {activeTask.completed ? "✓ Selesai" : "Tandai selesai"}
+          <button className={activeTask!.completed ? "primary" : "ghost"} type="button" onClick={toggleComplete}>
+            {activeTask!.completed ? "✓ Selesai" : "Tandai selesai"}
           </button>
         </div>
       </div>
@@ -3176,8 +3176,8 @@ function TaskPage({
       <section className="taskMetaStrip">
         <div>
           <small>PENGUMPULAN</small>
-          {activeTask.submission_url ? (
-            <button type="button" className="taskLinkButton" onClick={() => window.open(activeTask.submission_url, "_blank", "noopener,noreferrer")}>
+          {activeTask!.submission_url ? (
+            <button type="button" className="taskLinkButton" onClick={() => window.open(activeTask!.submission_url, "_blank", "noopener,noreferrer")}>
               Buka link pengumpulan ↗
             </button>
           ) : (
@@ -3190,7 +3190,7 @@ function TaskPage({
         </div>
         <div>
           <small>STATUS</small>
-          <strong>{activeTask.completed ? "Selesai" : "Belum selesai"}</strong>
+          <strong>{activeTask!.completed ? "Selesai" : "Belum selesai"}</strong>
         </div>
       </section>
 
@@ -3233,7 +3233,7 @@ function TaskPage({
               )}
             </div>
 
-            {activeTask.task_type === "quiz" ? (
+            {activeTask!.task_type === "quiz" ? (
               <div className="taskBuilderList">
                 {quizItems.map((item, index) => (
                   <article className="taskBuilderCard" key={index}>
@@ -3320,7 +3320,7 @@ function TaskPage({
         </section>
       )}
 
-      {!editing && activeTask.task_type === "todo" && (
+      {!editing && activeTask!.task_type === "todo" && (
         <section className="taskTodoList">
           {todoItems.map((item) => (
             <label className={item.done ? "taskTodoItem done" : "taskTodoItem"} key={item.id}>
@@ -3331,7 +3331,7 @@ function TaskPage({
         </section>
       )}
 
-      {!editing && activeTask.task_type === "quiz" && (
+      {!editing && activeTask!.task_type === "quiz" && (
         <section className="taskQuestionList">
           {quizItems.map((item, index) => (
             <article className="taskQuestionCard" key={index}>
@@ -3343,7 +3343,7 @@ function TaskPage({
                     <label key={choice} className={responses[String(index)] === choice ? "active" : ""}>
                       <input
                         type="radio"
-                        name={"task-" + activeTask.id + "-" + index}
+                        name={"task-" + activeTask!.id + "-" + index}
                         checked={responses[String(index)] === choice}
                         onChange={() => void saveResponse(index, choice)}
                       />
