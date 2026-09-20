@@ -1322,38 +1322,54 @@ function FolderPage({
 }
 
 function AddSheet({
+  session,
   user,
   parent,
   onClose,
   onCreated,
+  onAdded,
 }: {
+  session: Session;
   user: User;
   parent: StudyNode | null;
   onClose: () => void;
   onCreated: (id: string) => void;
+  onAdded: () => void;
 }) {
-  const [kind, setKind] = useState<"folder" | "database" | "flashcards" | "quiz" | "study">("folder");
+  const [kind, setKind] = useState<
+    "folder" | "file" | "link" | "text" | "recording" | "flashcards" | "quiz" | "study"
+  >("folder");
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("");
   const [cardColor, setCardColor] = useState("default");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [textContent, setTextContent] = useState("");
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
 
   const options = [
-    { value: "folder", label: "Materi / Submateri", hint: "Contoh: Farmasi, Penjaminan Mutu, Pertemuan 1" },
-    { value: "database", label: "Database", hint: "Teks, file, rekaman audio, transkrip, gambar, dan video" },
-    ...(parent ? [{ value: "study" as const, label: "Study", hint: "Pilih beberapa Database lalu belajar bertahap dengan recall quiz" }] : []),
-    { value: "flashcards", label: "Flashcard", hint: "Latihan kartu dari database di halaman ini" },
-    { value: "quiz", label: "Kuis", hint: "Soal dari database di halaman ini" },
+    { value: "folder", label: "Folder", hint: "Buat folder / subfolder materi" },
+    ...(parent
+      ? [
+          { value: "file" as const, label: "Upload file / foto", hint: "PDF, dokumen, gambar, audio, video, atau file mentah" },
+          { value: "link" as const, label: "Masukkan link", hint: "Simpan halaman web sebagai sumber RAW" },
+          { value: "text" as const, label: "Masukkan teks", hint: "Catatan atau materi mentah langsung ke folder" },
+          { value: "recording" as const, label: "🎙️ Rekam audio", hint: "Rekaman + transkrip verbatim langsung ke folder" },
+          { value: "study" as const, label: "Study", hint: "Belajar bertahap dari isi folder" },
+        ]
+      : []),
+    { value: "flashcards", label: "Flashcard", hint: "Latihan kartu dari isi folder" },
+    { value: "quiz", label: "Kuis", hint: "Soal dari isi folder" },
   ] as const;
 
-  async function create(e: FormEvent) {
+  async function createNode(e: FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-
     const nodeType: NodeType =
       kind === "folder"
         ? parent ? "submaterial" : "material"
-        : kind;
+        : kind as "flashcards" | "quiz" | "study";
 
     setBusy(true);
     const { data, error } = await supabase
@@ -1374,23 +1390,86 @@ function AddSheet({
     onCreated(data.id);
   }
 
+  async function addFile(e: FormEvent) {
+    e.preventDefault();
+    if (!parent || !selectedFile) return;
+    setBusy(true);
+    setStatus("Menyimpan file asli...");
+    try {
+      await saveRawFileToFolder(user, parent.id, selectedFile);
+      setStatus("File RAW/original sudah masuk folder.");
+      onAdded();
+    } catch (error: any) {
+      setStatus("");
+      alert(error?.message || "Gagal menyimpan file.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addLink(e: FormEvent) {
+    e.preventDefault();
+    if (!parent || !linkUrl.trim()) return;
+    setBusy(true);
+    setStatus("Membaca link RAW...");
+    const response = await fetch("/api/import-link", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({ nodeId: parent.id, url: linkUrl.trim() }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (!response.ok) {
+      setStatus("");
+      return alert(result.error || "Gagal membaca link.");
+    }
+    setStatus("Link RAW sudah masuk folder.");
+    onAdded();
+  }
+
+  async function addText(e: FormEvent) {
+    e.preventDefault();
+    if (!parent || !textContent.trim()) return;
+    setBusy(true);
+    const finalTitle = title.trim() || "Catatan - " + new Date().toLocaleString("id-ID");
+    const { error } = await supabase.from("knowledge_entries").insert({
+      user_id: user.id,
+      node_id: parent.id,
+      title: finalTitle,
+      category: "Catatan RAW",
+      content: textContent.trim(),
+      raw_content: textContent.trim(),
+      source_type: "manual",
+    });
+    setBusy(false);
+    if (error) return alert(error.message);
+    onAdded();
+  }
+
   return (
     <div className="sheetBackdrop" onMouseDown={onClose}>
-      <section className="addSheet" onMouseDown={(e) => e.stopPropagation()}>
+      <section className="addSheet explorerAddSheet" onMouseDown={(e) => e.stopPropagation()}>
         <div className="sheetHead">
           <div>
             <p className="eyebrow">TAMBAH</p>
-            <h2>{parent ? "Isi di " + parent.title : "Isi di Beranda"}</h2>
+            <h2>{parent ? "Tambahkan ke " + parent.title : "Buat di Beranda"}</h2>
           </div>
           <button className="closeBtn" onClick={onClose}>×</button>
         </div>
 
-        <div className="typeChoices">
+        <div className="typeChoices explorerTypeChoices">
           {options.map((option) => (
             <button
+              type="button"
               key={option.value}
               className={kind === option.value ? "typeChoice active" : "typeChoice"}
-              onClick={() => setKind(option.value)}
+              onClick={() => {
+                setKind(option.value as typeof kind);
+                setStatus("");
+              }}
             >
               <strong>{option.label}</strong>
               <small>{option.hint}</small>
@@ -1398,38 +1477,110 @@ function AddSheet({
           ))}
         </div>
 
-        <form className="stack" onSubmit={create}>
-          <label>
-            Nama
-            <input
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={kind === "folder" ? "Contoh: Pertemuan 1" : "Contoh: " + options.find((item) => item.value === kind)?.label}
+        {kind === "file" && parent && (
+          <form className="stack" onSubmit={addFile}>
+            <label>
+              Pilih file
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.csv,.json,.xml,.mp3,.wav,.m4a,.aac,.ogg,.flac,.opus,.webm,.mp4,.mov,.png,.jpg,.jpeg,.webp"
+                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+              />
+            </label>
+            <p className="muted">File asli disimpan apa adanya. AI membaca RAW/original saat menjawab.</p>
+            <button className="primary" disabled={busy || !selectedFile}>
+              {busy ? "Menyimpan..." : "Upload ke folder"}
+            </button>
+          </form>
+        )}
+
+        {kind === "link" && parent && (
+          <form className="stack" onSubmit={addLink}>
+            <label>
+              Link
+              <input
+                type="url"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                placeholder="https://..."
+                required
+              />
+            </label>
+            <button className="primary" disabled={busy || !linkUrl.trim()}>
+              {busy ? "Membaca..." : "Masukkan link"}
+            </button>
+          </form>
+        )}
+
+        {kind === "text" && parent && (
+          <form className="stack" onSubmit={addText}>
+            <label>
+              Judul (opsional)
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Judul catatan" />
+            </label>
+            <label>
+              Teks RAW
+              <textarea
+                rows={10}
+                value={textContent}
+                onChange={(e) => setTextContent(e.target.value)}
+                placeholder="Paste atau ketik materi apa adanya..."
+                required
+              />
+            </label>
+            <button className="primary" disabled={busy || !textContent.trim()}>
+              {busy ? "Menyimpan..." : "Masukkan ke folder"}
+            </button>
+          </form>
+        )}
+
+        {kind === "recording" && parent && (
+          <div className="explorerRecorderSheet">
+            <DatabaseAudioRecorder
+              session={session}
+              user={user}
+              node={parent}
+              onChange={onAdded}
             />
-          </label>
-          <div className="customizeMini">
-            <div>
-              <span className="fieldLabel">Emoji (opsional)</span>
-              <div className="emojiRow compact">
-                {nodeEmojis.slice(0, 8).map((item) => (
-                  <button type="button" key={item} className={emoji === item ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji(item)}>{item}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <span className="fieldLabel">Warna</span>
-              <div className="colorRow compact">
-                {nodeColors.map((item) => (
-                  <button type="button" key={item.value} title={item.label} className={cardColor === item.value ? "colorChoice active" : "colorChoice"} data-color={item.value} onClick={() => setCardColor(item.value)} />
-                ))}
-              </div>
-            </div>
           </div>
-          <button className="primary" disabled={busy || !title.trim()}>
-            {busy ? "Membuat..." : "Buat & buka"}
-          </button>
-        </form>
+        )}
+
+        {(kind === "folder" || kind === "study" || kind === "flashcards" || kind === "quiz") && (
+          <form className="stack" onSubmit={createNode}>
+            <label>
+              Nama
+              <input
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={kind === "folder" ? "Contoh: Pertemuan 1" : "Nama " + options.find((item) => item.value === kind)?.label}
+              />
+            </label>
+            <div className="customizeMini">
+              <div>
+                <span className="fieldLabel">Emoji (opsional)</span>
+                <div className="emojiRow compact">
+                  {nodeEmojis.slice(0, 8).map((item) => (
+                    <button type="button" key={item} className={emoji === item ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji(item)}>{item}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="fieldLabel">Warna</span>
+                <div className="colorRow compact">
+                  {nodeColors.map((item) => (
+                    <button type="button" key={item.value} title={item.label} className={cardColor === item.value ? "colorChoice active" : "colorChoice"} data-color={item.value} onClick={() => setCardColor(item.value)} />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button className="primary" disabled={busy || !title.trim()}>
+              {busy ? "Membuat..." : "Buat & buka"}
+            </button>
+          </form>
+        )}
+
+        {status && <div className="notice">{status}</div>}
       </section>
     </div>
   );
