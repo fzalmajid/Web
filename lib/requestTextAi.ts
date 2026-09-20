@@ -54,7 +54,7 @@ export async function generateTextAi(
         effort,
         web: Boolean(options?.web),
       })),
-      provider: "openai" as const,
+      provider: "user-openai-api-key" as const,
     };
   }
 
@@ -69,7 +69,7 @@ export async function generateTextAi(
         effort,
         web: Boolean(options?.web),
       })),
-      provider: "anthropic" as const,
+      provider: "user-anthropic-api-key" as const,
     };
   }
 
