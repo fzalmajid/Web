@@ -1095,6 +1095,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             cards={cards}
             quizzes={quizzes}
             entries={entries}
+            files={files}
             nodes={nodes}
             onChange={refresh}
           />
@@ -7317,6 +7318,7 @@ function PracticePage({
   cards,
   quizzes,
   entries,
+  files,
   nodes,
   onChange,
 }: {
@@ -7325,6 +7327,7 @@ function PracticePage({
   cards: Flashcard[];
   quizzes: Quiz[];
   entries: KnowledgeEntry[];
+  files: SourceFile[];
   nodes: StudyNode[];
   onChange: () => void;
 }) {
@@ -7356,6 +7359,10 @@ function PracticePage({
   const [submitted, setSubmitted] = useState(false);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash"));
   const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["ai", "database"]);
+  const [practiceSourceNodeIds, setPracticeSourceNodeIds] = useState<string[]>(
+    node.parent_id ? [node.parent_id] : []
+  );
+  const [practiceSourceFileIds, setPracticeSourceFileIds] = useState<string[]>([]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
@@ -7363,6 +7370,11 @@ function PracticePage({
   const [manualChoices, setManualChoices] = useState(["", "", "", ""]);
   const [manualCorrect, setManualCorrect] = useState(0);
   const [manualExpectedAnswer, setManualExpectedAnswer] = useState("");
+
+  useEffect(() => {
+    setPracticeSourceNodeIds(node.parent_id ? [node.parent_id] : []);
+    setPracticeSourceFileIds([]);
+  }, [node.id, node.parent_id]);
 
   const answeredMcq = [...fixedMcq, ...aiMcq].filter((quiz) => answers[quiz.id]).length;
   const answeredEssay = [...fixedEssay, ...aiEssay].filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
@@ -7386,12 +7398,28 @@ function PracticePage({
 
   async function generate() {
     if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada folder sumber.");
+    if (
+      practiceAnswerSources.includes("database") &&
+      !practiceSourceNodeIds.length &&
+      !practiceSourceFileIds.length
+    ) {
+      return alert("Database aktif. Pilih minimal satu folder atau file sumber.");
+    }
 
     if (aiSelection.model === "local") {
       setBusy(true);
-      const scopeIds = collectSubtreeIds(nodes, node.parent_id);
+      const scopeIds = new Set<string>();
+      for (const sourceNodeId of practiceSourceNodeIds.length ? practiceSourceNodeIds : [node.parent_id]) {
+        for (const id of collectSubtreeIds(nodes, sourceNodeId)) scopeIds.add(id);
+      }
+      const selectedFileIds = new Set(practiceSourceFileIds);
       const sourceEntries = entries.filter(
-        (item) => scopeIds.includes(item.node_id) && item.source_type !== "transcript"
+        (item) =>
+          item.source_type !== "transcript" &&
+          (
+            scopeIds.has(item.node_id) ||
+            (!!item.source_file_id && selectedFileIds.has(item.source_file_id))
+          )
       );
       const sentences = sourceEntries
         .flatMap((entry) => (entry.raw_content || entry.content).replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
@@ -7449,7 +7477,9 @@ function PracticePage({
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
-        sourceNodeId: node.parent_id,
+        sourceNodeId: practiceSourceNodeIds[0] || node.parent_id,
+        sourceNodeIds: practiceSourceNodeIds,
+        sourceFileIds: practiceSourceFileIds,
         targetNodeId: node.id,
         mode,
         aiMode,
@@ -7607,14 +7637,56 @@ function PracticePage({
 
         {mode === "flashcards" ? (
           <>
-            <AiSourceModelBar
-              sources={practiceAnswerSources}
-              onSourcesChange={setPracticeAnswerSources}
-              selection={aiSelection}
-              onSelectionChange={setAiSelection}
-              action="study"
-              allowLocal
-            />
+            <div className="practiceSourceControls">
+              <AiDatabaseSourcePicker
+                nodes={nodes}
+                files={files}
+                nodeIds={practiceSourceNodeIds}
+                fileIds={practiceSourceFileIds}
+                currentNodeId={node.parent_id}
+                onChange={(next) => {
+                  setPracticeSourceNodeIds(next.nodeIds);
+                  setPracticeSourceFileIds(next.fileIds);
+                  if (
+                    (next.nodeIds.length || next.fileIds.length) &&
+                    !practiceAnswerSources.includes("database")
+                  ) {
+                    setPracticeAnswerSources((current) =>
+                      current.includes("database") ? current : [...current, "database"]
+                    );
+                  }
+                }}
+              />
+              <div className="practiceSourceControls">
+                <AiDatabaseSourcePicker
+                  nodes={nodes}
+                  files={files}
+                  nodeIds={practiceSourceNodeIds}
+                  fileIds={practiceSourceFileIds}
+                  currentNodeId={node.parent_id}
+                  onChange={(next) => {
+                    setPracticeSourceNodeIds(next.nodeIds);
+                    setPracticeSourceFileIds(next.fileIds);
+                    if (
+                      (next.nodeIds.length || next.fileIds.length) &&
+                      !practiceAnswerSources.includes("database")
+                    ) {
+                      setPracticeAnswerSources((current) =>
+                        current.includes("database") ? current : [...current, "database"]
+                      );
+                    }
+                  }}
+                />
+                <AiSourceModelBar
+                  sources={practiceAnswerSources}
+                  onSourcesChange={setPracticeAnswerSources}
+                  selection={aiSelection}
+                  onSelectionChange={setAiSelection}
+                  action="study"
+                  allowLocal
+                />
+              </div>
+            </div>
             <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
               {busy ? "Membuat..." : "Buat Flashcard"}
             </button>
