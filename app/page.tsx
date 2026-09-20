@@ -2515,6 +2515,9 @@ function AiDatabaseSourcePicker({
   onChange,
   currentNodeId,
   disabled = false,
+  sources,
+  onSourcesChange,
+  selectionModel,
 }: {
   nodes: StudyNode[];
   files: SourceFile[];
@@ -2523,6 +2526,9 @@ function AiDatabaseSourcePicker({
   onChange: (next: { nodeIds: string[]; fileIds: string[] }) => void;
   currentNodeId?: string | null;
   disabled?: boolean;
+  sources?: AiSourceKind[];
+  onSourcesChange?: (sources: AiSourceKind[]) => void;
+  selectionModel?: AiModelId;
 }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -2588,6 +2594,17 @@ function AiDatabaseSourcePicker({
       return next;
     });
   }
+
+  function toggleSourceKind(source: AiSourceKind) {
+    if (!sources || !onSourcesChange) return;
+    if (selectionModel === "local" && source !== "database") return;
+    const active = sources.includes(source);
+    const next = active ? sources.filter((item) => item !== source) : [...sources, source];
+    if (!next.length) return;
+    onSourcesChange(next);
+  }
+
+  const databaseEnabled = !sources || sources.includes("database");
 
   function renderBranch(parentId: string | null, depth: number): any {
     return (childrenByParent.get(parentId) || []).map((node) => {
@@ -2668,11 +2685,46 @@ function AiDatabaseSourcePicker({
         <div className="aiDatabaseSourcePopover">
           <div className="aiDatabaseSourceHead">
             <div>
-              <strong>Pilih sumber Database</strong>
-              <small>Klik folder atau file. Bisa pilih lebih dari satu.</small>
+              <strong>Pilih sumber</strong>
+              <small>Tentukan sumber jawaban AI, lalu pilih folder/file bila Database aktif.</small>
             </div>
             <button type="button" onClick={() => setOpen(false)}>×</button>
           </div>
+
+          {sources && onSourcesChange && (
+            <div className="aiSourceKindsInPicker">
+              <small>SUMBER JAWABAN</small>
+              <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
+                {([
+                  { id: "ai" as const, label: "AI" },
+                  { id: "database" as const, label: "Database" },
+                  { id: "web" as const, label: "Web" },
+                ]).map((item) => {
+                  const itemDisabled = selectionModel === "local" && item.id !== "database";
+                  return (
+                    <button
+                      type="button"
+                      key={item.id}
+                      className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
+                      onClick={() => toggleSourceKind(item.id)}
+                      aria-pressed={sources.includes(item.id)}
+                      disabled={itemDisabled}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {!databaseEnabled && (
+            <div className="aiDatabaseDisabledHint">
+              Aktifkan <strong>Database</strong> untuk memilih folder atau file tertentu.
+            </div>
+          )}
+
+          <div className={databaseEnabled ? "aiDatabaseSourceContent" : "aiDatabaseSourceContent disabled"}>
           <div className="aiDatabaseSourceTools">
             <button
               type="button"
@@ -2692,8 +2744,9 @@ function AiDatabaseSourcePicker({
             {!folderNodes.length && <small className="muted">Belum ada folder sumber.</small>}
           </div>
           <div className="aiDatabaseSourceDone">
-            <span>{selectedCount ? selectedCount + " sumber dipilih" : "Mengikuti folder/halaman yang sedang aktif"}</span>
+            <span>{databaseEnabled ? (selectedCount ? selectedCount + " sumber dipilih" : "Mengikuti folder/halaman yang sedang aktif") : "Database tidak aktif"}</span>
             <button type="button" className="primary" onClick={() => setOpen(false)}>Selesai</button>
+          </div>
           </div>
         </div>
       )}
@@ -8408,6 +8461,7 @@ function AiSourceModelBar({
   compact = true,
   allowLocal = false,
   context = "general",
+  showSources = true,
 }: {
   sources: AiSourceKind[];
   onSourcesChange: (sources: AiSourceKind[]) => void;
@@ -8417,6 +8471,7 @@ function AiSourceModelBar({
   compact?: boolean;
   allowLocal?: boolean;
   context?: "general" | "chat";
+  showSources?: boolean;
 }) {
   useEffect(() => {
     if (selection.model === "local" && (sources.length !== 1 || sources[0] !== "database")) {
@@ -8434,28 +8489,30 @@ function AiSourceModelBar({
 
   return (
     <div className="askControls aiSourceModelBar">
-      <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
-        {([
-          { id: "ai" as const, label: "AI" },
-          { id: "database" as const, label: "Database" },
-          { id: "web" as const, label: "Web" },
-        ]).map((item) => {
-          const disabled = selection.model === "local" && item.id !== "database";
-          return (
-            <button
-              type="button"
-              key={item.id}
-              className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
-              onClick={() => toggle(item.id)}
-              aria-pressed={sources.includes(item.id)}
-              disabled={disabled}
-              title={disabled ? "Model Local memakai Database saja." : undefined}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </div>
+      {showSources && (
+        <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
+          {([
+            { id: "ai" as const, label: "AI" },
+            { id: "database" as const, label: "Database" },
+            { id: "web" as const, label: "Web" },
+          ]).map((item) => {
+            const disabled = selection.model === "local" && item.id !== "database";
+            return (
+              <button
+                type="button"
+                key={item.id}
+                className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
+                onClick={() => toggle(item.id)}
+                aria-pressed={sources.includes(item.id)}
+                disabled={disabled}
+                title={disabled ? "Model Local memakai Database saja." : undefined}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <CitationPicker compact={compact} />
       <AiModePicker
         value={selection}
@@ -9951,7 +10008,9 @@ function BottomAskBar({
               nodeIds={selectedSourceNodeIds}
               fileIds={selectedSourceFileIds}
               currentNodeId={scopeNodeId}
-              disabled={!selectedSources.includes("database")}
+              sources={selectedSources}
+              onSourcesChange={setSelectedSources}
+              selectionModel={aiSelection.model}
               onChange={(next) => {
                 setSelectedSourceNodeIds(next.nodeIds);
                 setSelectedSourceFileIds(next.fileIds);
@@ -9974,6 +10033,7 @@ function BottomAskBar({
               context="chat"
               compact
               allowLocal
+              showSources={false}
             />
           </div>
         </div>
