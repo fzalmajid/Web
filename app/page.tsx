@@ -6739,8 +6739,7 @@ function normalizeRichTextSource(text: string) {
     .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
     .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
     .replace(/\\times\b/g, "×")
-    .replace(/\\cdot\b/g, "·")
-    .replace(/\u2212/g, "-");
+    .replace(/\\cdot\b/g, "·");
 }
 
 function isAlphaNumeric(value: string) {
@@ -6842,9 +6841,10 @@ function renderScientificPlainText(value: string, keyPrefix: string) {
 
       if (power) {
         flush();
+        const supKey = keyPrefix + "-sup-" + key++;
         nodes.push(
-          <sup className="mathSup" key={keyPrefix + "-sup-" + key++}>
-            {power.replace(/\*/g, "×")}
+          <sup className="mathSup" key={supKey}>
+            {renderScientificPlainText(power, supKey + "-inner")}
           </sup>
         );
         i = end - 1;
@@ -6863,6 +6863,7 @@ function RichText({ text, className = "" }: { text: string; className?: string }
   const value = normalizeRichTextSource(text);
   const parts: any[] = [];
   let cursor = 0;
+  let plainStart = 0;
   let key = 0;
 
   const pushPlain = (plain: string) => {
@@ -6871,43 +6872,52 @@ function RichText({ text, className = "" }: { text: string; className?: string }
   };
 
   while (cursor < value.length) {
-    // Standard **bold** is accepted for resilience even though the app asks AI
-    // to emit WhatsApp-style *bold*.
+    let consumed = 0;
+    let rendered: any = null;
+
+    // Standard **bold** fallback.
     if (value.startsWith("**", cursor)) {
       const close = value.indexOf("**", cursor + 2);
       if (close > cursor + 2 && !value.slice(cursor + 2, close).includes("\n")) {
-        parts.push(
-          <strong key={"bold2-" + key++}>
-            {renderScientificPlainText(value.slice(cursor + 2, close), "bold2-inner-" + key)}
+        const innerKey = "bold2-" + key++;
+        rendered = (
+          <strong key={innerKey}>
+            {renderScientificPlainText(value.slice(cursor + 2, close), innerKey + "-inner")}
           </strong>
         );
-        cursor = close + 2;
-        continue;
+        consumed = close + 2 - cursor;
       }
     }
 
-    // WhatsApp-style *bold*. Asterisks used as multiplication are not treated
-    // as formatting because they have whitespace immediately inside/outside.
-    if (value[cursor] === "*" && value[cursor + 1] && !/\s/.test(value[cursor + 1])) {
+    // WhatsApp-style *bold*. Asterisks surrounded by spaces remain plain text
+    // so the scientific renderer can turn them into ×.
+    if (
+      !rendered &&
+      value[cursor] === "*" &&
+      value[cursor + 1] &&
+      !/\s/.test(value[cursor + 1]) &&
+      !/\s/.test(value[cursor - 1] || "")
+    ) {
       const close = value.indexOf("*", cursor + 1);
       if (
         close > cursor + 1 &&
         !value.slice(cursor + 1, close).includes("\n") &&
         !/\s/.test(value[close - 1] || "")
       ) {
-        parts.push(
-          <strong key={"bold-" + key++}>
-            {renderScientificPlainText(value.slice(cursor + 1, close), "bold-inner-" + key)}
+        const innerKey = "bold-" + key++;
+        rendered = (
+          <strong key={innerKey}>
+            {renderScientificPlainText(value.slice(cursor + 1, close), innerKey + "-inner")}
           </strong>
         );
-        cursor = close + 1;
-        continue;
+        consumed = close + 1 - cursor;
       }
     }
 
-    // _italic_ only when underscores are delimiters, never when embedded in
-    // scientific identifiers such as D_oral or AUC_iv.
+    // _italic_ only when underscores are real delimiters. Embedded underscores
+    // such as C_2, k_e, D_oral and AUC_iv stay in the plain math stream.
     if (
+      !rendered &&
       value[cursor] === "_" &&
       !isAlphaNumeric(value[cursor - 1] || "") &&
       value[cursor + 1] &&
@@ -6920,41 +6930,41 @@ function RichText({ text, className = "" }: { text: string; className?: string }
         !isAlphaNumeric(value[close + 1] || "") &&
         !/\s/.test(value[close - 1] || "")
       ) {
-        parts.push(
-          <em key={"italic-" + key++}>
-            {renderScientificPlainText(value.slice(cursor + 1, close), "italic-inner-" + key)}
+        const innerKey = "italic-" + key++;
+        rendered = (
+          <em key={innerKey}>
+            {renderScientificPlainText(value.slice(cursor + 1, close), innerKey + "-inner")}
           </em>
         );
-        cursor = close + 1;
-        continue;
+        consumed = close + 1 - cursor;
       }
     }
 
-    // __text__ fallback: render as emphasis instead of leaking raw markers.
-    if (value.startsWith("__", cursor)) {
+    if (!rendered && value.startsWith("__", cursor)) {
       const close = value.indexOf("__", cursor + 2);
       if (close > cursor + 2 && !value.slice(cursor + 2, close).includes("\n")) {
-        parts.push(
-          <em key={"italic2-" + key++}>
-            {renderScientificPlainText(value.slice(cursor + 2, close), "italic2-inner-" + key)}
+        const innerKey = "italic2-" + key++;
+        rendered = (
+          <em key={innerKey}>
+            {renderScientificPlainText(value.slice(cursor + 2, close), innerKey + "-inner")}
           </em>
         );
-        cursor = close + 2;
-        continue;
+        consumed = close + 2 - cursor;
       }
     }
 
-    let next = cursor + 1;
-    while (
-      next < value.length &&
-      value[next] !== "*" &&
-      value[next] !== "_"
-    ) next++;
+    if (rendered && consumed > 0) {
+      pushPlain(value.slice(plainStart, cursor));
+      parts.push(rendered);
+      cursor += consumed;
+      plainStart = cursor;
+      continue;
+    }
 
-    pushPlain(value.slice(cursor, next));
-    cursor = next;
+    cursor++;
   }
 
+  pushPlain(value.slice(plainStart));
   return <span className={"richText " + className}>{parts}</span>;
 }
 
