@@ -1,5 +1,5 @@
-Warning: truncated output (original token count: 91189)
-Total output lines: 10229
+Warning: truncated output (original token count: 91039)
+Total output lines: 10225
 
 "use client";
 
@@ -1174,7 +1174,7 @@ async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
       user_id: user.id,
       node_id: nodeId,
       title: file.name,
-      category: "RAW file",
+        category: "File",
       content: rawText,
       raw_content: rawText,
       source_type: "file",
@@ -1415,7 +1415,7 @@ async function pasteExplorerItem(
         user_id: user.id,
         node_id: targetNodeId,
         title: file.file_name + " (copy)",
-        category: file.source_kind === "link" ? "Link RAW" : "RAW file",
+        category: file.source_kind === "link" ? "Link" : "File",
         content: file.raw_text,
         raw_content: file.raw_text,
         source_type: "file",
@@ -1885,8 +1885,6 @@ function FolderPage({
               </button>
               <div className="nodeTools">
                 <button onClick={(event) => openDotsMenu(event, { kind: "node", id: node.id })}>...</button>
-                <button onClick={() => onCustomize(node)}>Ubah</button>
-                <button className="nodeDelete" onClick={() => onDelete(node)}>Hapus</button>
               </div>
             </article>
           ))}
@@ -1932,7 +1930,6 @@ function FolderPage({
                     >
                       ...
                     </button>
-                    <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); removeEntry(entry.id); }}>Hapus</button>
                   </div>
                 </article>
               ))}
@@ -2135,7 +2132,6 @@ function FilePreviewBody({ file }: { file: SourceFile }) {
         <a className="primary previewExternalLink" href={file.source_url || file.file_path} target="_blank" rel="noreferrer">
           Buka link sumber
         </a>
-        <div className="dataText raw"><RichText text={file.raw_text || "Belum ada isi link."} /></div>
       </div>
     );
   }
@@ -2149,9 +2145,11 @@ function FilePreviewBody({ file }: { file: SourceFile }) {
       {signedUrl && isVideo && <video className="floatingPreviewMedia" controls preload="metadata" src={signedUrl} />}
       {signedUrl && isPdf && <iframe className="floatingPreviewFrame" title={file.file_name} src={signedUrl} />}
       {!isImage && !isAudio && !isVideo && !isPdf && (
-        <div className="notice">Preview visual belum tersedia untuk format ini. Isi RAW tetap bisa dibaca di bawah.</div>
+        <div className="notice">
+          Preview visual belum tersedia untuk format ini. Buka file asli untuk melihat seluruh isinya.
+          {signedUrl && <a className="textBtn" href={signedUrl} target="_blank" rel="noreferrer">Buka file asli</a>}
+        </div>
       )}
-      {file.raw_text && <div className="dataText raw"><RichText text={file.raw_text} /></div>}
     </div>
   );
 }
@@ -2673,7 +2671,7 @@ function AddSheet({
         setStatus("File asli tersimpan. Membaca RAW...");
         await ensureRawFileText(session, row);
       }
-      setStatus("File RAW/original sudah masuk folder. Versi AI belum dibuat.");
+      setStatus("File asli sudah masuk folder. Versi AI belum dibuat.");
       onAdded();
     } catch (error: any) {
       setStatus("");
@@ -2765,7 +2763,7 @@ function AddSheet({
                 onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
               />
             </label>
-            <p className="muted">File asli disimpan apa adanya. AI membaca RAW/original saat menjawab.</p>
+          <p className="muted">File asli disimpan apa adanya. AI membaca isi file saat menjawab.</p>
             <button className="primary" disabled={busy || !selectedFile}>
               {busy ? "Menyimpan..." : "Upload ke folder"}
             </button>
@@ -2865,7 +2863,18 @@ function AddSheet({
               <input
                 autoFocus
                 value={title}
-    …41189 tokens truncated…button
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Contoh: Tugas Pertemuan 3"
+              />
+            </label>
+
+            <div className="taskTypeBlock">
+              <span className="fieldLabel">Jenis tugas</span>
+              <div className="taskTypeChoices">
+                <button
+                  type="button"
+                  className={taskTy…41039 tokens truncated…    {visibleModels.map((item) => (
+              <button
                 type="button"
                 key={item.id}
                 className={value.model === item.id ? "modelCard active" : "modelCard"}
@@ -4066,7 +4075,7 @@ function BottomAskBar({
     let extractedMime = mimeType;
 
     try {
-      setAttachmentStatus("File RAW tersimpan. Membaca teks mentah sebagai bantuan...");
+      setAttachmentStatus("File tersimpan. Membaca isi file...");
       const form = new FormData();
       form.append("file", file);
       form.append("aiMode", aiMode);
@@ -4102,8 +4111,8 @@ function BottomAskBar({
     setAttachmentBusy(false);
     setAttachmentStatus(
       extractedRaw
-        ? "File RAW/original + teks mentah siap dibaca AI. Belum disimpan ke Database."
-        : "File RAW/original siap dibaca AI langsung. Ekstraksi teks tidak tersedia, tapi file asli tetap dipakai."
+        ? "File asli + isi file siap dibaca AI. Belum disimpan ke Database."
+        : "File asli siap dibaca AI langsung. Teks tidak tersedia, tetapi file asli tetap dipakai."
     );
   }
 
