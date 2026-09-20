@@ -3945,24 +3945,13 @@ function DatabasePage({
     onChange();
     setFileStatus("Sedang membaca RAW...");
 
-    if (aiSelection.model === "local") {
-      const localMime = inferMime(selectedFile);
-      const localSupported =
-        localMime.startsWith("text/") ||
-        localMime === "application/json" ||
-        localMime === "application/xml";
+    const localMime = inferMime(selectedFile);
+    const localSupported =
+      localMime.startsWith("text/") ||
+      localMime === "application/json" ||
+      localMime === "application/xml";
 
-      if (!localSupported) {
-        await supabase.from("source_files").update({
-          processing_status: "error",
-          error_message: "Format ini membutuhkan model Gemini.",
-        }).eq("id", row.id);
-        setFileBusy(false);
-        setFileStatus("Local belum mendukung format ini.");
-        onChange();
-        return alert("Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih model Gemini.");
-      }
-
+    if (aiSelection.model === "local" && localSupported) {
       const rawText = (await selectedFile.text()).trim();
       if (!rawText) {
         setFileBusy(false);
@@ -4005,32 +3994,33 @@ function DatabasePage({
       return;
     }
 
-    const response = await fetch("/api/import-file", {
-      method: "POST",
-      headers: aiRequestHeaders(session, aiSelection),
-      body: JSON.stringify({
-        sourceFileId: row.id,
-        filePath: path,
-        fileName: selectedFile.name,
-        mimeType,
-        nodeId: node.id,
-        aiMode,
-        operation: "raw",
-      }),
-    });
+    try {
+      const result = await processRawFileUntilReady(session, row as SourceFile, {
+        onProgress: (currentPage, totalPages, chunks) => {
+          if (totalPages > 0) {
+            setFileStatus(
+              `Mengindeks PDF halaman ${currentPage}/${totalPages} · ${chunks} bagian siap dicari...`
+            );
+          } else {
+            setFileStatus("Sedang membaca isi file...");
+          }
+        },
+      });
 
-    const result = await response.json();
-    setFileBusy(false);
-
-    if (!response.ok) {
-      setFileStatus("File tersimpan, tetapi pemrosesan gagal.");
+      setSelectedFile(null);
+      setFileBusy(false);
+      setFileStatus(
+        result.totalPages
+          ? `Selesai. PDF terindeks penuh: ${result.totalPages} halaman · ${result.indexedChunks || 0} bagian.`
+          : "Selesai. File sudah masuk Database dan siap dipakai AI."
+      );
       onChange();
-      return alert(result.error || "Gagal memproses file.");
+    } catch (error: any) {
+      setFileBusy(false);
+      setFileStatus("File tersimpan. Proses dapat dilanjutkan dari menu ... > Proses ulang file.");
+      onChange();
+      alert(error?.message || "Gagal memproses file.");
     }
-
-    setSelectedFile(null);
-    setFileStatus("Selesai. RAW/original sudah masuk Database. Versi AI belum dibuat.");
-    onChange();
   }
 
   async function importLink(e: FormEvent) {
@@ -5193,24 +5183,12 @@ function StudyPage({
     onChange();
     setQuickDbStatus("Sedang membaca RAW...");
 
-    if (quickDbAiSelection.model === "local") {
-      const localSupported =
-        mimeType.startsWith("text/") ||
-        mimeType === "application/json" ||
-        mimeType === "application/xml";
+    const quickLocalSupported =
+      mimeType.startsWith("text/") ||
+      mimeType === "application/json" ||
+      mimeType === "application/xml";
 
-      if (!localSupported) {
-        await supabase.from("source_files").update({
-          processing_status: "error",
-          error_message: "Format ini membutuhkan model Gemini.",
-        }).eq("id", row.id);
-
-        setQuickFileBusy(false);
-        setQuickDbStatus("Local belum mendukung format ini.");
-        onChange();
-        return alert("Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih model Gemini.");
-      }
-
+    if (quickDbAiSelection.model === "local" && quickLocalSupported) {
       const rawText = (await quickDbFile.text()).trim();
       if (!rawText) {
         setQuickFileBusy(false);
@@ -5251,32 +5229,32 @@ function StudyPage({
       return;
     }
 
-    const response = await fetch("/api/import-file", {
-      method: "POST",
-      headers: aiRequestHeaders(session, quickDbAiSelection),
-      body: JSON.stringify({
-        sourceFileId: row.id,
-        filePath: path,
-        fileName: quickDbFile.name,
-        mimeType,
-        nodeId: database.id,
-        aiMode: quickDbAiMode,
-        operation: "raw",
-      }),
-    });
-
-    const result = await response.json();
-    setQuickFileBusy(false);
-
-    if (!response.ok) {
-      setQuickDbStatus("File tersimpan, tetapi pemrosesan gagal.");
+    try {
+      const result = await processRawFileUntilReady(session, row as SourceFile, {
+        onProgress: (currentPage, totalPages, chunks) => {
+          if (totalPages > 0) {
+            setQuickDbStatus(
+              `Mengindeks PDF halaman ${currentPage}/${totalPages} · ${chunks} bagian...`
+            );
+          } else {
+            setQuickDbStatus("Sedang membaca isi file...");
+          }
+        },
+      });
+      setQuickDbFile(null);
+      setQuickFileBusy(false);
+      setQuickDbStatus(
+        result.totalPages
+          ? `Selesai. PDF terindeks penuh: ${result.totalPages} halaman · ${result.indexedChunks || 0} bagian. Folder otomatis dipilih sebagai sumber Study.`
+          : "Selesai. File sudah masuk folder dan otomatis dipilih sebagai sumber Study."
+      );
       onChange();
-      return alert(result.error || "Gagal memproses file.");
+    } catch (error: any) {
+      setQuickFileBusy(false);
+      setQuickDbStatus("File tersimpan. Proses dapat dilanjutkan dari menu ... > Proses ulang file.");
+      onChange();
+      alert(error?.message || "Gagal memproses file.");
     }
-
-    setQuickDbFile(null);
-    setQuickDbStatus("Selesai. RAW/original sudah masuk folder dan otomatis dipilih sebagai sumber Study.");
-    onChange();
   }
 
   function closeQuickDatabase() {
