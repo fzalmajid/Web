@@ -3530,3 +3530,69 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
     grid-column:auto;
   }
 }
+
+
+/* Raw attachments in bottom AI composer */
+.askInputRow{
+  grid-template-columns:40px 40px minmax(0,1fr) 44px!important;
+}
+.askAttachmentInput{
+  display:none!important;
+}
+.askAttach{
+  width:40px;
+  height:40px;
+  border:1px solid var(--line);
+  border-radius:50%;
+  background:var(--card);
+  color:var(--ink);
+  font-size:1.35rem;
+  line-height:1;
+  font-weight:500;
+  display:grid;
+  place-items:center;
+  cursor:pointer;
+}
+.askAttach:disabled{
+  opacity:.55;
+  cursor:default;
+}
+.askAttachmentPanel{
+  grid-column:1/-1;
+  display:grid;
+  gap:7px;
+  padding:8px 10px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--soft);
+}
+.askAttachmentPanel>small{
+  color:var(--muted);
+  line-height:1.35;
+}
+.askAttachmentName{
+  display:grid;
+  gap:2px;
+  min-width:0;
+}
+.askAttachmentName strong{
+  font-size:.8rem;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.askAttachmentName small{
+  color:var(--muted);
+  font-size:.68rem;
+}
+
+@media(max-width:767px){
+  .askInputRow{
+    grid-template-columns:36px 40px minmax(0,1fr) 42px!important;
+  }
+  .askAttach{
+    width:36px;
+    height:36px;
+    font-size:1.15rem;
+  }
+}
