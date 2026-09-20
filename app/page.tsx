@@ -4223,7 +4223,25 @@ function DatabaseFileCard({
     return () => window.removeEventListener("rb-retry-raw-file", handleRetryRaw);
   }, [compact, file.id, file.file_path, file.file_name, file.mime_type, file.node_id]);
 
-  async function retryRawProcessing() {
+  useEffect(() => {
+    if (
+      !compact ||
+      file.processing_status !== "error" ||
+      file.mime_type !== "application/pdf" ||
+      file.raw_text?.trim()
+    ) return;
+
+    const key = "rb-auto-retry-pdf-" + file.id;
+    if (window.sessionStorage.getItem(key)) return;
+    window.sessionStorage.setItem(key, "1");
+
+    const timer = window.setTimeout(() => {
+      void retryRawProcessing(false);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [compact, file.id, file.processing_status, file.mime_type, file.raw_text]);
+
+  async function retryRawProcessing(showSuccess = true) {
     const selection = defaultSelection("gemini-2.5-flash");
     const response = await fetch("/api/import-file", {
       method: "POST",
@@ -4241,11 +4259,13 @@ function DatabaseFileCard({
     const result = await response.json().catch(() => ({}));
     if (!response.ok) return alert(result.error || "Gagal memproses ulang file.");
     onChange();
-    alert(
-      result.indexedChunks
-        ? `File berhasil diproses dan diindeks menjadi ${result.indexedChunks} bagian.`
-        : "File berhasil diproses ulang."
-    );
+    if (showSuccess) {
+      alert(
+        result.indexedChunks
+          ? `File berhasil diproses dan diindeks menjadi ${result.indexedChunks} bagian.`
+          : "File berhasil diproses ulang."
+      );
+    }
   }
 
   async function createAiCopy() {
