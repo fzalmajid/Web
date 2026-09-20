@@ -9943,8 +9943,8 @@ function BottomAskBar({
           <span />
         </button>
         <div className="askTopRow">
-          <div className="askScope" title={scopeName}>{scopeName}</div>
           <div className="askTopControls">
+            <div className="askScope" title={scopeName}>{scopeName}</div>
             <AiDatabaseSourcePicker
               nodes={nodes}
               files={files}
