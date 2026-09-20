@@ -1488,6 +1488,7 @@ function AddSheet({
   session,
   user,
   parent,
+  nodes,
   onClose,
   onCreated,
   onAdded,
@@ -1495,6 +1496,7 @@ function AddSheet({
   session: Session;
   user: User;
   parent: StudyNode | null;
+  nodes: StudyNode[];
   onClose: () => void;
   onCreated: (id: string) => void;
   onAdded: () => void;
@@ -1510,6 +1512,28 @@ function AddSheet({
   const [textContent, setTextContent] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [plannerSourceId, setPlannerSourceId] = useState("");
+  const [plannerInstruction, setPlannerInstruction] = useState("");
+  const [plannerCount, setPlannerCount] = useState(5);
+  const [plannerSelection, setPlannerSelection] = useState<AiSelection>(
+    defaultSelection("gemini-2.5-flash")
+  );
+  const plannerMode = legacyModeForSelection(plannerSelection);
+
+  const plannerFolders = useMemo(() => {
+    const all = nodes.filter(isFolderLikeNode);
+    if (!parent) return all;
+    const allowed = new Set(collectSubtreeIds(nodes, parent.id));
+    return all.filter((item) => allowed.has(item.id));
+  }, [nodes, parent]);
+
+  useEffect(() => {
+    if (plannerSourceId && plannerFolders.some((item) => item.id === plannerSourceId)) return;
+    const preferred =
+      (parent && plannerFolders.find((item) => item.id === parent.id)) ||
+      plannerFolders[0];
+    setPlannerSourceId(preferred?.id || "");
+  }, [plannerFolders, plannerSourceId, parent]);
 
   const options = [
     { value: "folder", label: "Folder", hint: "Buat folder / subfolder materi" },
@@ -1519,20 +1543,16 @@ function AddSheet({
           { value: "link" as const, label: "Masukkan link", hint: "Simpan halaman web sebagai sumber RAW" },
           { value: "text" as const, label: "Masukkan teks", hint: "Catatan atau materi mentah langsung ke folder" },
           { value: "recording" as const, label: "🎙️ Rekam audio", hint: "Rekaman + transkrip verbatim langsung ke folder" },
-          { value: "study" as const, label: "Study", hint: "Belajar bertahap dari isi folder" },
         ]
       : []),
-    { value: "flashcards", label: "Flashcard", hint: "Latihan kartu dari isi folder" },
-    { value: "quiz", label: "Kuis", hint: "Soal dari isi folder" },
+    { value: "study", label: "Study", hint: "Atur sumber + model lalu langsung susun Study" },
+    { value: "flashcards", label: "Flashcard", hint: "Atur sumber + model lalu langsung buat kartu" },
+    { value: "quiz", label: "Kuis", hint: "Atur sumber + model lalu langsung buat soal" },
   ] as const;
 
-  async function createNode(e: FormEvent) {
+  async function createFolder(e: FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-    const nodeType: NodeType =
-      kind === "folder"
-        ? parent ? "submaterial" : "material"
-        : kind as "flashcards" | "quiz" | "study";
 
     setBusy(true);
     const { data, error } = await supabase
@@ -1541,7 +1561,7 @@ function AddSheet({
         user_id: user.id,
         parent_id: parent?.id || null,
         title: title.trim(),
-        node_type: nodeType,
+        node_type: parent ? "submaterial" : "material",
         emoji: emoji.trim(),
         card_color: cardColor,
       })
@@ -1551,6 +1571,88 @@ function AddSheet({
 
     if (error) return alert(error.message);
     onCreated(data.id);
+  }
+
+  async function createPlannedTool(e: FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    if (!plannerSourceId) {
+      setStatus("Pilih folder sumber terlebih dahulu.");
+      return;
+    }
+
+    const nodeType = kind as "study" | "flashcards" | "quiz";
+    const placementParentId = parent?.id || plannerSourceId;
+
+    setBusy(true);
+    setStatus(
+      nodeType === "study"
+        ? "Menyusun Study dari RAW/original..."
+        : nodeType === "quiz"
+          ? "Membuat kuis dari RAW/original..."
+          : "Membuat flashcard dari RAW/original..."
+    );
+
+    const { data, error } = await supabase
+      .from("study_nodes")
+      .insert({
+        user_id: user.id,
+        parent_id: placementParentId,
+        title: title.trim(),
+        node_type: nodeType,
+        emoji: emoji.trim(),
+        card_color: cardColor,
+      })
+      .select("id")
+      .single();
+
+    if (error || !data) {
+      setBusy(false);
+      setStatus("");
+      return alert(error?.message || "Gagal membuat.");
+    }
+
+    try {
+      const response =
+        nodeType === "study"
+          ? await fetch("/api/build-study", {
+              method: "POST",
+              headers: aiRequestHeaders(session, plannerSelection),
+              body: JSON.stringify({
+                studyNodeId: data.id,
+                sourceNodeIds: [plannerSourceId],
+                studyInstruction: plannerInstruction.trim(),
+                aiMode: plannerMode,
+                aiModel: plannerSelection.model,
+                aiEffort: plannerSelection.effort,
+              }),
+            })
+          : await fetch("/api/generate-study", {
+              method: "POST",
+              headers: aiRequestHeaders(session, plannerSelection),
+              body: JSON.stringify({
+                sourceNodeId: plannerSourceId,
+                targetNodeId: data.id,
+                mode: nodeType,
+                aiMode: plannerMode,
+                instruction: plannerInstruction.trim(),
+                count: Math.max(1, Math.min(20, Number(plannerCount || 5))),
+              }),
+            });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || "AI belum berhasil membuat konten.");
+      }
+
+      setBusy(false);
+      setStatus("");
+      onCreated(data.id);
+    } catch (error: any) {
+      await supabase.from("study_nodes").delete().eq("id", data.id);
+      setBusy(false);
+      setStatus(error?.message || "Gagal membuat konten.");
+    }
   }
 
   async function addFile(e: FormEvent) {
@@ -1612,13 +1714,15 @@ function AddSheet({
     onAdded();
   }
 
+  const isPlanner = kind === "study" || kind === "flashcards" || kind === "quiz";
+
   return (
     <div className="sheetBackdrop" onMouseDown={onClose}>
       <section className="addSheet explorerAddSheet" onMouseDown={(e) => e.stopPropagation()}>
         <div className="sheetHead">
           <div>
             <p className="eyebrow">TAMBAH</p>
-            <h2>{parent ? "Tambahkan ke " + parent.title : "Buat di Beranda"}</h2>
+            <h2>{parent ? "Tambahkan ke " + parent.title : "Buat dari +"}</h2>
           </div>
           <button className="closeBtn" onClick={onClose}>×</button>
         </div>
@@ -1708,15 +1812,15 @@ function AddSheet({
           </div>
         )}
 
-        {(kind === "folder" || kind === "study" || kind === "flashcards" || kind === "quiz") && (
-          <form className="stack" onSubmit={createNode}>
+        {kind === "folder" && (
+          <form className="stack" onSubmit={createFolder}>
             <label>
-              Nama
+              Nama folder
               <input
                 autoFocus
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder={kind === "folder" ? "Contoh: Pertemuan 1" : "Nama " + options.find((item) => item.value === kind)?.label}
+                placeholder="Contoh: Pertemuan 1"
               />
             </label>
             <div className="customizeMini">
@@ -1738,7 +1842,108 @@ function AddSheet({
               </div>
             </div>
             <button className="primary" disabled={busy || !title.trim()}>
-              {busy ? "Membuat..." : "Buat & buka"}
+              {busy ? "Membuat..." : "Buat folder"}
+            </button>
+          </form>
+        )}
+
+        {isPlanner && (
+          <form className="stack toolPlanner" onSubmit={createPlannedTool}>
+            <label>
+              Nama {kind === "study" ? "Study" : kind === "quiz" ? "Kuis" : "Flashcard"}
+              <input
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={
+                  kind === "study"
+                    ? "Contoh: Review CPOB Bab 1"
+                    : kind === "quiz"
+                      ? "Contoh: Kuis Farmasi"
+                      : "Contoh: Flashcard Farmakologi"
+                }
+              />
+            </label>
+
+            <label>
+              Sumber RAW / folder
+              <select value={plannerSourceId} onChange={(e) => setPlannerSourceId(e.target.value)}>
+                <option value="">Pilih folder sumber</option>
+                {plannerFolders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {(folder.emoji ? folder.emoji + " " : "") + folder.title}
+                  </option>
+                ))}
+              </select>
+              <small className="muted">AI membaca RAW/original dari folder ini. Versi tertata hanya bantuan.</small>
+            </label>
+
+            <label>
+              Fokus / instruksi (opsional)
+              <textarea
+                rows={3}
+                value={plannerInstruction}
+                onChange={(e) => setPlannerInstruction(e.target.value)}
+                placeholder={
+                  kind === "study"
+                    ? "Contoh: fokus konsep yang sering keluar ujian"
+                    : "Contoh: fokus definisi, mekanisme, dan perbedaan penting"
+                }
+              />
+            </label>
+
+            {kind !== "study" && (
+              <label>
+                Jumlah {kind === "quiz" ? "soal" : "kartu"}
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={plannerCount}
+                  onChange={(e) => setPlannerCount(Number(e.target.value || 1))}
+                />
+              </label>
+            )}
+
+            <div className="plannerModelRow">
+              <div>
+                <small className="createLabel">MODEL</small>
+                <AiModePicker
+                  value={plannerSelection}
+                  onChange={setPlannerSelection}
+                  action="study"
+                  allowLocal={false}
+                />
+              </div>
+            </div>
+
+            <div className="customizeMini plannerStyle">
+              <div>
+                <span className="fieldLabel">Emoji (opsional)</span>
+                <div className="emojiRow compact">
+                  {nodeEmojis.slice(0, 8).map((item) => (
+                    <button type="button" key={item} className={emoji === item ? "emojiChoice active" : "emojiChoice"} onClick={() => setEmoji(item)}>{item}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="fieldLabel">Warna</span>
+                <div className="colorRow compact">
+                  {nodeColors.map((item) => (
+                    <button type="button" key={item.value} title={item.label} className={cardColor === item.value ? "colorChoice active" : "colorChoice"} data-color={item.value} onClick={() => setCardColor(item.value)} />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button className="primary" disabled={busy || !title.trim() || !plannerSourceId}>
+              {busy
+                ? status || "Membuat..."
+                : kind === "study"
+                  ? "Buat & susun Study"
+                  : kind === "quiz"
+                    ? "Buat Kuis sekarang"
+                    : "Buat Flashcard sekarang"}
             </button>
           </form>
         )}
@@ -1748,6 +1953,7 @@ function AddSheet({
     </div>
   );
 }
+
 
 function DatabasePage({
   session,
