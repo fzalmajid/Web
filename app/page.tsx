@@ -772,11 +772,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
       <main className="pageShell">
         {current && (
-          <div className="pageNav">
-            <button className="backBtn" onClick={goBack}>←</button>
-            <div className="crumbs">
+          <div className="pageNav explorerPathNav">
+            <div className="crumbs explorerPathBar" aria-label="Lokasi folder">
               <button
-                className={breadcrumbDropId === "__root__" ? "crumbDropTarget active" : "crumbDropTarget"}
+                className={breadcrumbDropId === "__root__" ? "pathCrumb home active" : "pathCrumb home"}
                 data-rb-drop-target="__root__"
                 onClick={() => setCurrentId(null)}
                 onDragEnter={(event) => {
@@ -799,10 +798,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                 Beranda
               </button>
               {path.map((item) => (
-                <span key={item.id}>
-                  <b>/</b>
+                <span className="pathSegment" key={item.id}>
+                  <b className="pathSlash">/</b>
                   <button
-                    className={breadcrumbDropId === item.id ? "crumbDropTarget active" : "crumbDropTarget"}
+                    className={breadcrumbDropId === item.id ? "pathCrumb active" : "pathCrumb"}
                     data-rb-drop-target={item.id}
                     onClick={() => setCurrentId(item.id)}
                     onDragEnter={(event) => {
@@ -1617,6 +1616,151 @@ function FolderPage({
   );
 }
 
+function FolderTreePicker({
+  nodes,
+  value,
+  onChange,
+  allowedIds,
+  placeholder = "Pilih folder",
+}: {
+  nodes: StudyNode[];
+  value: string;
+  onChange: (id: string) => void;
+  allowedIds?: Set<string>;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const folderNodes = useMemo(
+    () =>
+      nodes.filter(
+        (node) => isFolderLikeNode(node) && (!allowedIds || allowedIds.has(node.id))
+      ),
+    [nodes, allowedIds]
+  );
+  const folderMap = useMemo(
+    () => new Map(folderNodes.map((node) => [node.id, node])),
+    [folderNodes]
+  );
+  const selected = folderMap.get(value) || nodes.find((node) => node.id === value) || null;
+
+  const selectedPath = useMemo(() => {
+    if (!selected) return "";
+    const parts: StudyNode[] = [];
+    let cursor: StudyNode | undefined = selected;
+    const allMap = new Map(nodes.map((node) => [node.id, node]));
+    const seen = new Set<string>();
+    while (cursor && !seen.has(cursor.id)) {
+      seen.add(cursor.id);
+      parts.unshift(cursor);
+      cursor = cursor.parent_id ? allMap.get(cursor.parent_id) : undefined;
+    }
+    return parts.map((item) => item.title).join(" / ");
+  }, [selected, nodes]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!value) return;
+    const allMap = new Map(nodes.map((node) => [node.id, node]));
+    const next = new Set<string>();
+    let cursor = allMap.get(value);
+    while (cursor?.parent_id) {
+      next.add(cursor.parent_id);
+      cursor = allMap.get(cursor.parent_id);
+    }
+    setExpanded((current) => new Set([...current, ...next]));
+  }, [value, nodes]);
+
+  const childrenByParent = useMemo(() => {
+    const result = new Map<string | null, StudyNode[]>();
+    const visible = new Set(folderNodes.map((node) => node.id));
+    for (const node of folderNodes) {
+      const parentId = node.parent_id && visible.has(node.parent_id) ? node.parent_id : null;
+      const list = result.get(parentId) || [];
+      list.push(node);
+      result.set(parentId, list);
+    }
+    for (const list of result.values()) {
+      list.sort((a, b) => a.title.localeCompare(b.title, "id"));
+    }
+    return result;
+  }, [folderNodes]);
+
+  function toggle(id: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function renderBranch(parentId: string | null, depth: number): any {
+    return (childrenByParent.get(parentId) || []).map((node) => {
+      const children = childrenByParent.get(node.id) || [];
+      const hasChildren = children.length > 0;
+      const isExpanded = expanded.has(node.id);
+      return (
+        <div className="folderTreeBranch" key={node.id}>
+          <div
+            className={value === node.id ? "folderTreeRow selected" : "folderTreeRow"}
+            style={{ paddingLeft: 8 + depth * 18 }}
+          >
+            <button
+              type="button"
+              className="folderTreeToggle"
+              aria-label={hasChildren ? (isExpanded ? "Tutup folder" : "Buka folder") : "Tidak ada subfolder"}
+              onClick={() => hasChildren && toggle(node.id)}
+              disabled={!hasChildren}
+            >
+              {hasChildren ? (isExpanded ? "⌄" : ">") : "·"}
+            </button>
+            <button
+              type="button"
+              className="folderTreeChoice"
+              onClick={() => {
+                onChange(node.id);
+                if (!hasChildren) setOpen(false);
+              }}
+            >
+              <span>{node.emoji || "📁"}</span>
+              <strong>{node.title}</strong>
+            </button>
+          </div>
+          {hasChildren && isExpanded && renderBranch(node.id, depth + 1)}
+        </div>
+      );
+    });
+  }
+
+  return (
+    <div className="folderTreePicker">
+      <button
+        type="button"
+        className={open ? "folderTreeSelected open" : "folderTreeSelected"}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{selected?.emoji || "📁"}</span>
+        <span className="folderTreeSelectedCopy">
+          <strong>{selected?.title || placeholder}</strong>
+          {selectedPath && <small>{selectedPath}</small>}
+        </span>
+        <b>{open ? "⌄" : ">"}</b>
+      </button>
+      {open && (
+        <div className="folderTreePanel">
+          <div className="folderTreeHome">
+            <span>⌂</span>
+            <strong>Beranda</strong>
+          </div>
+          {renderBranch(null, 0)}
+          {!folderNodes.length && <small className="muted">Belum ada folder.</small>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddSheet({
   session,
   user,
@@ -1648,17 +1792,16 @@ function AddSheet({
   const [plannerSourceId, setPlannerSourceId] = useState("");
   const [plannerInstruction, setPlannerInstruction] = useState("");
   const [plannerCount, setPlannerCount] = useState(5);
+  const [plannerQuizKinds, setPlannerQuizKinds] = useState<Array<"mcq-fixed" | "essay-fixed" | "mcq-ai" | "essay-ai">>(["mcq-fixed"]);
   const [plannerSelection, setPlannerSelection] = useState<AiSelection>(
     defaultSelection("gemini-2.5-flash")
   );
   const plannerMode = legacyModeForSelection(plannerSelection);
 
-  const plannerFolders = useMemo(() => {
-    const all = nodes.filter(isFolderLikeNode);
-    if (!parent) return all;
-    const allowed = new Set(collectSubtreeIds(nodes, parent.id));
-    return all.filter((item) => allowed.has(item.id));
-  }, [nodes, parent]);
+  const plannerFolders = useMemo(
+    () => nodes.filter(isFolderLikeNode),
+    [nodes]
+  );
 
   useEffect(() => {
     if (plannerSourceId && plannerFolders.some((item) => item.id === plannerSourceId)) return;
@@ -1711,6 +1854,10 @@ function AddSheet({
     if (!title.trim()) return;
     if (!plannerSourceId) {
       setStatus("Pilih folder sumber terlebih dahulu.");
+      return;
+    }
+    if (kind === "quiz" && !plannerQuizKinds.length) {
+      setStatus("Pilih minimal satu jenis soal.");
       return;
     }
 
@@ -1770,6 +1917,7 @@ function AddSheet({
                 aiMode: plannerMode,
                 instruction: plannerInstruction.trim(),
                 count: Math.max(1, Math.min(20, Number(plannerCount || 5))),
+                quizKinds: nodeType === "quiz" ? plannerQuizKinds : undefined,
               }),
             });
 
@@ -1998,18 +2146,17 @@ function AddSheet({
               />
             </label>
 
-            <label>
-              Sumber RAW / folder
-              <select value={plannerSourceId} onChange={(e) => setPlannerSourceId(e.target.value)}>
-                <option value="">Pilih folder sumber</option>
-                {plannerFolders.map((folder) => (
-                  <option key={folder.id} value={folder.id}>
-                    {(folder.emoji ? folder.emoji + " " : "") + folder.title}
-                  </option>
-                ))}
-              </select>
+            <div className="plannerFolderField">
+              <span className="fieldLabel">Sumber RAW / folder</span>
+              <FolderTreePicker
+                nodes={nodes}
+                value={plannerSourceId}
+                onChange={setPlannerSourceId}
+                allowedIds={new Set(plannerFolders.map((folder) => folder.id))}
+                placeholder="Pilih folder sumber"
+              />
               <small className="muted">AI membaca RAW/original dari folder ini. Versi tertata hanya bantuan.</small>
-            </label>
+            </div>
 
             <label>
               Fokus / instruksi (opsional)
@@ -2025,9 +2172,42 @@ function AddSheet({
               />
             </label>
 
+            {kind === "quiz" && (
+              <div className="plannerQuizKinds">
+                <span className="fieldLabel">Jenis soal</span>
+                <small className="muted">Bisa pilih lebih dari satu. Fungsi penilaian lama tetap dipertahankan.</small>
+                <div className="quizKindTabs fourKinds plannerKinds">
+                  {[
+                    { value: "mcq-fixed" as const, label: "Pilihan Ganda" },
+                    { value: "essay-fixed" as const, label: "Essay" },
+                    { value: "mcq-ai" as const, label: "PG dinilai AI" },
+                    { value: "essay-ai" as const, label: "Essay dinilai AI" },
+                  ].map((item) => {
+                    const active = plannerQuizKinds.includes(item.value);
+                    return (
+                      <button
+                        type="button"
+                        key={item.value}
+                        className={active ? "active" : ""}
+                        onClick={() =>
+                          setPlannerQuizKinds((current) =>
+                            active
+                              ? current.filter((value) => value !== item.value)
+                              : [...current, item.value]
+                          )
+                        }
+                      >
+                        {active ? "✓ " : ""}{item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {kind !== "study" && (
               <label>
-                Jumlah {kind === "quiz" ? "soal" : "kartu"}
+                Jumlah {kind === "quiz" ? "soal total" : "kartu"}
                 <input
                   type="number"
                   min={1}
@@ -6873,12 +7053,13 @@ function BottomAskBar({
             {askVoiceStatus && <small>{askVoiceStatus}</small>}
             {pendingVoice && (
               <div className="askVoiceSaveRow">
-                <select value={askVoiceDbId} onChange={(e) => setAskVoiceDbId(e.target.value)}>
-                  <option value="">Pilih folder</option>
-                  {askVoiceDatabases.map((database) => (
-                    <option key={database.id} value={database.id}>{database.title}</option>
-                  ))}
-                </select>
+                <FolderTreePicker
+                  nodes={nodes}
+                  value={askVoiceDbId}
+                  onChange={setAskVoiceDbId}
+                  allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
+                  placeholder="Pilih folder"
+                />
                 <button
                   type="button"
                   className="ghost"
@@ -6910,12 +7091,13 @@ function BottomAskBar({
                   <small>{formatBytes(pendingAttachment.file.size)} · file asli + RAW siap dibaca AI</small>
                 </div>
                 <div className="askVoiceSaveRow">
-                  <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
-                    <option value="">Pilih folder</option>
-                    {askVoiceDatabases.map((database) => (
-                      <option key={database.id} value={database.id}>{database.title}</option>
-                    ))}
-                  </select>
+                  <FolderTreePicker
+                    nodes={nodes}
+                    value={attachmentDbId}
+                    onChange={setAttachmentDbId}
+                    allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
+                    placeholder="Pilih folder"
+                  />
                   <button
                     type="button"
                     className="ghost"
@@ -6948,12 +7130,13 @@ function BottomAskBar({
                   <small>{pendingLink.url} · sumber link RAW dibaca langsung</small>
                 </div>
                 <div className="askVoiceSaveRow">
-                  <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
-                    <option value="">Pilih folder</option>
-                    {askVoiceDatabases.map((database) => (
-                      <option key={database.id} value={database.id}>{database.title}</option>
-                    ))}
-                  </select>
+                  <FolderTreePicker
+                    nodes={nodes}
+                    value={attachmentDbId}
+                    onChange={setAttachmentDbId}
+                    allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
+                    placeholder="Pilih folder"
+                  />
                   <button
                     type="button"
                     className="ghost"
@@ -6984,12 +7167,13 @@ function BottomAskBar({
               <small>{pendingTextSave.slice(0, 180)}{pendingTextSave.length > 180 ? "…" : ""}</small>
             </div>
             <div className="askVoiceSaveRow">
-              <select value={attachmentDbId} onChange={(e) => setAttachmentDbId(e.target.value)}>
-                <option value="">Pilih folder</option>
-                {askVoiceDatabases.map((database) => (
-                  <option key={database.id} value={database.id}>{database.title}</option>
-                ))}
-              </select>
+              <FolderTreePicker
+                nodes={nodes}
+                value={attachmentDbId}
+                onChange={setAttachmentDbId}
+                allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
+                placeholder="Pilih folder"
+              />
               <button
                 type="button"
                 className="ghost"
