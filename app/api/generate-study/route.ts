@@ -22,7 +22,11 @@ export async function POST(req: NextRequest) {
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
     const instruction = String(body.instruction || "").trim().slice(0, 2000);
-    const requestedCount = Math.max(1, Math.min(20, Number(body.count || 0) || 0));
+    const rawCount = Number(body.count || 0);
+    const requestedCount =
+      Number.isFinite(rawCount) && rawCount > 0
+        ? Math.max(1, Math.min(20, Math.round(rawCount)))
+        : 0;
     const aiSelection = selectionFromHeaders(req.headers, "general", aiMode);
     const geminiAuth = geminiUserAuthFromHeaders(req.headers);
     const ownGemini = geminiAuth.ownGemini;
