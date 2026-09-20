@@ -12,7 +12,7 @@ import {
   ExternalAiError,
   type ExternalAiAttachment,
 } from "@/lib/externalAi";
-import { buildKnowledgeContext, getScopeKnowledge, searchScopeKnowledge } from "@/lib/knowledge";
+import { buildKnowledgeContext, getScopeKnowledge, searchScopeKnowledge, searchSelectedKnowledge } from "@/lib/knowledge";
 import {
   modelPlanForSelection,
   modelProvider,
@@ -614,6 +614,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const question = body.question;
     const scopeNodeId = body.scopeNodeId ?? null;
+    const sourceNodeIds = Array.isArray(body.sourceNodeIds)
+      ? body.sourceNodeIds.map((value: unknown) => String(value || "")).filter(Boolean).slice(0, 24)
+      : [];
+    const sourceFileIds = Array.isArray(body.sourceFileIds)
+      ? body.sourceFileIds.map((value: unknown) => String(value || "")).filter(Boolean).slice(0, 40)
+      : [];
+    const hasExplicitDatabaseSources = sourceNodeIds.length > 0 || sourceFileIds.length > 0;
     const aiMode = normalizeAiMode(body.aiMode ?? "instant");
     const aiSelection = selectionFromHeaders(req.headers, "chat", aiMode);
     const selectedProvider = modelProvider(aiSelection.model);
@@ -662,12 +669,21 @@ export async function POST(req: NextRequest) {
     let data: any[] = [];
 
     if (useDatabase) {
-      data = await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
+      data = hasExplicitDatabaseSources
+        ? await searchSelectedKnowledge(
+            supabase,
+            question.trim(),
+            sourceNodeIds,
+            sourceFileIds,
+            searchLimit
+          )
+        : await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
+
       const broadDatabaseQuestion =
         /\b(ringkas|rangkum|overview|gambaran|jelaskan materi|apa isi|pelajari semua|seluruh materi)\b/i.test(
           question.trim()
         );
-      if (!data.length && broadDatabaseQuestion) {
+      if (!data.length && broadDatabaseQuestion && !hasExplicitDatabaseSources) {
         data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
       }
 
