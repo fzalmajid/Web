@@ -155,6 +155,7 @@ Aturan:
     }], "Anda adalah penilai kuis yang adil secara semantik. Nilai kebenaran konsep, bukan kecocokan kata-per-kata, dan hanya gunakan database yang diberikan.", {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
+      responseLength: aiSelection.length,
       apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
