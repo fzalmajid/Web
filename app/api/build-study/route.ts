@@ -98,10 +98,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const sourceScopeIds = Array.from(
+      new Set(
+        sourceNodeIds.flatMap((sourceId) =>
+          collectSubtreeIds(allNodes || [], sourceId)
+        )
+      )
+    );
+
     const { data: entries, error: entriesError } = await supabase
       .from("knowledge_entries")
       .select("id,node_id,title,category,content,raw_content,source_type")
-      .in("node_id", sourceNodeIds)
+      .in("node_id", sourceScopeIds)
       .order("created_at", { ascending: true });
 
     if (entriesError) throw entriesError;
@@ -111,7 +119,7 @@ export async function POST(req: NextRequest) {
 
     const modeLimit = aiMode === "high" ? 140000 : aiMode === "medium" ? 100000 : 70000;
     const perEntryLimit = aiMode === "high" ? 12000 : aiMode === "medium" ? 9000 : 6500;
-    const titles = new Map(selectedNodes.map((node: any) => [node.id, node.title]));
+    const titles = new Map((allNodes || []).map((node: any) => [node.id, node.title]));
     const contextParts: string[] = [];
     let used = 0;
 
