@@ -1201,6 +1201,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           user={user}
           parent={current}
           nodes={nodes}
+          files={files}
           onClose={() => setAddOpen(false)}
           onAdded={() => {
             setAddOpen(false);
@@ -2692,6 +2693,7 @@ function AddSheet({
   user,
   parent,
   nodes,
+  files,
   onClose,
   onCreated,
   onAdded,
@@ -2700,6 +2702,7 @@ function AddSheet({
   user: User;
   parent: StudyNode | null;
   nodes: StudyNode[];
+  files: SourceFile[];
   onClose: () => void;
   onCreated: (id: string) => void;
   onAdded: () => void;
@@ -2716,6 +2719,8 @@ function AddSheet({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [plannerSourceId, setPlannerSourceId] = useState("");
+  const [plannerSourceNodeIds, setPlannerSourceNodeIds] = useState<string[]>([]);
+  const [plannerSourceFileIds, setPlannerSourceFileIds] = useState<string[]>([]);
   const [plannerInstruction, setPlannerInstruction] = useState("");
   const [plannerCount, setPlannerCount] = useState(5);
   const [plannerQuizKinds, setPlannerQuizKinds] = useState<Array<"mcq-fixed" | "essay-fixed">>(["mcq-fixed"]);
@@ -2758,12 +2763,32 @@ function AddSheet({
   );
 
   useEffect(() => {
-    if (plannerSourceId && plannerFolders.some((item) => item.id === plannerSourceId)) return;
+    const selectedFileNodeId = files.find((item) => plannerSourceFileIds.includes(item.id))?.node_id || "";
+    const selectedFolderId = plannerSourceNodeIds.find((id) => plannerFolders.some((item) => item.id === id)) || "";
+    const derived = selectedFolderId || selectedFileNodeId;
+    if (derived) {
+      if (plannerSourceId !== derived) setPlannerSourceId(derived);
+      return;
+    }
+
     const preferred =
       (parent && plannerFolders.find((item) => item.id === parent.id)) ||
       plannerFolders[0];
-    setPlannerSourceId(preferred?.id || "");
-  }, [plannerFolders, plannerSourceId, parent]);
+
+    if (preferred && !plannerSourceNodeIds.length && !plannerSourceFileIds.length) {
+      setPlannerSourceNodeIds([preferred.id]);
+      setPlannerSourceId(preferred.id);
+    } else if (!preferred) {
+      setPlannerSourceId("");
+    }
+  }, [
+    files,
+    parent,
+    plannerFolders,
+    plannerSourceId,
+    plannerSourceFileIds,
+    plannerSourceNodeIds,
+  ]);
 
   const options = [
     { value: "folder", label: "Folder", hint: "Buat folder / subfolder materi" },
@@ -2892,8 +2917,14 @@ function AddSheet({
     const isManualQuiz = kind === "quiz" && quizCreationMode === "manual";
     const isAnswerAiQuiz = kind === "quiz" && quizCreationMode === "answer-ai";
 
-    if (!isManualQuiz && !plannerSourceId) {
-      setStatus("Pilih folder sumber terlebih dahulu.");
+    const plannerHasDatabaseSource =
+      plannerSourceNodeIds.length > 0 || plannerSourceFileIds.length > 0;
+    if (
+      !isManualQuiz &&
+      plannerAnswerSources.includes("database") &&
+      !plannerHasDatabaseSource
+    ) {
+      setStatus("Pilih minimal satu folder atau file sumber.");
       return;
     }
     if (kind === "quiz" && !plannerQuizKinds.length) {
@@ -2926,8 +2957,13 @@ function AddSheet({
     }
 
     const nodeType = kind as "study" | "flashcards" | "quiz";
+    const selectedFileParentId =
+      files.find((item) => plannerSourceFileIds.includes(item.id))?.node_id || null;
     const placementParentId =
-      parent?.id || (isManualQuiz ? null : plannerSourceId);
+      parent?.id ||
+      (isManualQuiz
+        ? null
+        : plannerSourceNodeIds[0] || selectedFileParentId || plannerSourceId || null);
 
     setBusy(true);
     setStatus(
@@ -2994,7 +3030,8 @@ function AddSheet({
               headers: aiRequestHeaders(session, plannerSelection),
               body: JSON.stringify({
                 studyNodeId: data.id,
-                sourceNodeIds: [plannerSourceId],
+                sourceNodeIds: plannerSourceNodeIds,
+                sourceFileIds: plannerSourceFileIds,
                 studyInstruction: plannerInstruction.trim(),
                 aiMode: plannerMode,
                 aiModel: plannerSelection.model,
@@ -3013,7 +3050,9 @@ function AddSheet({
               method: "POST",
               headers: aiRequestHeaders(session, plannerSelection),
               body: JSON.stringify({
-                sourceNodeId: plannerSourceId,
+                sourceNodeId: plannerSourceNodeIds[0] || plannerSourceId,
+                sourceNodeIds: plannerSourceNodeIds,
+                sourceFileIds: plannerSourceFileIds,
                 targetNodeId: data.id,
                 mode: nodeType,
                 aiMode: plannerMode,
@@ -3488,15 +3527,32 @@ function AddSheet({
             </label>
 
             <div className="plannerFolderField">
-              <span className="fieldLabel">Sumber RAW / folder</span>
-              <FolderTreePicker
+              <span className="fieldLabel">Pilih sumber</span>
+              <AiDatabaseSourcePicker
                 nodes={nodes}
-                value={plannerSourceId}
-                onChange={setPlannerSourceId}
-                allowedIds={new Set(plannerFolders.map((folder) => folder.id))}
-                placeholder="Pilih folder sumber"
+                files={files}
+                nodeIds={plannerSourceNodeIds}
+                fileIds={plannerSourceFileIds}
+                currentNodeId={parent?.id || null}
+                onChange={(next) => {
+                  setPlannerSourceNodeIds(next.nodeIds);
+                  setPlannerSourceFileIds(next.fileIds);
+                  const fileNodeId =
+                    files.find((item) => next.fileIds.includes(item.id))?.node_id || "";
+                  setPlannerSourceId(next.nodeIds[0] || fileNodeId || "");
+                  if (
+                    (next.nodeIds.length || next.fileIds.length) &&
+                    !plannerAnswerSources.includes("database")
+                  ) {
+                    setPlannerAnswerSources((current) =>
+                      current.includes("database") ? current : [...current, "database"]
+                    );
+                  }
+                }}
               />
-              <small className="muted">AI membaca RAW/original dari folder ini. Versi tertata hanya bantuan.</small>
+              <small className="muted">
+                Klik folder atau file langsung. Bisa memilih lebih dari satu sumber RAW/original.
+              </small>
             </div>
 
             <label>
@@ -3802,7 +3858,16 @@ function AddSheet({
 
             <button
               className="primary"
-              disabled={busy || !title.trim() || (!(kind === "quiz" && quizCreationMode === "manual") && !plannerSourceId)}
+              disabled={
+                busy ||
+                !title.trim() ||
+                (
+                  !(kind === "quiz" && quizCreationMode === "manual") &&
+                  plannerAnswerSources.includes("database") &&
+                  !plannerSourceNodeIds.length &&
+                  !plannerSourceFileIds.length
+                )
+              }
             >
               {busy
                 ? status || "Membuat..."
