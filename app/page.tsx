@@ -749,7 +749,11 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   async function loadAll() {
     const result = await Promise.all([
       supabase.from("study_nodes").select("*").order("position").order("created_at"),
-      supabase.from("knowledge_entries").select("*").order("created_at", { ascending: false }),
+      supabase
+        .from("knowledge_entries")
+        .select("*")
+        .is("source_chunk_index", null)
+        .order("created_at", { ascending: false }),
       supabase.from("source_files").select("*").order("created_at", { ascending: false }),
       supabase.from("recordings").select("*").order("created_at", { ascending: false }),
       supabase.from("flashcards").select("*").order("created_at", { ascending: false }),
