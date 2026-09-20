@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
+import pdfParse from "pdf-parse";
 import JSZip from "jszip";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
@@ -26,6 +27,39 @@ function isTextMime(mime: string) {
 
 function isMediaMime(mime: string) {
   return mime.startsWith("audio/") || mime.startsWith("video/");
+}
+
+function splitKnowledgeChunks(value: string, maxChars = 14000, overlap = 900) {
+  const text = String(value || "").replace(/\r\n/g, "\n").trim();
+  if (!text) return [];
+  if (text.length <= maxChars) return [text];
+
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < text.length) {
+    let end = Math.min(text.length, start + maxChars);
+    if (end < text.length) {
+      const paragraphBreak = text.lastIndexOf("\n\n", end);
+      const lineBreak = text.lastIndexOf("\n", end);
+      const sentenceBreak = Math.max(
+        text.lastIndexOf(". ", end),
+        text.lastIndexOf("? ", end),
+        text.lastIndexOf("! ", end)
+      );
+      const bestBreak = Math.max(paragraphBreak, lineBreak, sentenceBreak);
+      if (bestBreak > start + Math.floor(maxChars * 0.6)) {
+        end = bestBreak + (bestBreak === sentenceBreak ? 2 : 1);
+      }
+    }
+
+    const chunk = text.slice(start, end).trim();
+    if (chunk) chunks.push(chunk);
+    if (end >= text.length) break;
+    start = Math.max(end - overlap, start + 1);
+  }
+
+  return chunks;
 }
 
 function decodeXml(value: string) {
@@ -154,6 +188,16 @@ export async function POST(req: NextRequest) {
     if (!rawText && (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.toLowerCase().endsWith(".docx"))) {
       const extracted = await mammoth.extractRawText({ buffer: buffer! });
       rawText = extracted.value.trim();
+    } else if (!rawText && mimeType === "application/pdf") {
+      try {
+        const extracted = await pdfParse(buffer!);
+        rawText = String(extracted.text || "").trim();
+      } catch (pdfError) {
+        console.warn("[PDF_TEXT_EXTRACTION_FAILED]", {
+          fileName,
+          message: pdfError instanceof Error ? pdfError.message : String(pdfError),
+        });
+      }
     } else if (!rawText && (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || fileName.toLowerCase().endsWith(".pptx"))) {
       rawText = (await extractPptxText(buffer!)).trim();
     } else if (!rawText && isTextMime(mimeType)) {
@@ -188,37 +232,32 @@ export async function POST(req: NextRequest) {
     const media = isMediaMime(mimeType);
 
     if (operation === "raw") {
-      const { data: existingEntry } = await supabase
+      const chunks = splitKnowledgeChunks(rawText);
+      const { error: deleteEntryError } = await supabase
         .from("knowledge_entries")
-        .select("id")
-        .eq("source_file_id", sourceFileId)
-        .maybeSingle();
+        .delete()
+        .eq("source_file_id", sourceFileId);
+      if (deleteEntryError) throw deleteEntryError;
 
-      if (existingEntry?.id) {
-        const { error: entryUpdateError } = await supabase
-          .from("knowledge_entries")
-          .update({
-            title: fileName,
-            category: media ? "Transkrip file" : "File",
-            content: rawText,
-            raw_content: rawText,
-            source_type: "file",
-          })
-          .eq("id", existingEntry.id);
-        if (entryUpdateError) throw entryUpdateError;
-      } else {
+      const rows = chunks.map((chunk, index) => ({
+        user_id: userData.user.id,
+        node_id: nodeId,
+        title: chunks.length > 1 ? `${fileName} · Bagian ${index + 1}/${chunks.length}` : fileName,
+        category: media
+          ? "Transkrip file"
+          : chunks.length > 1
+            ? `File terindeks · Bagian ${index + 1}/${chunks.length}`
+            : "File",
+        content: chunk,
+        raw_content: chunk,
+        source_type: "file",
+        source_file_id: sourceFileId,
+      }));
+
+      for (let offset = 0; offset < rows.length; offset += 50) {
         const { error: entryInsertError } = await supabase
           .from("knowledge_entries")
-          .insert({
-            user_id: userData.user.id,
-            node_id: nodeId,
-            title: fileName,
-            category: media ? "Transkrip file" : "File",
-            content: rawText,
-            raw_content: rawText,
-            source_type: "file",
-            source_file_id: sourceFileId,
-          });
+          .insert(rows.slice(offset, offset + 50));
         if (entryInsertError) throw entryInsertError;
       }
 
@@ -239,7 +278,13 @@ export async function POST(req: NextRequest) {
       if (rawUpdateError) throw rawUpdateError;
 
       const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
-      return NextResponse.json({ rawText, aiUsage, operation: "raw" });
+      return NextResponse.json({
+        rawText,
+        aiUsage,
+        operation: "raw",
+        indexedChunks: chunks.length,
+        extraction: mimeType === "application/pdf" ? "server-text-layer" : "native",
+      });
     }
 
     const knowledge = await getScopeKnowledge(supabase, nodeId, 40);
