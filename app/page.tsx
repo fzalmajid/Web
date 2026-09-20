@@ -6747,14 +6747,14 @@ function AiModePicker({
     };
   }, []);
 
-  const chatAction = action === "ask" || action === "ask_web";
+  const textAction = action === "ask" || action === "ask_web" || action === "study";
   const openAIConnected = pluginRevision >= 0 && Boolean(getSessionOpenAIKey());
   const anthropicConnected = pluginRevision >= 0 && Boolean(getSessionAnthropicKey());
   const geminiIds = activeGeminiModelIds();
   const openAIIds = getStoredModelIds("rb-openai-models");
   const anthropicIds = getStoredModelIds("rb-anthropic-models");
   const localAiConfig = getSessionLocalAiConfig();
-  const localModels = chatAction && localAiConfig.endpoint
+  const localModels = (action === "ask" || action === "ask_web") && localAiConfig.endpoint
     ? localAiConfig.models.map((model) => ({
         id: localAiModelId(model),
         provider: "local-openai" as const,
@@ -6765,7 +6765,7 @@ function AiModePicker({
             : localAiConfig.kind === "ollama"
               ? "Ollama · perangkat user"
               : "OpenAI-compatible · perangkat/user endpoint",
-        contexts: ["chat" as const],
+        contexts: ["general" as const, "chat" as const],
         efforts: [],
         defaultEffort: "none" as const,
         freeTier: true,
@@ -6774,7 +6774,7 @@ function AiModePicker({
     : [];
 
   const knownIds = new Set(AI_MODEL_CATALOG.map((item) => item.id));
-  const dynamicGeminiModels = chatAction
+  const dynamicGeminiModels = textAction
     ? geminiIds
         .filter((id) => !knownIds.has(id as AiModelId))
         .filter((id) => /^gemini-/i.test(id) && !/embedding|image|tts|live|transcribe/i.test(id))
@@ -6783,7 +6783,7 @@ function AiModePicker({
           provider: "gemini" as const,
           label: id.replace(/^gemini-/, "Gemini ").replaceAll("-", " "),
           subtitle: "Gemini · tersedia pada provider aktif",
-          contexts: ["chat" as const],
+          contexts: ["general" as const, "chat" as const],
           efforts: [],
           defaultEffort: "none" as const,
           freeTier: true,
@@ -6791,7 +6791,7 @@ function AiModePicker({
         }))
     : [];
 
-  const dynamicOpenAIModels = chatAction && openAIConnected
+  const dynamicOpenAIModels = textAction && openAIConnected
     ? openAIIds
         .filter((id) => !AI_MODEL_CATALOG.some((item) => providerModelId(item.id) === id))
         .filter((id) => /^(gpt-|o\d|chatgpt-)/i.test(id) && !/audio|realtime|transcribe|image|embedding|tts|search-preview/i.test(id))
@@ -6800,7 +6800,7 @@ function AiModePicker({
           provider: "openai" as const,
           label: id,
           subtitle: "OpenAI · tersedia di account/API user",
-          contexts: ["chat" as const],
+          contexts: ["general" as const, "chat" as const],
           efforts: [],
           defaultEffort: "none" as const,
           freeTier: false,
@@ -6808,7 +6808,7 @@ function AiModePicker({
         }))
     : [];
 
-  const dynamicAnthropicModels = chatAction && anthropicConnected
+  const dynamicAnthropicModels = textAction && anthropicConnected
     ? anthropicIds
         .filter((id) => !AI_MODEL_CATALOG.some((item) => providerModelId(item.id) === id))
         .filter((id) => /^claude-/i.test(id))
@@ -6817,7 +6817,7 @@ function AiModePicker({
           provider: "anthropic" as const,
           label: id,
           subtitle: "Claude · tersedia di account/API user",
-          contexts: ["chat" as const],
+          contexts: ["general" as const, "chat" as const],
           efforts: [],
           defaultEffort: "none" as const,
           freeTier: false,
@@ -6837,10 +6837,10 @@ function AiModePicker({
       return !geminiIds.length || geminiIds.includes(providerModelId(item.id));
     }
     if (item.provider === "openai") {
-      return chatAction && openAIConnected && (!openAIIds.length || openAIIds.includes(providerModelId(item.id)));
+      return textAction && openAIConnected && (!openAIIds.length || openAIIds.includes(providerModelId(item.id)));
     }
     if (item.provider === "anthropic") {
-      return chatAction && anthropicConnected && (!anthropicIds.length || anthropicIds.includes(providerModelId(item.id)));
+      return textAction && anthropicConnected && (!anthropicIds.length || anthropicIds.includes(providerModelId(item.id)));
     }
     return true;
   });
