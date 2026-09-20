@@ -1986,6 +1986,13 @@ function FolderPage({
           onCopy={() => copyItem(contextMenu.item)}
           onPaste={pasteIntoCurrent}
           onDownload={() => void downloadContextItem(contextMenu.item)}
+          onAiCopy={() => {
+            const item = contextMenu.item;
+            closeContextMenu();
+            if (item.kind === "file") {
+              window.dispatchEvent(new CustomEvent("rb-open-ai-copy", { detail: { fileId: item.id } }));
+            }
+          }}
           onDelete={() => {
             const item = contextMenu.item;
             closeContextMenu();
@@ -2026,6 +2033,7 @@ function ExplorerActionMenu({
   onCopy,
   onPaste,
   onDownload,
+  onAiCopy,
   onDelete,
 }: {
   menu: NonNullable<ExplorerContextMenu>;
@@ -2038,6 +2046,7 @@ function ExplorerActionMenu({
   onCopy: () => void;
   onPaste: () => void;
   onDownload: () => void;
+  onAiCopy: () => void;
   onDelete: () => void;
 }) {
   const file = menu.item.kind === "file" ? files.find((row) => row.id === menu.item.id) : null;
@@ -2055,6 +2064,7 @@ function ExplorerActionMenu({
         <button type="button" onClick={onCopy}>Copy</button>
         {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
         {canDownload && <button type="button" onClick={onDownload}>Download</button>}
+        {file?.raw_text && <button type="button" onClick={onAiCopy}>Buat versi AI</button>}
         <button type="button" className="dangerMenuItem" onClick={onDelete}>Hapus</button>
       </div>
     </div>
@@ -4183,6 +4193,16 @@ function DatabaseFileCard({
     defaultSelection("gemini-2.5-flash")
   );
 
+  useEffect(() => {
+    if (!compact) return;
+    const handleOpenAiCopy = (event: Event) => {
+      const detail = (event as CustomEvent<{ fileId?: string }>).detail;
+      if (detail?.fileId === file.id) setCopyOpen(true);
+    };
+    window.addEventListener("rb-open-ai-copy", handleOpenAiCopy);
+    return () => window.removeEventListener("rb-open-ai-copy", handleOpenAiCopy);
+  }, [compact, file.id]);
+
   async function createAiCopy() {
     if (!file.raw_text?.trim()) {
       return alert("RAW belum siap. Tunggu proses pembacaan file selesai.");
@@ -4286,7 +4306,7 @@ function DatabaseFileCard({
                     : "Buka"}
             </button>
           )}
-          {!isLink && (
+          {!compact && !isLink && (
             <button
               className="ghost"
               type="button"
@@ -4295,12 +4315,14 @@ function DatabaseFileCard({
               Download
             </button>
           )}
-          {file.raw_text && (
+          {!compact && file.raw_text && (
             <button className="ghost" type="button" onClick={(event) => { event.stopPropagation(); setCopyOpen((current) => !current); }}>
               Buat versi AI
             </button>
           )}
-          <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
+          {!compact && (
+            <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
+          )}
         </div>
       </div>
 
@@ -4446,14 +4468,18 @@ function DatabaseStoredRecording({
               {busy ? "Membuka..." : audioUrl ? "Tutup audio" : "Buka"}
             </button>
           )}
-          <button
-            className="ghost"
-            type="button"
-            onClick={(event) => { event.stopPropagation(); downloadStorageObject("recordings", item.file_path, fileName); }}
-          >
-            Download
-          </button>
-          <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
+          {!compact && (
+            <button
+              className="ghost"
+              type="button"
+              onClick={(event) => { event.stopPropagation(); downloadStorageObject("recordings", item.file_path, fileName); }}
+            >
+              Download
+            </button>
+          )}
+          {!compact && (
+            <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
+          )}
         </div>
       </div>
 
