@@ -86,7 +86,7 @@ export function getAiCreditCost(action: AiAction, mode: AiMode) {
     study: { instant: 2, medium: 4, high: 6 },
     // Essay grading is intentionally lighter than full Study generation.
     // Rounded from Study cost / 1.7 to integer credits.
-    grade_essay: { instant: 1, medium: 2, high: 4 },
+    grade_essay: { instant: 1, medium: 2, high: 3 },
     transcription: { instant: 5, medium: 7, high: 10 },
     file_light: { instant: 2, medium: 3, high: 5 },
     file_heavy: { instant: 5, medium: 7, high: 10 },
