@@ -37,10 +37,23 @@ export type AiEffort =
   | "off"
   | "dynamic";
 
+export type AiResponseLength = "short" | "medium" | "long";
+
 export type AiSelection = {
   model: AiModelId;
   effort: AiEffort;
+  length?: AiResponseLength;
 };
+
+export const AI_RESPONSE_LENGTHS: Array<{
+  value: AiResponseLength;
+  label: string;
+  hint: string;
+}> = [
+  { value: "short", label: "Ringkas", hint: "Padat, langsung ke inti" },
+  { value: "medium", label: "Sedang", hint: "Seimbang dan cukup lengkap" },
+  { value: "long", label: "Panjang", hint: "Lebih lengkap dan mendalam" },
+];
 
 export type AiLegacyMode = "simple" | "instant" | "medium" | "high";
 
@@ -371,11 +384,28 @@ export function normalizeAiEffort(model: AiModelId, value: unknown): AiEffort {
     : capability.defaultEffort;
 }
 
+export function normalizeAiResponseLength(value: unknown): AiResponseLength {
+  const candidate = String(value || "").trim().toLowerCase();
+  return candidate === "short" || candidate === "long" ? candidate : "medium";
+}
+
+export function responseLengthInstruction(value: unknown) {
+  const length = normalizeAiResponseLength(value);
+  if (length === "short") {
+    return "Panjang respons: RINGKAS. Jawab padat dan langsung ke inti. Untuk jawaban biasa targetkan kira-kira 60-120 kata bila konteks memungkinkan. Untuk Study/Quiz/JSON, jangan kurangi jumlah item yang diminta; ringkaskan penjelasan setiap item.";
+  }
+  if (length === "long") {
+    return "Panjang respons: PANJANG. Berikan jawaban lebih lengkap, runtut, dan mendalam. Untuk jawaban biasa targetkan kira-kira 350-700 kata bila memang relevan. Untuk Study/Quiz/JSON, pertahankan jumlah item yang diminta dan buat penjelasan tiap item lebih kaya tanpa bertele-tele.";
+  }
+  return "Panjang respons: SEDANG. Berikan jawaban seimbang, cukup lengkap, dan tidak bertele-tele. Untuk jawaban biasa targetkan kira-kira 150-300 kata bila konteks memungkinkan. Untuk Study/Quiz/JSON, pertahankan jumlah item yang diminta dengan penjelasan sedang.";
+}
+
 export function defaultSelection(model: AiModelId, context: AiContext = "general"): AiSelection {
   const normalized = normalizeAiModel(model, context);
   return {
     model: normalized,
     effort: modelCapability(normalized).defaultEffort,
+    length: "medium",
   };
 }
 
@@ -385,8 +415,8 @@ export function selectionFromLegacyMode(
 ): AiSelection {
   if (mode === "simple") return defaultSelection("local", context);
   if (context === "transcription") return defaultSelection("gemini-3.5-transcribe", context);
-  if (mode === "high") return { model: "gemini-3.8-flash", effort: "high" };
-  if (mode === "medium") return { model: "gemini-3.8-flash", effort: "medium" };
+  if (mode === "high") return { model: "gemini-3.8-flash", effort: "high", length: "medium" };
+  if (mode === "medium") return { model: "gemini-3.8-flash", effort: "medium", length: "medium" };
   return { model: "gemini-2.5-flash-lite", effort: "none" };
 }
 
@@ -444,6 +474,7 @@ export function selectionFromHeaders(
   return {
     model,
     effort: normalizeAiEffort(model, headers.get("x-rb-ai-effort") || fallbackEffort),
+    length: normalizeAiResponseLength(headers.get("x-rb-ai-length") || "medium"),
   };
 }
 
