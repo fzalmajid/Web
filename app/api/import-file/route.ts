@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import JSZip from "jszip";
+import { extractPdfPageBatch, packPdfPages } from "@/lib/pdfIndex";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
@@ -145,7 +146,7 @@ export async function POST(req: NextRequest) {
 
     const { data: row, error: rowError } = await supabase
       .from("source_files")
-      .select("id,node_id,file_path,file_name,mime_type,raw_text")
+      .select("id,node_id,file_path,file_name,mime_type,raw_text,processing_status,processing_page,processing_total_pages,processing_chunks,processing_chars,processing_strategy")
       .eq("id", sourceFileId)
       .single();
     if (rowError || !row || row.file_path !== filePath || row.node_id !== nodeId) {
@@ -166,6 +167,224 @@ export async function POST(req: NextRequest) {
       }
 
       buffer = Buffer.from(await blob.arrayBuffer());
+    }
+
+    if (operation === "raw" && mimeType === "application/pdf") {
+      const resetRequested = Boolean(body.reset);
+      const priorPage = Number(row.processing_page || 0);
+      const priorChunks = Number(row.processing_chunks || 0);
+      const priorChars = Number(row.processing_chars || 0);
+
+      if (!buffer) {
+        throw new Error("Buffer PDF tidak tersedia.");
+      }
+
+      if (resetRequested) {
+        const { error: deleteError } = await supabase
+          .from("knowledge_entries")
+          .delete()
+          .eq("source_file_id", sourceFileId);
+        if (deleteError) throw deleteError;
+
+        const { error: resetError } = await supabase
+          .from("source_files")
+          .update({
+            processing_status: "processing",
+            processing_page: 0,
+            processing_total_pages: 0,
+            processing_chunks: 0,
+            processing_chars: 0,
+            processing_strategy: "pdfjs-page-batch",
+            processing_started_at: new Date().toISOString(),
+            processing_updated_at: new Date().toISOString(),
+            raw_text: null,
+            structured_text: null,
+            error_message: null,
+          })
+          .eq("id", sourceFileId);
+        if (resetError) throw resetError;
+      } else if (row.processing_status === "ready" && Number(row.processing_total_pages || 0) > 0 && priorPage >= Number(row.processing_total_pages || 0)) {
+        return NextResponse.json({
+          operation: "raw",
+          processingComplete: true,
+          currentPage: priorPage,
+          totalPages: Number(row.processing_total_pages || 0),
+          indexedChunks: priorChunks,
+          extractedChars: priorChars,
+          extraction: String(row.processing_strategy || "pdfjs-page-batch"),
+        });
+      }
+
+      const startPage = resetRequested ? 1 : Math.max(1, priorPage + 1);
+      let batch: Awaited<ReturnType<typeof extractPdfPageBatch>> | null = null;
+      let usedFallbackParser = false;
+
+      try {
+        batch = await extractPdfPageBatch(buffer, startPage, {
+          maxPages: Number(body.maxPages || 72),
+          maxMs: Number(body.maxMs || 36000),
+        });
+      } catch (pdfJsError) {
+        console.warn("[PDFJS_BATCH_FAILED]", {
+          fileName,
+          startPage,
+          message: pdfJsError instanceof Error ? pdfJsError.message : String(pdfJsError),
+        });
+      }
+
+      if (!batch) {
+        // Last-resort parser. Still stays entirely server-side and never sends the whole PDF to an AI model.
+        const extracted = await pdfParse(buffer);
+        const fallbackText = String(extracted.text || "").trim();
+        if (!fallbackText) {
+          throw new Error("PDF tidak memiliki text layer yang dapat dibaca. File kemungkinan hasil scan dan membutuhkan OCR per halaman.");
+        }
+
+        usedFallbackParser = true;
+        const chunks = splitKnowledgeChunks(fallbackText, 12000, 600);
+        const { error: deleteError } = await supabase
+          .from("knowledge_entries")
+          .delete()
+          .eq("source_file_id", sourceFileId);
+        if (deleteError) throw deleteError;
+
+        const rows = chunks.map((chunk, index) => ({
+          user_id: userData.user.id,
+          node_id: nodeId,
+          title: `${fileName} · Bagian ${index + 1}/${chunks.length}`,
+          category: `File terindeks · Bagian ${index + 1}/${chunks.length}`,
+          content: chunk,
+          raw_content: chunk,
+          source_type: "file",
+          source_file_id: sourceFileId,
+          source_chunk_index: index,
+          source_page_start: null,
+          source_page_end: null,
+        }));
+
+        for (let offset = 0; offset < rows.length; offset += 40) {
+          const { error: insertError } = await supabase
+            .from("knowledge_entries")
+            .insert(rows.slice(offset, offset + 40));
+          if (insertError) throw insertError;
+        }
+
+        const { error: updateError } = await supabase
+          .from("source_files")
+          .update({
+            processing_status: "ready",
+            raw_text: null,
+            structured_text: null,
+            corrections: [],
+            error_message: null,
+            processing_page: 1,
+            processing_total_pages: 1,
+            processing_chunks: chunks.length,
+            processing_chars: fallbackText.length,
+            processing_strategy: "pdf-parse-full-fallback",
+            processing_started_at: row.processing_started_at || new Date().toISOString(),
+            processing_updated_at: new Date().toISOString(),
+          })
+          .eq("id", sourceFileId);
+        if (updateError) throw updateError;
+
+        return NextResponse.json({
+          operation: "raw",
+          processingComplete: true,
+          currentPage: 1,
+          totalPages: 1,
+          indexedChunks: chunks.length,
+          extractedChars: fallbackText.length,
+          extraction: "pdf-parse-full-fallback",
+        });
+      }
+
+      if (!batch.totalPages) {
+        throw new Error("PDF tidak memiliki halaman yang dapat dibaca.");
+      }
+
+      if ((resetRequested || priorPage === 0) && startPage === 1) {
+        const { error: deleteError } = await supabase
+          .from("knowledge_entries")
+          .delete()
+          .eq("source_file_id", sourceFileId);
+        if (deleteError) throw deleteError;
+      }
+
+      const packed = packPdfPages(batch.pages, 12000);
+      const rows = packed.map((chunk) => ({
+        user_id: userData.user.id,
+        node_id: nodeId,
+        title:
+          chunk.pageStart === chunk.pageEnd
+            ? `${fileName} · Halaman ${chunk.pageStart}`
+            : `${fileName} · Halaman ${chunk.pageStart}-${chunk.pageEnd}`,
+        category:
+          chunk.pageStart === chunk.pageEnd
+            ? `PDF terindeks · Halaman ${chunk.pageStart}`
+            : `PDF terindeks · Halaman ${chunk.pageStart}-${chunk.pageEnd}`,
+        content: chunk.text,
+        raw_content: chunk.text,
+        source_type: "file",
+        source_file_id: sourceFileId,
+        source_chunk_index: chunk.chunkIndex,
+        source_page_start: chunk.pageStart,
+        source_page_end: chunk.pageEnd,
+      }));
+
+      for (let offset = 0; offset < rows.length; offset += 30) {
+        const { error: upsertError } = await supabase
+          .from("knowledge_entries")
+          .upsert(rows.slice(offset, offset + 30), {
+            onConflict: "source_file_id,source_chunk_index",
+          });
+        if (upsertError) throw upsertError;
+      }
+
+      const { count: indexedCount, error: countError } = await supabase
+        .from("knowledge_entries")
+        .select("id", { count: "exact", head: true })
+        .eq("source_file_id", sourceFileId);
+      if (countError) throw countError;
+
+      const batchChars = packed.reduce((sum, chunk) => sum + chunk.text.length, 0);
+      const nextPage = Math.max(priorPage, batch.endPage);
+      const complete = nextPage >= batch.totalPages;
+
+      if (complete && Number(indexedCount || 0) === 0) {
+        throw new Error("PDF selesai dibaca tetapi tidak ditemukan text layer. File kemungkinan hasil scan dan membutuhkan OCR per halaman.");
+      }
+
+      const { error: progressError } = await supabase
+        .from("source_files")
+        .update({
+          processing_status: complete ? "ready" : "processing",
+          raw_text: null,
+          structured_text: null,
+          corrections: [],
+          error_message: null,
+          processing_page: nextPage,
+          processing_total_pages: batch.totalPages,
+          processing_chunks: Number(indexedCount || 0),
+          processing_chars: resetRequested ? batchChars : priorChars + batchChars,
+          processing_strategy: usedFallbackParser ? "pdf-parse-full-fallback" : "pdfjs-page-batch",
+          processing_started_at: row.processing_started_at || new Date().toISOString(),
+          processing_updated_at: new Date().toISOString(),
+        })
+        .eq("id", sourceFileId);
+      if (progressError) throw progressError;
+
+      return NextResponse.json({
+        operation: "raw",
+        processingComplete: complete,
+        currentPage: nextPage,
+        totalPages: batch.totalPages,
+        indexedChunks: Number(indexedCount || 0),
+        extractedChars: resetRequested ? batchChars : priorChars + batchChars,
+        extraction: "pdfjs-page-batch",
+        batchStartPage: batch.startPage,
+        batchEndPage: batch.endPage,
+      });
     }
 
     const heavyFile =
@@ -189,14 +408,16 @@ export async function POST(req: NextRequest) {
       const extracted = await mammoth.extractRawText({ buffer: buffer! });
       rawText = extracted.value.trim();
     } else if (!rawText && mimeType === "application/pdf") {
-      try {
-        const extracted = await pdfParse(buffer!);
-        rawText = String(extracted.text || "").trim();
-      } catch (pdfError) {
-        console.warn("[PDF_TEXT_EXTRACTION_FAILED]", {
-          fileName,
-          message: pdfError instanceof Error ? pdfError.message : String(pdfError),
-        });
+      const { data: pdfEntries, error: pdfEntriesError } = await supabase
+        .from("knowledge_entries")
+        .select("content,source_chunk_index")
+        .eq("source_file_id", sourceFileId)
+        .order("source_chunk_index", { ascending: true })
+        .limit(120);
+      if (pdfEntriesError) throw pdfEntriesError;
+      rawText = (pdfEntries || []).map((item: any) => String(item.content || "")).join("\n\n").trim();
+      if (!rawText) {
+        throw new Error("PDF belum selesai diindeks. Selesaikan proses file terlebih dahulu.");
       }
     } else if (!rawText && (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || fileName.toLowerCase().endsWith(".pptx"))) {
       rawText = (await extractPptxText(buffer!)).trim();
@@ -279,11 +500,13 @@ export async function POST(req: NextRequest) {
 
       const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
       return NextResponse.json({
-        rawText,
+        rawText: rawText.length <= 120000 ? rawText : "",
         aiUsage,
         operation: "raw",
+        processingComplete: true,
         indexedChunks: chunks.length,
-        extraction: mimeType === "application/pdf" ? "server-text-layer" : "native",
+        extractedChars: rawText.length,
+        extraction: "native",
       });
     }
 
