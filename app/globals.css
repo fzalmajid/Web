@@ -8262,3 +8262,122 @@ summary{
     border-radius:11px!important;
   }
 }
+
+
+/* Study + Quiz scoring: per-question results plus one overall score. */
+.scoreNumber{
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:0!important;
+  line-height:1!important;
+}
+.scoreNumber>strong{
+  font-size:1.65rem!important;
+  line-height:1!important;
+  color:inherit!important;
+}
+.scoreNumber>small{
+  margin-top:3px!important;
+  color:color-mix(in srgb,var(--card) 78%,transparent)!important;
+  font-size:.58rem!important;
+  letter-spacing:.04em!important;
+  line-height:1!important;
+}
+
+.studyScoreSummary{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  margin:14px 0 16px;
+  padding:15px 16px;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:var(--card);
+  box-shadow:var(--shadow);
+}
+.studyScoreNumber{
+  flex:0 0 68px;
+  width:68px;
+  height:68px;
+  border-radius:50%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  background:var(--ink);
+  color:var(--card);
+  line-height:1;
+}
+.studyScoreNumber strong{
+  font-size:1.45rem;
+  line-height:1;
+}
+.studyScoreNumber small{
+  margin-top:3px;
+  color:color-mix(in srgb,var(--card) 78%,transparent);
+  font-size:.56rem;
+  letter-spacing:.03em;
+}
+.studyScoreSummary>div:last-child{
+  min-width:0;
+  display:grid;
+  gap:3px;
+}
+.studyScoreSummary>div:last-child>small{
+  color:var(--muted);
+  font-size:.64rem;
+  font-weight:900;
+  letter-spacing:.1em;
+}
+.studyScoreSummary>div:last-child>strong{
+  font-size:.94rem;
+}
+.studyScoreSummary>div:last-child>span{
+  color:var(--muted);
+  font-size:.72rem;
+  line-height:1.35;
+}
+.studyFinalScore{
+  width:max-content;
+  max-width:100%;
+  margin:10px auto 12px;
+  display:flex;
+  align-items:baseline;
+  gap:7px;
+  padding:9px 13px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:var(--soft);
+}
+.studyFinalScore strong{
+  font-size:1.1rem;
+}
+.studyFinalScore small{
+  color:var(--muted);
+  font-size:.7rem;
+}
+
+@media(max-width:620px){
+  .studyScoreSummary{
+    padding:12px;
+    gap:11px;
+  }
+  .studyScoreNumber{
+    flex-basis:60px;
+    width:60px;
+    height:60px;
+  }
+  .studyScoreNumber strong{
+    font-size:1.25rem;
+  }
+  .quizScore{
+    align-items:flex-start;
+  }
+  .scoreNumber{
+    width:64px;
+    height:64px;
+    flex:0 0 64px;
+  }
+}
