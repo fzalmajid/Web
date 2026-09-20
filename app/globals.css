@@ -1520,6 +1520,22 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
 }
 .richText strong{font-weight:850}
 .richText em{font-style:italic}
+.richText .mathOperator{
+  display:inline-block;
+  padding:0 .08em;
+  font-weight:700;
+}
+.richText .mathSub,
+.richText .mathSup{
+  font-size:.72em;
+  line-height:0;
+  position:relative;
+  vertical-align:baseline;
+  font-style:normal;
+  font-weight:inherit;
+}
+.richText .mathSub{bottom:-.28em}
+.richText .mathSup{top:-.48em}
 .quizKindTabs.fourKinds{
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
