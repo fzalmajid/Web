@@ -1,5 +1,5 @@
-Warning: truncated output (original token count: 91039)
-Total output lines: 10225
+Warning: truncated output (original token count: 90933)
+Total output lines: 10217
 
 "use client";
 
@@ -2054,7 +2054,7 @@ function ExplorerActionMenu({
         style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 260) }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button type="button" onClick={onPreview}>Lihat isi</button>
+        <button type="button" onClick={onPreview}>Preview</button>
         <button type="button" onClick={onCopy}>Copy</button>
         {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
         {canDownload && <button type="button" onClick={onDownload}>Download</button>}
@@ -2873,7 +2873,7 @@ function AddSheet({
               <div className="taskTypeChoices">
                 <button
                   type="button"
-                  className={taskTy…41039 tokens truncated…    {visibleModels.map((item) => (
+                  className={taskType…40933 tokens truncated…    {visibleModels.map((item) => (
               <button
                 type="button"
                 key={item.id}
