@@ -672,7 +672,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const aiScopeId =
     !current
       ? null
-      : current.node_type === "material" || current.node_type === "submaterial"
+      : isFolderLikeNode(current)
         ? current.id
         : current.parent_id;
 
@@ -688,7 +688,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }, [current, nodes]);
 
   const aiScopeName = !current
-    ? "Seluruh Database"
+    ? "Seluruh folder"
     : path.map((item) => item.title).join(" · ");
 
   function goBack() {
@@ -750,7 +750,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           </div>
         )}
 
-        {!current || current.node_type === "material" || current.node_type === "submaterial" ? (
+        {!current || isFolderLikeNode(current) ? (
           <FolderPage
             session={session}
             user={user}
@@ -767,18 +767,6 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             onChange={refresh}
           />
         ) : null}
-
-        {current?.node_type === "database" && (
-          <DatabasePage
-            session={session}
-            user={user}
-            node={current}
-            entries={entries}
-            files={files}
-            recordings={recordings}
-            onChange={refresh}
-          />
-        )}
 
         {current?.node_type === "recording" && (
           <RecordingPage
@@ -2497,7 +2485,7 @@ function StudyPage({
     [nodes, node.parent_id]
   );
   const sourceDatabases = nodes.filter(
-    (item) => branchIds.includes(item.id) && item.node_type === "database"
+    (item) => branchIds.includes(item.id) && isFolderLikeNode(item)
   );
 
   useEffect(() => {
@@ -2857,7 +2845,7 @@ function StudyPage({
         <p className="eyebrow">STUDY</p>
         <h1>{node.emoji ? node.emoji + " " : ""}{node.title}</h1>
         <p className="muted">
-          Pilih Database yang ingin dipelajari. Model Gemini yang dipilih menyusun urutan belajar,
+          Pilih folder yang ingin dipelajari. Model Gemini yang dipilih menyusun urutan belajar,
           membagi bab/subbab sesuai kompleksitas, lalu membuka materi berikutnya setelah recall benar.
         </p>
 
@@ -2877,7 +2865,7 @@ function StudyPage({
           <div className="studySetupHead">
             <div>
               <p className="eyebrow">SUMBER STUDY</p>
-              <h2>Pilih Database</h2>
+              <h2>Pilih folder</h2>
               <p className="muted">Bisa pilih lebih dari satu Database dalam cabang materi ini.</p>
             </div>
             {path?.status === "ready" && (
@@ -2916,7 +2904,7 @@ function StudyPage({
               rows={3}
               value={studyInstruction}
               onChange={(e) => setStudyInstruction(e.target.value)}
-              placeholder='Contoh: "Saya mau fokus mempelajari aspek CPOB 2024 saja." Kosongkan jika ingin mempelajari seluruh materi dari Database terpilih.'
+              placeholder='Contoh: "Saya mau fokus mempelajari aspek CPOB 2024 saja." Kosongkan jika ingin mempelajari seluruh materi dari folder terpilih.'
             />
             <small className="muted">
               Jika diisi, model Gemini yang aktif akan memakai instruksi ini saat memilih urutan bab/subbab dan merangkum materi.
@@ -3139,7 +3127,7 @@ function StudyPage({
             <section className="studyComplete">
               <div>🏆</div>
               <h2>Study selesai</h2>
-              <p>Kamu sudah melewati seluruh bab/subbab dan recall dari Database yang dipilih.</p>
+              <p>Kamu sudah melewati seluruh bab/subbab dan recall dari folder yang dipilih.</p>
               <button className="ghost" onClick={() => setSetupOpen(true)}>Pelajari sumber lain / susun ulang</button>
             </section>
           )}
@@ -3211,7 +3199,9 @@ function RecordingPage({
 
   const localRecordings = recordings.filter((item) => item.node_id === node.id);
   const siblingDatabases = nodes.filter(
-    (item) => item.parent_id === node.parent_id && item.node_type === "database"
+    (item) =>
+      isFolderLikeNode(item) &&
+      (item.id === node.parent_id || item.parent_id === node.parent_id)
   );
 
   useEffect(() => {
@@ -3992,7 +3982,7 @@ function RecordingPage({
 
             <div className="addDbBox">
               <select value={targetDbId} onChange={(e) => setTargetDbId(e.target.value)}>
-                <option value="">Pilih Database tujuan</option>
+                <option value="">Pilih folder tujuan</option>
                 {siblingDatabases.map((database) => (
                   <option key={database.id} value={database.id}>{database.title}</option>
                 ))}
@@ -4217,7 +4207,7 @@ function PracticePage({
   const scorePercent = gradedCount ? Math.round(totalScorePoints / gradedCount) : 0;
 
   async function generate() {
-    if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada database sumber.");
+    if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada folder sumber.");
 
     if (aiSelection.model === "local") {
       setBusy(true);
