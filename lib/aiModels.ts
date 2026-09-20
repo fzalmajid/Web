@@ -12,9 +12,11 @@ export type AiModelId =
   | "gemini-2.5-flash"
   | "gemini-2.5-flash-lite"
   | "gemini-3.5-transcribe"
+  | "openai:gpt-6-astra"
   | "openai:gpt-5.6-sol"
   | "openai:gpt-5.6-terra"
   | "openai:gpt-5.6-luna"
+  | "openai:gpt-5.5"
   | "anthropic:claude-fable-5"
   | "anthropic:claude-opus-5"
   | "anthropic:claude-sonnet-5"
@@ -214,6 +216,17 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
     freeTier: true,
   },
   {
+    id: "openai:gpt-6-astra",
+    provider: "openai",
+    label: "GPT-6 Astra",
+    subtitle: "OpenAI · paling mampu",
+    contexts: ["general", "chat"],
+    efforts: LEVEL_OPENAI_56,
+    defaultEffort: "medium",
+    freeTier: false,
+    freeWeb: false,
+  },
+  {
     id: "openai:gpt-5.6-sol",
     provider: "openai",
     label: "GPT-5.6 Sol",
@@ -243,6 +256,17 @@ export const AI_MODEL_CATALOG: AiModelCapability[] = [
     contexts: ["general", "chat"],
     efforts: LEVEL_OPENAI_56,
     defaultEffort: "low",
+    freeTier: false,
+    freeWeb: false,
+  },
+  {
+    id: "openai:gpt-5.5",
+    provider: "openai",
+    label: "GPT-5.5",
+    subtitle: "OpenAI · generasi stabil",
+    contexts: ["general", "chat"],
+    efforts: LEVEL_OPENAI_56,
+    defaultEffort: "medium",
     freeTier: false,
     freeWeb: false,
   },
@@ -460,3 +484,4 @@ export function modelPlanForSelection(
 
   return Array.from(new Set([selectedModel, ...fallback]));
 }
+
