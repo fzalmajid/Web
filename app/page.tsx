@@ -2126,7 +2126,10 @@ function ExplorerActionMenu({
     <div className="contextDismissLayer" onMouseDown={onClose}>
       <div
         className="explorerContextMenu"
-        style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 260) }}
+        style={{
+          left: Math.max(8, Math.min(menu.x, window.innerWidth - 216)),
+          top: Math.max(8, Math.min(menu.y, window.innerHeight - 268)),
+        }}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <button type="button" onClick={onPreview}>Preview</button>
@@ -8936,7 +8939,13 @@ function BottomAskBar({
   return (
     <>
       {open && (
-        <div className="aiAnswer" style={{ bottom: composerBottom + composerHeight + 12 }}>
+        <div
+          className="aiAnswer"
+          style={{
+            bottom: composerBottom + composerHeight + 12,
+            ["--rb-ai-answer-bottom" as any]: `${composerBottom + composerHeight + 12}px`,
+          }}
+        >
           <div className="aiAnswerHead">
             <div>
               <small title={scopeName}>
