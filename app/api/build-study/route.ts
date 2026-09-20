@@ -57,9 +57,20 @@ export async function POST(req: NextRequest) {
     const geminiAuth = geminiUserAuthFromHeaders(req.headers);
     const ownGemini = geminiAuth.ownGemini;
     const studyInstruction = String(body.studyInstruction || "").trim().slice(0, 2000);
+    const allowedSourceKinds = new Set(["ai", "database", "web"]);
+    const sourceKinds = Array.isArray(body.sourceKinds)
+      ? Array.from(new Set(body.sourceKinds.map((value: unknown) => String(value)).filter((value: string) => allowedSourceKinds.has(value))))
+      : ["database"];
+    const activeSourceKinds = sourceKinds.length ? sourceKinds : ["database"];
+    const useAiKnowledge = activeSourceKinds.includes("ai");
+    const useDatabase = activeSourceKinds.includes("database");
+    const useWeb = activeSourceKinds.includes("web");
 
-    if (!studyNodeId || !sourceNodeIds.length) {
-      return NextResponse.json({ error: "Pilih minimal satu folder sumber untuk Study." }, { status: 400 });
+    if (!studyNodeId) {
+      return NextResponse.json({ error: "Study belum dipilih." }, { status: 400 });
+    }
+    if (useDatabase && !sourceNodeIds.length) {
+      return NextResponse.json({ error: "Database aktif. Pilih minimal satu folder sumber untuk Study." }, { status: 400 });
     }
     if (aiMode === "simple") {
       return NextResponse.json(
@@ -88,14 +99,19 @@ export async function POST(req: NextRequest) {
     if (nodesError) throw nodesError;
 
     const allowedIds = new Set(collectSubtreeIds(allNodes || [], studyNode.parent_id));
-    const selectedNodes = (allNodes || []).filter((node: any) => sourceNodeIds.includes(node.id));
+    const selectedNodes = useDatabase
+      ? (allNodes || []).filter((node: any) => sourceNodeIds.includes(node.id))
+      : [];
 
     if (
-      selectedNodes.length !== sourceNodeIds.length ||
-      selectedNodes.some(
-        (node: any) =>
-          !["material", "submaterial", "database"].includes(node.node_type) ||
-          !allowedIds.has(node.id)
+      useDatabase &&
+      (
+        selectedNodes.length !== sourceNodeIds.length ||
+        selectedNodes.some(
+          (node: any) =>
+            !["material", "submaterial", "database"].includes(node.node_type) ||
+            !allowedIds.has(node.id)
+        )
       )
     ) {
       return NextResponse.json(
@@ -104,23 +120,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const sourceScopeIds = Array.from(
-      new Set(
-        sourceNodeIds.flatMap((sourceId) =>
-          collectSubtreeIds(allNodes || [], sourceId)
+    const sourceScopeIds = useDatabase
+      ? Array.from(
+          new Set(
+            sourceNodeIds.flatMap((sourceId) =>
+              collectSubtreeIds(allNodes || [], sourceId)
+            )
+          )
         )
-      )
-    );
+      : [];
 
-    const { data: entries, error: entriesError } = await supabase
-      .from("knowledge_entries")
-      .select("id,node_id,title,category,content,raw_content,source_type")
-      .in("node_id", sourceScopeIds)
-      .order("created_at", { ascending: true });
+    let entries: any[] = [];
+    if (useDatabase) {
+      const { data: entryRows, error: entriesError } = await supabase
+        .from("knowledge_entries")
+        .select("id,node_id,title,category,content,raw_content,source_type")
+        .in("node_id", sourceScopeIds)
+        .order("created_at", { ascending: true });
 
-    if (entriesError) throw entriesError;
-    if (!entries?.length) {
-      return NextResponse.json({ error: "Folder yang dipilih belum memiliki sumber RAW yang dapat dipakai." }, { status: 400 });
+      if (entriesError) throw entriesError;
+      entries = entryRows || [];
+      if (!entries.length) {
+        return NextResponse.json({ error: "Folder yang dipilih belum memiliki sumber RAW yang dapat dipakai." }, { status: 400 });
+      }
     }
 
     const modeLimit = aiMode === "high" ? 140000 : aiMode === "medium" ? 100000 : 70000;
@@ -141,9 +163,22 @@ ${bodyText}`;
     }
 
     const sourceContext = contextParts.join("\n\n---\n\n");
-    if (!sourceContext.trim()) {
-      return NextResponse.json({ error: "Tidak ada isi folder yang dapat dipakai." }, { status: 400 });
+    if (useDatabase && !sourceContext.trim()) {
+      return NextResponse.json({ error: "Tidak ada isi folder RAW yang dapat dipakai." }, { status: 400 });
     }
+
+    const sourcePolicy = [
+      "SUMBER AKTIF: " + activeSourceKinds.join(", "),
+      useDatabase
+        ? "- Database AKTIF: gunakan RAW/ORIGINAL folder di bawah sebagai sumber utama dan jangan menggantinya dengan versi tertata."
+        : "- Database TIDAK AKTIF: abaikan isi folder sebagai sumber fakta.",
+      useAiKnowledge
+        ? "- AI AKTIF: pengetahuan internal model boleh dipakai untuk melengkapi penjelasan."
+        : "- AI TIDAK AKTIF: jangan gunakan pengetahuan internal model sebagai sumber fakta.",
+      useWeb
+        ? "- Web AKTIF: pencarian web boleh dipakai untuk informasi tambahan/relevan."
+        : "- Web TIDAK AKTIF: jangan mencari atau memakai sumber web.",
+    ].join("\n");
 
     const { data: pathRow, error: pathError } = await supabase
       .from("study_paths")
@@ -190,8 +225,11 @@ ${bodyText}`;
         text: `NAMA STUDY:
 ${studyNode.title}
 
-SUMBER FOLDER YANG DIPILIH:
-${sourceContext}
+KONFIGURASI SUMBER:
+${sourcePolicy}
+
+DATABASE RAW/ORIGINAL:
+${sourceContext || "(Database tidak aktif.)"}
 
 INSTRUKSI KHUSUS USER:
 ${studyInstruction || "(Tidak ada. Pelajari seluruh materi relevan dari folder yang dipilih.)"}
@@ -216,7 +254,7 @@ Keluarkan JSON valid tanpa markdown:
 }
 
 Aturan wajib:
-- Gunakan HANYA SUMBER FOLDER di atas. Jangan gunakan internet atau pengetahuan di luar sumber.
+- Patuhi KONFIGURASI SUMBER di atas. Jangan memakai sumber yang tidak diaktifkan user.
 - Jika INSTRUKSI KHUSUS USER tidak kosong, jadikan instruksi itu sebagai fokus/scope utama Study.
 - Jika instruksi user meminta fokus tertentu (misalnya hanya CPOB 2024), prioritaskan hanya materi yang sesuai fokus itu. Materi di luar fokus boleh disebut hanya bila benar-benar diperlukan sebagai konteks atau perbandingan agar fokus utama dipahami.
 - Jika INSTRUKSI KHUSUS USER kosong, pelajari seluruh materi relevan dari folder terpilih secara proporsional.
@@ -235,12 +273,13 @@ Aturan wajib:
 - recall_explanation singkat dan membantu mengingat konsep.
 - Jangan bocorkan materi unit-unit berikutnya di unit sebelumnya.\n- ${WHATSAPP_FORMAT_INSTRUCTION}`,
       }],
-      "Anda menyusun kurikulum belajar bertahap yang ketat pada sumber pengguna. Jangan mengarang fakta.",
+      "Anda menyusun kurikulum belajar bertahap. Patuhi sumber AI / Database / Web yang diaktifkan user dan jangan memakai sumber yang dinonaktifkan.",
       {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
       responseMimeType: "application/json",
       maxOutputTokens: aiMode === "high" ? 24576 : aiMode === "medium" ? 18432 : 14336,
+      googleSearch: useWeb,
       apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
