@@ -28,6 +28,7 @@ import {
   normalizeAiMode,
   recordAiTokenUsage,
 } from "@/lib/aiQuota";
+import { citationInstruction, normalizeCitationOptions, type CitationOutput, type CitationStyle } from "@/lib/citations";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -525,6 +526,8 @@ function buildPrompt({
   aiMode,
   attachmentTitle,
   attachmentRaw,
+  citationStyle,
+  citationOutputs,
 }: {
   question: string;
   context: string;
@@ -534,6 +537,8 @@ function buildPrompt({
   aiMode: ReturnType<typeof normalizeAiMode>;
   attachmentTitle?: string;
   attachmentRaw?: string;
+  citationStyle: CitationStyle;
+  citationOutputs: CitationOutput[];
 }) {
   const sections = ["PERTANYAAN:", question.trim()];
 
@@ -591,6 +596,7 @@ function buildPrompt({
   }
 
   rules.push(
+    citationInstruction(citationStyle, citationOutputs),
     aiModeInstruction(aiMode),
     "- Jawab dengan jelas dan terstruktur.",
     WHATSAPP_FORMAT_INSTRUCTION
@@ -618,6 +624,7 @@ export async function POST(req: NextRequest) {
     const attachmentTitle = String(body.attachmentTitle || "").trim().slice(0, 240);
     const attachmentRaw = String(body.attachmentRaw || "").trim().slice(0, 60000);
     const attachmentUrl = String(body.attachmentUrl || "").trim();
+    const { citationStyle, citationOutputs } = normalizeCitationOptions(body);
 
     if (!question || typeof question !== "string" || question.trim().length < 3) {
       return NextResponse.json({ error: "Pertanyaan terlalu pendek." }, { status: 400 });
@@ -727,6 +734,8 @@ export async function POST(req: NextRequest) {
       aiMode,
       attachmentTitle: attachmentTitle || (attachmentUrl ? "Link lampiran" : ""),
       attachmentRaw: [attachmentRaw, directRawText].filter(Boolean).join("\n\n---\n\n"),
+      citationStyle,
+      citationOutputs,
     });
 
     const sharedGemini = selectedProvider === "gemini" && !geminiAuth.ownGemini;
@@ -1004,6 +1013,8 @@ export async function POST(req: NextRequest) {
         useDatabase: fallbackSources.includes("database"),
         useWeb: false,
         aiMode,
+        citationStyle,
+        citationOutputs,
       });
 
       const fallbackResult = await generateSelected(fallbackPrompt, false);
