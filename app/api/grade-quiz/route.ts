@@ -135,15 +135,19 @@ Keluarkan JSON valid tanpa markdown:
 
 Aturan:
 - Harus ada tepat satu result untuk setiap id soal.
-- verdict hanya boleh: "benar", "kurang_tepat", atau "salah".
-- score angka 0-100.
-- Jika verdict="benar", score=100 dan correct=true.
-- Jika verdict="kurang_tepat", correct=false dan score 1-99 sesuai seberapa banyak konsep yang benar.
-- Jika verdict="salah", correct=false dan score=0.
-- Untuk quiz_type="mcq": nilai pilihan yang dipilih peserta berdasarkan Database. Pilihan benar = verdict="benar", score=100. Pilihan salah = verdict="salah", score=0.
-- Untuk quiz_type="essay": nilai MAKNA dan KETEPATAN KONSEP, bukan kemiripan kata. Parafrasa, sinonim, urutan kalimat berbeda, atau gaya bahasa berbeda tetap harus dinilai benar bila maknanya setara dan inti jawaban terpenuhi.
+- verdict hanya boleh: "benar", "hampir_benar", "benar_sebagian", "benar_sedikit", atau "salah".
+- score WAJIB salah satu dari: 0, 25, 50, 70, 100. Jangan keluarkan angka lain.
+- Skala penilaian essay:
+  * 0/100 = salah: inti jawaban salah/tidak menjawab konsep yang diminta.
+  * 25/100 = benar sedikit: ada sedikit bagian/fragmen konsep yang benar, tetapi mayoritas jawaban masih salah atau belum menjawab inti.
+  * 50/100 = benar sebagian: sebagian konsep penting sudah benar, tetapi masih ada bagian penting yang hilang atau keliru.
+  * 70/100 = hampir benar: inti dan mayoritas konsep sudah benar, hanya ada kekurangan/kekeliruan kecil tetapi material.
+  * 100/100 = benar: konsep yang diminta terpenuhi secara benar dan memadai; parafrasa atau susunan kata berbeda tetap benar.
+- correct=true HANYA untuk score=100 / verdict="benar". Semua level di bawah 100 menggunakan correct=false.
+- Untuk quiz_type="mcq": hanya gunakan 0 atau 100. Pilihan benar = verdict="benar", score=100. Pilihan salah = verdict="salah", score=0.
+- Untuk quiz_type="essay": nilai MAKNA dan KETEPATAN KONSEP, bukan kemiripan kata. Parafrasa, sinonim, urutan kalimat berbeda, atau gaya bahasa berbeda tetap harus dinilai 100 bila maknanya setara dan inti jawaban terpenuhi.
 - reference_answer boleh membantu memahami jawaban ideal, tetapi JANGAN menjadikannya exact-match. Cocokkan kembali dengan pertanyaan dan Database.
-- Jika jawaban hanya memuat sebagian konsep yang benar, kehilangan bagian penting, terlalu umum, atau mencampur konsep benar dengan kekeliruan material: verdict="kurang_tepat" dan jelaskan singkat apa yang kurang.
+- Feedback harus singkat menjelaskan mengapa jawaban masuk level 0/25/50/70/100 dan apa yang kurang bila belum 100.
 - Jangan menggunakan pengetahuan umum atau internet.
 - Jika database tidak cukup untuk menilai suatu soal, gradable=false, verdict="salah", correct=false, score=0 dan jelaskan kekurangan sumber di feedback.
 - basis harus singkat dan menyebut dasar dari database tanpa mengarang kutipan.
@@ -165,14 +169,59 @@ Aturan:
       const gradable = result.gradable !== false;
       const rawScore = Math.max(0, Math.min(100, Number(result.score || 0)));
       const rawVerdict = String(result.verdict || "").trim().toLowerCase();
-      const verdict = !gradable
-        ? "tidak_dapat_dinilai"
-        : rawVerdict === "benar" || result.correct === true
-          ? "benar"
-          : rawVerdict === "kurang_tepat" || rawScore > 0
-            ? "kurang_tepat"
-            : "salah";
-      const score = verdict === "benar" ? 100 : verdict === "salah" ? 0 : Math.max(1, Math.min(99, rawScore));
+
+      let verdict:
+        | "benar"
+        | "hampir_benar"
+        | "benar_sebagian"
+        | "benar_sedikit"
+        | "salah"
+        | "tidak_dapat_dinilai";
+      let score: 0 | 25 | 50 | 70 | 100;
+
+      if (!gradable) {
+        verdict = "tidak_dapat_dinilai";
+        score = 0;
+      } else if (item.quiz_type === "mcq") {
+        const isCorrect = rawVerdict === "benar" || result.correct === true || rawScore === 100;
+        verdict = isCorrect ? "benar" : "salah";
+        score = isCorrect ? 100 : 0;
+      } else if (rawVerdict === "benar") {
+        verdict = "benar";
+        score = 100;
+      } else if (rawVerdict === "hampir_benar") {
+        verdict = "hampir_benar";
+        score = 70;
+      } else if (rawVerdict === "benar_sebagian") {
+        verdict = "benar_sebagian";
+        score = 50;
+      } else if (rawVerdict === "benar_sedikit") {
+        verdict = "benar_sedikit";
+        score = 25;
+      } else if (rawVerdict === "salah") {
+        verdict = "salah";
+        score = 0;
+      } else {
+        // Fallback defensif bila model mengirim angka bebas / verdict lama.
+        // Semua skor tetap dipaksa masuk ke lima kategori resmi.
+        if (rawScore >= 85 && result.correct === true) {
+          verdict = "benar";
+          score = 100;
+        } else if (rawScore >= 60) {
+          verdict = "hampir_benar";
+          score = 70;
+        } else if (rawScore >= 38) {
+          verdict = "benar_sebagian";
+          score = 50;
+        } else if (rawScore > 0) {
+          verdict = "benar_sedikit";
+          score = 25;
+        } else {
+          verdict = "salah";
+          score = 0;
+        }
+      }
+
       return {
         id: item.id,
         gradable,
