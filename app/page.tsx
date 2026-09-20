@@ -6738,37 +6738,223 @@ function normalizeRichTextSource(text: string) {
     .replace(/\r\n/g, "\n")
     .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
     .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
-    .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
-    .replace(/__([^_\n]+)__/g, "_$1_");
+    .replace(/\\times\b/g, "×")
+    .replace(/\\cdot\b/g, "·")
+    .replace(/\u2212/g, "-");
+}
+
+function isAlphaNumeric(value: string) {
+  return /[A-Za-zÀ-ÿ0-9]/.test(value || "");
+}
+
+function renderScientificPlainText(value: string, keyPrefix: string) {
+  const nodes: any[] = [];
+  let buffer = "";
+  let key = 0;
+
+  const flush = () => {
+    if (!buffer) return;
+    nodes.push(<span key={keyPrefix + "-t-" + key++}>{buffer}</span>);
+    buffer = "";
+  };
+
+  const isMathOperandChar = (char: string) =>
+    /[A-Za-zÀ-ÿ0-9)\]}]/.test(char || "");
+
+  const isMathNextChar = (char: string) =>
+    /[A-Za-zÀ-ÿ0-9(\[{]/.test(char || "");
+
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+
+    // Convert arithmetic * to a proper multiplication sign while leaving
+    // formatting markers to the outer RichText parser.
+    if (char === "*") {
+      let left = i - 1;
+      while (left >= 0 && /\s/.test(value[left])) left--;
+      let right = i + 1;
+      while (right < value.length && /\s/.test(value[right])) right++;
+      if (
+        left >= 0 &&
+        right < value.length &&
+        isMathOperandChar(value[left]) &&
+        isMathNextChar(value[right])
+      ) {
+        buffer = buffer.replace(/[ \t]+$/, "");
+        flush();
+        nodes.push(
+          <span className="mathOperator" key={keyPrefix + "-mul-" + key++}>{" × "}</span>
+        );
+        i = right - 1;
+        continue;
+      }
+    }
+
+    // Scientific/math subscript: C_2, k_e, D_oral, AUC_iv.
+    // It only activates when "_" is embedded in an identifier, so
+    // _italic text_ is handled separately by the outer parser.
+    if (
+      char === "_" &&
+      i > 0 &&
+      isAlphaNumeric(value[i - 1]) &&
+      i + 1 < value.length &&
+      isAlphaNumeric(value[i + 1])
+    ) {
+      let end = i + 1;
+      while (
+        end < value.length &&
+        /[A-Za-zÀ-ÿ0-9]/.test(value[end])
+      ) end++;
+
+      const sub = value.slice(i + 1, end);
+      flush();
+      nodes.push(
+        <sub className="mathSub" key={keyPrefix + "-sub-" + key++}>{sub}</sub>
+      );
+      i = end - 1;
+      continue;
+    }
+
+    // Superscript: x^2, e^(-kt), e^{−kt}. The raw caret is hidden.
+    if (
+      char === "^" &&
+      i > 0 &&
+      /[A-Za-zÀ-ÿ0-9)\]}]/.test(value[i - 1] || "")
+    ) {
+      const next = value[i + 1];
+      let power = "";
+      let end = i + 1;
+
+      if (next === "{" || next === "(") {
+        const close = next === "{" ? "}" : ")";
+        const closeAt = value.indexOf(close, i + 2);
+        if (closeAt > i + 2) {
+          power = value.slice(i + 2, closeAt);
+          end = closeAt + 1;
+        }
+      } else {
+        const match = value.slice(i + 1).match(/^[-+−]?[A-Za-zÀ-ÿ0-9.,]+/);
+        if (match?.[0]) {
+          power = match[0];
+          end = i + 1 + power.length;
+        }
+      }
+
+      if (power) {
+        flush();
+        nodes.push(
+          <sup className="mathSup" key={keyPrefix + "-sup-" + key++}>
+            {power.replace(/\*/g, "×")}
+          </sup>
+        );
+        i = end - 1;
+        continue;
+      }
+    }
+
+    buffer += char;
+  }
+
+  flush();
+  return nodes;
 }
 
 function RichText({ text, className = "" }: { text: string; className?: string }) {
   const value = normalizeRichTextSource(text);
   const parts: any[] = [];
-  const pattern = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
-  let last = 0;
-  let match: RegExpExecArray | null;
+  let cursor = 0;
   let key = 0;
 
-  while ((match = pattern.exec(value))) {
-    if (match.index > last) parts.push(value.slice(last, match.index));
-    const token = match[0];
+  const pushPlain = (plain: string) => {
+    if (!plain) return;
+    parts.push(...renderScientificPlainText(plain, "plain-" + key++));
+  };
 
-    if (token.startsWith("**") && token.endsWith("**")) {
-      parts.push(<strong key={"b" + key++}>{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith("__") && token.endsWith("__")) {
-      parts.push(<em key={"i" + key++}>{token.slice(2, -2)}</em>);
-    } else if (token.startsWith("*") && token.endsWith("*")) {
-      parts.push(<strong key={"b" + key++}>{token.slice(1, -1)}</strong>);
-    } else if (token.startsWith("_") && token.endsWith("_")) {
-      parts.push(<em key={"i" + key++}>{token.slice(1, -1)}</em>);
-    } else {
-      parts.push(token);
+  while (cursor < value.length) {
+    // Standard **bold** is accepted for resilience even though the app asks AI
+    // to emit WhatsApp-style *bold*.
+    if (value.startsWith("**", cursor)) {
+      const close = value.indexOf("**", cursor + 2);
+      if (close > cursor + 2 && !value.slice(cursor + 2, close).includes("\n")) {
+        parts.push(
+          <strong key={"bold2-" + key++}>
+            {renderScientificPlainText(value.slice(cursor + 2, close), "bold2-inner-" + key)}
+          </strong>
+        );
+        cursor = close + 2;
+        continue;
+      }
     }
-    last = pattern.lastIndex;
+
+    // WhatsApp-style *bold*. Asterisks used as multiplication are not treated
+    // as formatting because they have whitespace immediately inside/outside.
+    if (value[cursor] === "*" && value[cursor + 1] && !/\s/.test(value[cursor + 1])) {
+      const close = value.indexOf("*", cursor + 1);
+      if (
+        close > cursor + 1 &&
+        !value.slice(cursor + 1, close).includes("\n") &&
+        !/\s/.test(value[close - 1] || "")
+      ) {
+        parts.push(
+          <strong key={"bold-" + key++}>
+            {renderScientificPlainText(value.slice(cursor + 1, close), "bold-inner-" + key)}
+          </strong>
+        );
+        cursor = close + 1;
+        continue;
+      }
+    }
+
+    // _italic_ only when underscores are delimiters, never when embedded in
+    // scientific identifiers such as D_oral or AUC_iv.
+    if (
+      value[cursor] === "_" &&
+      !isAlphaNumeric(value[cursor - 1] || "") &&
+      value[cursor + 1] &&
+      !/\s/.test(value[cursor + 1])
+    ) {
+      const close = value.indexOf("_", cursor + 1);
+      if (
+        close > cursor + 1 &&
+        !value.slice(cursor + 1, close).includes("\n") &&
+        !isAlphaNumeric(value[close + 1] || "") &&
+        !/\s/.test(value[close - 1] || "")
+      ) {
+        parts.push(
+          <em key={"italic-" + key++}>
+            {renderScientificPlainText(value.slice(cursor + 1, close), "italic-inner-" + key)}
+          </em>
+        );
+        cursor = close + 1;
+        continue;
+      }
+    }
+
+    // __text__ fallback: render as emphasis instead of leaking raw markers.
+    if (value.startsWith("__", cursor)) {
+      const close = value.indexOf("__", cursor + 2);
+      if (close > cursor + 2 && !value.slice(cursor + 2, close).includes("\n")) {
+        parts.push(
+          <em key={"italic2-" + key++}>
+            {renderScientificPlainText(value.slice(cursor + 2, close), "italic2-inner-" + key)}
+          </em>
+        );
+        cursor = close + 2;
+        continue;
+      }
+    }
+
+    let next = cursor + 1;
+    while (
+      next < value.length &&
+      value[next] !== "*" &&
+      value[next] !== "_"
+    ) next++;
+
+    pushPlain(value.slice(cursor, next));
+    cursor = next;
   }
 
-  if (last < value.length) parts.push(value.slice(last));
   return <span className={"richText " + className}>{parts}</span>;
 }
 
