@@ -8381,3 +8381,14 @@ summary{
     flex:0 0 64px;
   }
 }
+
+
+/* AI partial-credit states for the 0/25/50/70/100 rubric. */
+.answerState.partial{
+  background:#fff8e8;
+  color:#7a5a16;
+}
+:root[data-theme="dark"] .answerState.partial{
+  background:#302817;
+  color:#f0d28a;
+}
