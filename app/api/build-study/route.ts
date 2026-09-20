@@ -52,6 +52,15 @@ export async function POST(req: NextRequest) {
           )
         )
       : [];
+    const sourceFileIds: string[] = Array.isArray(body.sourceFileIds)
+      ? Array.from(
+          new Set<string>(
+            body.sourceFileIds
+              .map((value: unknown) => String(value))
+              .filter((value: string) => Boolean(value))
+          )
+        ).slice(0, 80)
+      : [];
     const aiMode = normalizeAiMode(body.aiMode);
     const aiInfo = getTextAiRequestInfo(req, aiMode);
     const aiSelection = aiInfo.selection;
@@ -80,8 +89,8 @@ export async function POST(req: NextRequest) {
     if (!studyNodeId) {
       return NextResponse.json({ error: "Study belum dipilih." }, { status: 400 });
     }
-    if (useDatabase && !sourceNodeIds.length) {
-      return NextResponse.json({ error: "Database aktif. Pilih minimal satu folder sumber untuk Study." }, { status: 400 });
+    if (useDatabase && !sourceNodeIds.length && !sourceFileIds.length) {
+      return NextResponse.json({ error: "Database aktif. Pilih minimal satu folder atau file sumber untuk Study." }, { status: 400 });
     }
     if (aiMode === "simple") {
       return NextResponse.json(
@@ -131,6 +140,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let selectedFiles: any[] = [];
+    if (useDatabase && sourceFileIds.length) {
+      const { data: fileRows, error: fileError } = await supabase
+        .from("source_files")
+        .select("id,node_id,file_name,processing_status")
+        .in("id", sourceFileIds);
+      if (fileError) throw fileError;
+      selectedFiles = fileRows || [];
+      if (
+        selectedFiles.length !== sourceFileIds.length ||
+        selectedFiles.some((file: any) => !allowedIds.has(file.node_id))
+      ) {
+        return NextResponse.json(
+          { error: "Ada file sumber yang tidak berada di dalam cabang materi Study ini." },
+          { status: 400 }
+        );
+      }
+    }
+
     const sourceScopeIds = useDatabase
       ? Array.from(
           new Set(
@@ -143,16 +171,33 @@ export async function POST(req: NextRequest) {
 
     let entries: any[] = [];
     if (useDatabase) {
-      const { data: entryRows, error: entriesError } = await supabase
-        .from("knowledge_entries")
-        .select("id,node_id,title,category,content,raw_content,source_type")
-        .in("node_id", sourceScopeIds)
-        .order("created_at", { ascending: true });
+      const merged = new Map<string, any>();
 
-      if (entriesError) throw entriesError;
-      entries = entryRows || [];
+      if (sourceScopeIds.length) {
+        const { data: folderEntries, error: folderEntriesError } = await supabase
+          .from("knowledge_entries")
+          .select("id,node_id,title,category,content,raw_content,source_type,source_file_id,source_page_start,source_page_end")
+          .in("node_id", sourceScopeIds)
+          .order("created_at", { ascending: true })
+          .limit(1200);
+        if (folderEntriesError) throw folderEntriesError;
+        for (const entry of folderEntries || []) merged.set(String(entry.id), entry);
+      }
+
+      if (sourceFileIds.length) {
+        const { data: fileEntries, error: fileEntriesError } = await supabase
+          .from("knowledge_entries")
+          .select("id,node_id,title,category,content,raw_content,source_type,source_file_id,source_page_start,source_page_end")
+          .in("source_file_id", sourceFileIds)
+          .order("source_page_start", { ascending: true, nullsFirst: false })
+          .limit(1600);
+        if (fileEntriesError) throw fileEntriesError;
+        for (const entry of fileEntries || []) merged.set(String(entry.id), entry);
+      }
+
+      entries = Array.from(merged.values());
       if (!entries.length) {
-        return NextResponse.json({ error: "Folder yang dipilih belum memiliki sumber RAW yang dapat dipakai." }, { status: 400 });
+        return NextResponse.json({ error: "Sumber yang dipilih belum memiliki RAW/index yang dapat dipakai." }, { status: 400 });
       }
     }
 
@@ -166,8 +211,14 @@ export async function POST(req: NextRequest) {
       if (used >= modeLimit) break;
       if (entry.source_type === "transcript") continue;
       const folderTitle = titles.get(entry.node_id) || "Folder";
+      const pageLabel =
+        entry.source_page_start && entry.source_page_end
+          ? entry.source_page_start === entry.source_page_end
+            ? " | HALAMAN " + entry.source_page_start
+            : " | HALAMAN " + entry.source_page_start + "-" + entry.source_page_end
+          : "";
       const bodyText = String(entry.raw_content || entry.content || "").slice(0, perEntryLimit);
-      const part = `[FOLDER RAW: ${folderTitle} | ${entry.title || "Materi"}]
+      const part = `[SUMBER RAW: ${folderTitle} | ${entry.title || "Materi"}${pageLabel}]
 ${bodyText}`;
       contextParts.push(part);
       used += part.length;
@@ -181,7 +232,7 @@ ${bodyText}`;
     const sourcePolicy = [
       "SUMBER AKTIF: " + activeSourceKinds.join(", "),
       useDatabase
-        ? "- Database AKTIF: gunakan RAW/ORIGINAL folder di bawah sebagai sumber utama dan jangan menggantinya dengan versi tertata."
+        ? "- Database AKTIF: gunakan hanya RAW/ORIGINAL dari folder dan/atau file yang dipilih user sebagai sumber utama dan jangan menggantinya dengan versi tertata."
         : "- Database TIDAK AKTIF: abaikan isi folder sebagai sumber fakta.",
       useAiKnowledge
         ? "- AI AKTIF: pengetahuan internal model boleh dipakai untuk melengkapi penjelasan."
@@ -198,6 +249,7 @@ ${bodyText}`;
           user_id: userData.user.id,
           node_id: studyNodeId,
           source_node_ids: useDatabase ? sourceNodeIds : [],
+          source_file_ids: useDatabase ? sourceFileIds : [],
           ai_mode: aiMode,
           ai_model: aiSelection.model,
           ai_effort: aiSelection.effort,
