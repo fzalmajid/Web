@@ -4277,7 +4277,6 @@ function DatabaseFileCard({
 
   useEffect(() => {
     if (
-      !compact ||
       file.mime_type !== "application/pdf" ||
       (file.processing_status !== "error" && file.processing_status !== "processing")
     ) return;
