@@ -1357,6 +1357,16 @@ function FolderPage({
         {current && <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>}
       </div>
 
+      {dropActive && (
+        <div className="folderDropChip">
+          {dropBusy
+            ? "Mengupload..."
+            : current
+              ? "Drop di sini → " + current.title
+              : "Drop folder ke Beranda"}
+        </div>
+      )}
+
       {!!children.length && (
         <div className="nodeGrid explorerNodeGrid">
           {children.map((node) => (
@@ -1416,11 +1426,6 @@ function FolderPage({
 
       {current && (
         <>
-          {dropActive && (
-            <div className="folderDropChip">
-              {dropBusy ? "Mengupload..." : "Drop di sini → " + current.title}
-            </div>
-          )}
           {!children.length && !hasAssets && (
             <div className="explorerEmpty compact">
               <span>📂</span>
