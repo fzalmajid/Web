@@ -1829,7 +1829,7 @@ function DatabasePage({
       <div className="toolGrid">
         <article className="panel">
           <h2>Masukkan teks</h2>
-          <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti Database serta jalur materi yang sedang dibuka.</p>
+          <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti folder serta jalur materi yang sedang dibuka.</p>
           <form className="stack" onSubmit={saveText}>
             <textarea
               required
@@ -2174,7 +2174,7 @@ function DatabaseAudioRecorder({
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [liveText, setLiveText] = useState("");
-  const [status, setStatus] = useState("Rekam audio langsung ke Database.");
+  const [status, setStatus] = useState("Rekam audio langsung ke folder.");
 
   useEffect(() => {
     return () => {
@@ -2352,7 +2352,7 @@ function DatabaseAudioRecorder({
     const browserDraft = liveDraftRef.current.trim() || transcriptRef.current.trim() || liveText.trim();
     let raw = browserDraft;
 
-    setStatus("Mendengarkan audio asli secara verbatim · tanpa koreksi Database...");
+    setStatus("Mendengarkan audio asli secara verbatim · tanpa koreksi atau penyesuaian...");
     const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
     const response = await fetch("/api/transcribe", {
       method: "POST",
@@ -2407,8 +2407,8 @@ function DatabaseAudioRecorder({
     transcriptRef.current = "";
     setStatus(
       raw
-        ? "Rekaman + transkrip mentah sudah masuk Database. Belum dirapikan atau dikoreksi."
-        : "Audio sudah masuk Database. Transkrip belum tersedia; audio tetap bisa didengar ulang."
+        ? "Rekaman + transkrip mentah sudah masuk folder. Belum dirapikan atau dikoreksi."
+        : "Audio sudah masuk folder. Transkrip belum tersedia; audio tetap bisa didengar ulang."
     );
     onChange();
   }
@@ -2556,7 +2556,7 @@ function StudyPage({
   }
 
   async function buildStudy() {
-    if (!selectedSources.length) return alert("Pilih minimal satu Database.");
+    if (!selectedSources.length) return alert("Pilih minimal satu folder sumber.");
     if (aiSelection.model === "local") return alert("Study terarah membutuhkan model Gemini.");
 
     setBuilding(true);
@@ -2593,7 +2593,7 @@ function StudyPage({
       return null;
     }
     if (!quickDbName.trim()) {
-      alert("Isi nama Database terlebih dahulu.");
+      alert("Isi nama folder terlebih dahulu.");
       return null;
     }
 
@@ -2603,15 +2603,15 @@ function StudyPage({
         user_id: user.id,
         parent_id: node.parent_id,
         title: quickDbName.trim(),
-        node_type: "database",
-        emoji: "🗂️",
+        node_type: "submaterial",
+        emoji: "📁",
         card_color: "sage",
       })
       .select("id")
       .single();
 
     if (error || !created) {
-      alert(error?.message || "Gagal membuat Database.");
+      alert(error?.message || "Gagal membuat folder.");
       return null;
     }
 
@@ -2646,7 +2646,7 @@ function StudyPage({
     if (error) return alert(error.message);
 
     setQuickDbContent("");
-    setQuickDbStatus("Teks sudah ditambahkan. Database otomatis dipilih sebagai sumber Study.");
+    setQuickDbStatus("Teks sudah ditambahkan. Folder otomatis dipilih sebagai sumber Study.");
     onChange();
   }
 
@@ -2758,7 +2758,7 @@ function StudyPage({
 
       setQuickDbFile(null);
       setQuickFileBusy(false);
-      setQuickDbStatus("Selesai dengan Local · tanpa API. Database otomatis dipilih sebagai sumber Study.");
+      setQuickDbStatus("Selesai dengan Local · tanpa API. Folder otomatis dipilih sebagai sumber Study.");
       onChange();
       return;
     }
@@ -2786,7 +2786,7 @@ function StudyPage({
     }
 
     setQuickDbFile(null);
-    setQuickDbStatus("Selesai. File sudah menjadi isi Database dan otomatis dipilih sebagai sumber Study.");
+    setQuickDbStatus("Selesai. File sudah masuk folder dan otomatis dipilih sebagai sumber Study.");
     onChange();
   }
 
@@ -2866,7 +2866,7 @@ function StudyPage({
             <div>
               <p className="eyebrow">SUMBER STUDY</p>
               <h2>Pilih folder</h2>
-              <p className="muted">Bisa pilih lebih dari satu Database dalam cabang materi ini.</p>
+              <p className="muted">Bisa pilih lebih dari satu folder dalam cabang materi ini.</p>
             </div>
             {path?.status === "ready" && (
               <button className="ghost" onClick={() => setSetupOpen(false)}>Batal</button>
@@ -2888,13 +2888,13 @@ function StudyPage({
                   <span className="studySourceIcon">{database.emoji || "🗂️"}</span>
                   <span className="studySourceCopy">
                     <strong>{database.title}</strong>
-                    <small>{count ? count + " isi Database" : "Belum ada isi"}</small>
+                    <small>{count ? count + " item teks/transkrip" : "Belum ada isi"}</small>
                   </span>
                 </button>
               );
             })}
             {!sourceDatabases.length && (
-              <div className="emptyStudySource">Belum ada Database di cabang ini.</div>
+              <div className="emptyStudySource">Belum ada folder sumber di cabang ini.</div>
             )}
           </div>
 
@@ -2913,7 +2913,7 @@ function StudyPage({
 
           <div className="studySetupTools">
             <button className="ghost" onClick={() => setQuickDbOpen((current) => !current)}>
-              + Tambah Database dari sini
+              + Tambah folder sumber dari sini
             </button>
             <AiModePicker value={aiSelection} onChange={setAiSelection} action="study" allowLocal={false} />
             <button className="primary" disabled={building || !selectedSources.length} onClick={buildStudy}>
@@ -2925,15 +2925,15 @@ function StudyPage({
             <section className="quickDatabaseShortcut">
               <div className="quickDatabaseHead">
                 <div>
-                  <p className="eyebrow">DATABASE BARU</p>
-                  <h2>Tambah Database dari Study</h2>
-                  <p className="muted">Shortcut ini sama seperti halaman Database. Setelah ada isi, Database otomatis terpilih sebagai sumber Study.</p>
+                  <p className="eyebrow">FOLDER SUMBER BARU</p>
+                  <h2>Tambah folder dari Study</h2>
+                  <p className="muted">Folder baru ini langsung menjadi sumber Study. Semua file/catatan di dalamnya adalah Database folder tersebut.</p>
                 </div>
                 <button className="ghost" type="button" onClick={closeQuickDatabase}>Tutup</button>
               </div>
 
               <label className="quickDatabaseName">
-                Nama Database
+                Nama folder
                 <input
                   value={quickDbName}
                   onChange={(e) => setQuickDbName(e.target.value)}
@@ -2946,7 +2946,7 @@ function StudyPage({
               <div className="toolGrid quickDatabaseGrid">
                 <article className="panel">
                   <h2>Masukkan teks</h2>
-                  <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti Database serta jalur materi yang sedang dibuka.</p>
+                  <p className="muted">Langsung copy-paste isi modul, catatan, atau materi di sini. Nama dan konteks mengikuti folder serta jalur materi yang sedang dibuka.</p>
                   <form className="stack" onSubmit={saveQuickDatabaseText}>
                     <textarea
                       required
@@ -2956,7 +2956,7 @@ function StudyPage({
                       placeholder="Paste teks materi di sini..."
                     />
                     <button className="primary" disabled={quickBusy || !quickDbName.trim() || !quickDbContent.trim()}>
-                      {quickBusy ? "Menyimpan..." : "Tambahkan ke Database"}
+                      {quickBusy ? "Menyimpan..." : "Tambahkan ke folder"}
                     </button>
                   </form>
                 </article>
@@ -2985,8 +2985,8 @@ function StudyPage({
 
               {quickDbCreatedId && (
                 <div className="quickDatabaseCreated">
-                  <span>✓ Database <strong>{quickDbName}</strong> sudah dibuat dan dipilih untuk Study.</span>
-                  <button className="ghost" type="button" onClick={() => onOpen(quickDbCreatedId)}>Buka halaman Database</button>
+                  <span>✓ Folder <strong>{quickDbName}</strong> sudah dibuat dan dipilih untuk Study.</span>
+                  <button className="ghost" type="button" onClick={() => onOpen(quickDbCreatedId)}>Buka folder</button>
                 </div>
               )}
             </section>
@@ -3015,7 +3015,7 @@ function StudyPage({
               <small>SUMBER</small>
               <div className="studySourceChips">
                 {(path.source_node_ids || []).map((id) => (
-                  <span key={id}>{sourceNameMap.get(id) || "Database"}</span>
+                  <span key={id}>{sourceNameMap.get(id) || "Folder"}</span>
                 ))}
               </div>
             </div>
