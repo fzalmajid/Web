@@ -657,24 +657,6 @@ export async function POST(req: NextRequest) {
       data = await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
       if (!data.length) data = await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
 
-      if (
-        !data.length &&
-        !useAi &&
-        !useWeb &&
-        !body.attachmentPath &&
-        !body.attachmentUrl &&
-        !attachmentRaw
-      ) {
-        return NextResponse.json({
-          answer: "Materi ini belum tersedia di database.",
-          sources: [],
-          webSources: [],
-          grounded: true,
-          publicWeb: false,
-          selectedSources,
-          model: "Local Database",
-        });
-      }
     }
 
     const currentRawAssets = await loadCurrentRawAttachment(supabase, userData.user.id, body);
@@ -703,6 +685,24 @@ export async function POST(req: NextRequest) {
       rawAssets.push(asset);
     }
     const directRawText = rawAssetText(rawAssets);
+
+    if (
+      useDatabase &&
+      !data.length &&
+      !rawAssets.length &&
+      !useAi &&
+      !useWeb
+    ) {
+      return NextResponse.json({
+        answer: "Materi ini belum tersedia di database.",
+        sources: [],
+        webSources: [],
+        grounded: true,
+        publicWeb: false,
+        selectedSources,
+        model: "Local Database",
+      });
+    }
 
     const contextLimit = aiMode === "high" ? 42000 : aiMode === "medium" ? 32000 : 22000;
     const context = data.length
