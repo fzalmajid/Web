@@ -477,6 +477,78 @@ function aiRequestHeaders(session: Session, selection?: AiSelection) {
   };
 }
 
+async function getFreshApiSession(forceRefresh = false) {
+  if (forceRefresh) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (refreshed.data.session) return refreshed.data.session;
+    if (refreshed.error) throw refreshed.error;
+  }
+
+  const current = await supabase.auth.getSession();
+  let active = current.data.session;
+
+  const expiresAtMs = Number(active?.expires_at || 0) * 1000;
+  const expiresSoon = Boolean(active && expiresAtMs && expiresAtMs <= Date.now() + 90_000);
+
+  if (!active || expiresSoon) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (refreshed.data.session) active = refreshed.data.session;
+    else if (refreshed.error) throw refreshed.error;
+  }
+
+  if (!active) {
+    throw new Error("Sesi login sudah berakhir. Silakan login ulang.");
+  }
+  return active;
+}
+
+function looksLikeSupabaseSessionError(value: unknown) {
+  const text = String(value || "");
+  return /sesi tidak valid|belum login|jwt|token.*expired|expired.*token|invalid.*token/i.test(text);
+}
+
+async function authenticatedAiFetch(
+  url: string,
+  fallbackSession: Session,
+  selection: AiSelection | undefined,
+  init: RequestInit
+) {
+  const requestWith = async (activeSession: Session) => {
+    const headers = new Headers(aiRequestHeaders(activeSession, selection));
+    const extraHeaders = new Headers(init.headers || {});
+    extraHeaders.forEach((value, key) => headers.set(key, value));
+    if (init.body instanceof FormData) headers.delete("Content-Type");
+
+    return fetch(url, {
+      ...init,
+      headers,
+    });
+  };
+
+  let activeSession: Session;
+  try {
+    activeSession = await getFreshApiSession(false);
+  } catch {
+    activeSession = fallbackSession;
+  }
+
+  let response = await requestWith(activeSession);
+  if (response.status !== 401) return response;
+
+  const payload = await response.clone().json().catch(() => ({}));
+  const authMessage = String(payload?.error || payload?.message || "");
+  if (!looksLikeSupabaseSessionError(authMessage)) return response;
+
+  try {
+    const refreshed = await getFreshApiSession(true);
+    response = await requestWith(refreshed);
+  } catch {
+    // Keep the original 401 so the caller can surface the server message.
+  }
+
+  return response;
+}
+
 function loadGoogleIdentityScript() {
   return new Promise<void>((resolve, reject) => {
     if ((window as any).google?.accounts?.oauth2) return resolve();
@@ -549,13 +621,29 @@ export default function Home() {
   useEffect(() => {
     const savedTheme = (window.localStorage.getItem("rb-theme") || "system") as "light" | "dark" | "system";
     setTheme(savedTheme);
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
+    void (async () => {
+      try {
+        const active = await getFreshApiSession(false);
+        setSession(active);
+      } catch {
+        const { data } = await supabase.auth.getSession();
+        setSession(data.session);
+      } finally {
+        setLoading(false);
+      }
+    })();
 
     const result = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     const subscription = result.data.subscription;
+
+    const refreshOnReturn = () => {
+      if (document.visibilityState === "hidden") return;
+      void getFreshApiSession(false)
+        .then((active) => setSession(active))
+        .catch(() => {});
+    };
+    window.addEventListener("focus", refreshOnReturn);
+    document.addEventListener("visibilitychange", refreshOnReturn);
 
     if ("caches" in window) {
       caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).catch(() => {});
@@ -564,7 +652,11 @@ export default function Home() {
       navigator.serviceWorker.register("/sw.js?v=5", { updateViaCache: "none" }).then((reg) => reg.update()).catch(() => {});
     }
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("focus", refreshOnReturn);
+      document.removeEventListener("visibilitychange", refreshOnReturn);
+    };
   }, []);
 
   useEffect(() => {
@@ -8896,25 +8988,29 @@ function BottomAskBar({
       pendingLink?.rawText || "",
     ].filter(Boolean).join("\n\n---\n\n");
 
-    const response = await fetch("/api/ask", {
-      method: "POST",
-      headers: aiRequestHeaders(session, aiSelection),
-      body: JSON.stringify({
-        question,
-        scopeNodeId,
-        aiMode,
-        sources: selectedSources,
-        attachmentTitle:
-          pendingAttachment?.fileName ||
-          pendingLink?.title ||
-          "",
-        attachmentRaw,
-        attachmentPath: pendingAttachment?.filePath || "",
-        attachmentMimeType: pendingAttachment?.mimeType || "",
-        attachmentUrl: effectiveUrl,
-        ...citationRequestFields(),
-      }),
-    });
+    const response = await authenticatedAiFetch(
+      "/api/ask",
+      session,
+      aiSelection,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          question,
+          scopeNodeId,
+          aiMode,
+          sources: selectedSources,
+          attachmentTitle:
+            pendingAttachment?.fileName ||
+            pendingLink?.title ||
+            "",
+          attachmentRaw,
+          attachmentPath: pendingAttachment?.filePath || "",
+          attachmentMimeType: pendingAttachment?.mimeType || "",
+          attachmentUrl: effectiveUrl,
+          ...citationRequestFields(),
+        }),
+      }
+    );
 
     const data = await response.json().catch(() => ({}));
     setBusy(false);
