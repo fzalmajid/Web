@@ -22,6 +22,14 @@ export async function POST(req: NextRequest) {
     const mode = body.mode === "flashcards" || body.mode === "quiz" ? body.mode : "both";
     const aiMode = normalizeAiMode(body.aiMode);
     const instruction = String(body.instruction || "").trim().slice(0, 2000);
+    const allowedSourceKinds = new Set(["ai", "database", "web"]);
+    const sourceKinds = Array.isArray(body.sourceKinds)
+      ? Array.from(new Set(body.sourceKinds.map((value: unknown) => String(value)).filter((value: string) => allowedSourceKinds.has(value))))
+      : ["database"];
+    const activeSourceKinds = sourceKinds.length ? sourceKinds : ["database"];
+    const useAiKnowledge = activeSourceKinds.includes("ai");
+    const useDatabase = activeSourceKinds.includes("database");
+    const useWeb = activeSourceKinds.includes("web");
     const allowedQuizKinds = new Set(["mcq-fixed", "essay-fixed", "mcq-ai", "essay-ai"]);
     const quizKinds = Array.isArray(body.quizKinds)
       ? Array.from(
@@ -65,12 +73,27 @@ export async function POST(req: NextRequest) {
     }
 
     const sourceLimit = aiMode === "high" ? 60 : aiMode === "medium" ? 48 : 32;
-    const sources = await getScopeKnowledge(supabase, sourceNodeId, sourceLimit);
-    if (!sources.length) {
-      return NextResponse.json({ error: "Database pada sumber materi ini masih kosong." }, { status: 400 });
+    const sources = useDatabase ? await getScopeKnowledge(supabase, sourceNodeId, sourceLimit) : [];
+    if (useDatabase && !sources.length) {
+      return NextResponse.json({ error: "Database aktif, tetapi sumber materi ini masih kosong." }, { status: 400 });
     }
 
-    const context = buildKnowledgeContext(sources, aiMode === "high" ? 46000 : aiMode === "medium" ? 36000 : 24000);
+    const context = useDatabase
+      ? buildKnowledgeContext(sources, aiMode === "high" ? 46000 : aiMode === "medium" ? 36000 : 24000)
+      : "";
+
+    const sourcePolicy = [
+      "SUMBER AKTIF: " + activeSourceKinds.join(", "),
+      useDatabase
+        ? "- Database AKTIF: gunakan RAW/ORIGINAL di bawah sebagai sumber utama."
+        : "- Database TIDAK AKTIF: abaikan database sebagai sumber fakta.",
+      useAiKnowledge
+        ? "- AI AKTIF: pengetahuan internal model boleh dipakai."
+        : "- AI TIDAK AKTIF: jangan gunakan pengetahuan internal model sebagai sumber fakta.",
+      useWeb
+        ? "- Web AKTIF: pencarian web boleh dipakai."
+        : "- Web TIDAK AKTIF: jangan memakai web.",
+    ].join("\n");
 
     const preflight = ownGemini ? null : await checkAiCredits(supabase, "study", aiMode);
     if (preflight && !preflight.allowed) {
@@ -107,9 +130,11 @@ export async function POST(req: NextRequest) {
         : "";
 
     const geminiResult = await geminiGenerateDetailed([{
-      text: `Gunakan HANYA DATABASE berikut:
+      text: `KONFIGURASI SUMBER:
+${sourcePolicy}
 
-${context}
+DATABASE RAW/ORIGINAL:
+${context || "(Database tidak aktif.)"}
 
 INSTRUKSI USER:
 ${instruction || "(Tidak ada instruksi tambahan.)"}
@@ -127,12 +152,13 @@ Aturan quiz:
 - essay-ai: choices harus [], correct_answer boleh kosong.
 - Jangan mengubah fungsi penilaian: fixed tetap fixed, AI tetap dinilai AI saat user selesai.
 
-Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? counts.quiz + " soal" : counts.cards + " flashcard dan " + counts.quiz + " soal"}. Semua pertanyaan, jawaban, dan penjelasan wajib dapat dibuktikan dari DATABASE RAW/ORIGINAL. Ikuti INSTRUKSI USER selama masih dapat dibuktikan dari sumber.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
-    }], "Jangan gunakan pengetahuan di luar database yang diberikan.", {
+Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? counts.quiz + " soal" : counts.cards + " flashcard dan " + counts.quiz + " soal"}. Patuhi sumber AI / Database / Web yang diaktifkan user. Jika Database aktif, pertahankan isi RAW/ORIGINAL dan jangan menggantinya dengan versi tertata. Ikuti INSTRUKSI USER selama sesuai dengan sumber aktif.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
+    }], "Patuhi sumber AI / Database / Web yang diaktifkan user. Jangan memakai sumber yang dinonaktifkan.", {
       models: modelPlanForSelection(aiSelection.model, aiMode, "standard"),
       effort: aiSelection.effort,
       responseMimeType: "application/json",
       maxOutputTokens: aiMode === "high" ? 16384 : 12288,
+      googleSearch: useWeb,
       apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
