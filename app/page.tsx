@@ -7817,7 +7817,14 @@ function BottomAskBar({
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [answerModel, setAnswerModel] = useState("");
-  const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
+  const [sources, setSources] = useState<Array<{
+    id: string;
+    title: string;
+    category: string;
+    source_file_id?: string | null;
+    page_start?: number | null;
+    page_end?: number | null;
+  }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
   const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["database"]);
@@ -8952,9 +8959,17 @@ function BottomAskBar({
           </div>
           {(!!sources.length || !!webSources.length) && (
             <div className="aiSources">
-              {sources.map((source) => (
-                <span key={source.id}>Database · {source.title}</span>
-              ))}
+              {sources.map((source) => {
+                const pageLabel =
+                  source.page_start && source.page_end
+                    ? source.page_start === source.page_end
+                      ? ` · hlm. ${source.page_start}`
+                      : ` · hlm. ${source.page_start}-${source.page_end}`
+                    : "";
+                return (
+                  <span key={source.id}>Database · {source.title}{pageLabel}</span>
+                );
+              })}
               {webSources.map((source) => (
                 <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
                   Web · {source.title}
