@@ -7528,3 +7528,71 @@ summary{
   }
 }
 
+/* Consistent explicit source controls in Study / Quiz / Flashcard / create flows */
+.practiceSourceControls,
+.studySourcePickerWrap{
+  min-width:0;
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.practiceSourceControls>.aiDatabaseSourcePicker,
+.studySourcePickerWrap>.aiDatabaseSourcePicker{
+  flex:0 0 auto;
+}
+.practiceSourceControls>.aiSourceModelBar{
+  flex:1 1 420px;
+  min-width:min(100%,320px);
+}
+.studySourcePickerWrap{
+  padding:10px;
+  border:1px solid var(--line);
+  border-radius:15px;
+  background:var(--soft);
+}
+.studySourceSelectionSummary{
+  min-width:0;
+  display:grid;
+  gap:2px;
+  padding:4px 2px;
+}
+.studySourceSelectionSummary strong{
+  font-size:.78rem;
+}
+.studySourceSelectionSummary span{
+  color:var(--muted);
+  font-size:.67rem;
+}
+.toolPlanner .plannerFolderField>.aiDatabaseSourcePicker{
+  width:100%;
+}
+.toolPlanner .plannerFolderField .chooseSourcesTrigger{
+  width:100%;
+  max-width:none;
+}
+.toolPlanner .plannerFolderField .aiDatabaseSourcePopover{
+  left:0;
+  right:auto;
+}
+
+@media(max-width:767px){
+  .practiceSourceControls,
+  .studySourcePickerWrap{
+    display:grid;
+    grid-template-columns:1fr;
+    width:100%;
+  }
+  .practiceSourceControls>.aiDatabaseSourcePicker,
+  .practiceSourceControls>.aiSourceModelBar,
+  .studySourcePickerWrap>.aiDatabaseSourcePicker{
+    width:100%;
+    min-width:0;
+  }
+  .practiceSourceControls .chooseSourcesTrigger,
+  .studySourcePickerWrap .chooseSourcesTrigger{
+    width:100%;
+    max-width:none;
+  }
+}
+
