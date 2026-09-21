@@ -9925,6 +9925,24 @@ function BottomAskBar({
     const effectiveUrl = pendingLink?.url || typedUrl;
     const wantsSave = wantsDatabaseSave(question);
     const requestedFileFormat = requestedArtifactFormat(question);
+    const previousAnswer = answer.trim();
+    const usePreviousAnswerForFile =
+      Boolean(requestedFileFormat && previousAnswer) &&
+      /\b(jawaban|hasil|teks|materi|isi|yang\s+tadi|tadi|sebelumnya|di\s+atas|diatas)\b/i.test(question);
+
+    if (usePreviousAnswerForFile && requestedFileFormat) {
+      setBusy(false);
+      setOpen(true);
+      setAnswer(previousAnswer);
+      setAnswerModel("Jawaban sebelumnya");
+      setSources([]);
+      setWebSources([]);
+      setWarning("");
+      setArtifactError("");
+      setAnswerArtifact(null);
+      void createAnswerArtifact(requestedFileFormat, question.trim(), previousAnswer);
+      return;
+    }
 
     if (wantsSave) {
       const suggested = suggestedDatabaseId(question);
@@ -10130,10 +10148,32 @@ function BottomAskBar({
                       : "Copy jawaban"}
                 </strong>
               </button>
+              <label className="aiArtifactQuickCreate">
+                <span aria-hidden="true">↧</span>
+                <select
+                  defaultValue=""
+                  disabled={artifactBusy}
+                  aria-label="Buat file dari jawaban"
+                  onChange={(event) => {
+                    const format = event.currentTarget.value as AskArtifactFormat;
+                    if (format) void createAnswerArtifact(format, question.trim(), answer);
+                    event.currentTarget.value = "";
+                  }}
+                >
+                  <option value="" disabled>Buat file</option>
+                  <option value="docx">Word (.docx)</option>
+                  <option value="pdf">PDF (.pdf)</option>
+                  <option value="pptx">PowerPoint (.pptx)</option>
+                  <option value="txt">Text (.txt)</option>
+                  <option value="md">Markdown (.md)</option>
+                  <option value="csv">CSV (.csv)</option>
+                  <option value="json">JSON (.json)</option>
+                </select>
+              </label>
               <small>
                 {answerCopyState === "copied"
                   ? "Jawaban sudah masuk clipboard."
-                  : "Salin jawaban yang tampil tanpa marker format mentah."}
+                  : "Salin jawaban atau buat file jadi langsung dari jawaban ini."}
               </small>
             </div>
           )}
