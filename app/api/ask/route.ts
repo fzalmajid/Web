@@ -903,6 +903,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const semanticNotice = useDatabase && !databaseWarning && !casualAiQuestion
+      ? semanticStatus === "index-pending"
+        ? "Indeks embedding masih kosong. Jawaban/pencarian saat ini memakai isi teks RAW/OCR; model Hugging Face belum membantu pemeringkatan."
+        : semanticStatus === "fallback"
+          ? "Pencarian embedding sementara tidak tersedia; pencarian isi teks tetap dipakai."
+          : undefined
+      : undefined;
+
     const lookupOnly =
       useDatabase &&
       !useWeb &&
@@ -938,6 +946,7 @@ export async function POST(req: NextRequest) {
         provider: "database-index",
         semanticStatus,
         semanticModel,
+        warning: semanticNotice,
       });
     }
 
@@ -1302,7 +1311,7 @@ export async function POST(req: NextRequest) {
         answer: result.text,
         citationWarnings: citationStructuralWarnings(result.text, citationStyle, citationOutputs),
         sources: databaseSources,
-        warning: databaseWarning || undefined,
+        warning: [databaseWarning, semanticNotice].filter(Boolean).join(" · ") || undefined,
         semanticStatus,
         semanticModel,
         webSources: result.webSources,
