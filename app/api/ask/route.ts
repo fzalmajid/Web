@@ -929,15 +929,19 @@ export async function POST(req: NextRequest) {
         answer: data.length
           ? formatDatabaseLookup(question, data)
           : "Tidak ditemukan kecocokan dalam isi materi yang sudah berhasil diindeks pada folder dan subfolder terpilih. Periksa apakah OCR/RAW seluruh halaman berstatus siap.",
-        sources: data.map((row) => ({
-          id: row.id,
-          node_id: row.node_id,
-          title: row.title,
-          category: row.category,
-          source_file_id: row.source_file_id || null,
-          page_start: row.source_page_start || null,
-          page_end: row.source_page_end || null,
-        })),
+        sources: Array.from(new Map(data.map((row) => [
+          String(row.bibliographic_work_id || row.source_file_id || row.id),
+          {
+            id: row.id,
+            node_id: row.node_id,
+            title: row.bibliographic_work_title || row.title,
+            category: row.category,
+            source_file_id: row.source_file_id || null,
+            bibliographic_work_id: row.bibliographic_work_id || null,
+            page_start: row.source_page_start || null,
+            page_end: row.source_page_end || null,
+          }
+        ])).values()),
         webSources: [],
         grounded: true,
         publicWeb: false,
