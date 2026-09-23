@@ -11,6 +11,7 @@ export type KnowledgeSource = {
   source_type?: "manual" | "file" | "transcript" | "generated" | null;
   source_page_start?: number | null;
   source_page_end?: number | null;
+  score?: number | null;
 };
 
 async function hydrateRawContent(
@@ -111,7 +112,77 @@ export async function getSelectedKnowledge(
   return hydrateRawContent(supabase, (data || []) as KnowledgeSource[]);
 }
 
-export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000) {
+/**
+ * Independent-source coverage comes before multiple excerpts from one book.
+ * A file's per-page chunks are one bibliographic source, not separate citations.
+ * This function never invents matches: it only reorders already retrieved rows.
+ */
+export function diversifyKnowledgeSources(
+  rows: KnowledgeSource[],
+  limit = 48,
+  maxChunksPerSource = 3
+): KnowledgeSource[] {
+  const bySource = new Map<string, KnowledgeSource[]>();
+  for (const row of rows) {
+    if (!String(row.raw_content || row.content || "").trim()) continue;
+    const sourceKey = row.source_file_id || "entry:" + row.id;
+    const group = bySource.get(sourceKey) || [];
+    if (!group.some((existing) => existing.id === row.id)) group.push(row);
+    bySource.set(sourceKey, group);
+  }
+  const groups = [...bySource.values()];
+  for (const group of groups) {
+    group.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  }
+  groups.sort((a, b) => (Number(b[0]?.score) || 0) - (Number(a[0]?.score) || 0));
+  const result: KnowledgeSource[] = [];
+  for (let round = 0; round < Math.max(1, maxChunksPerSource); round++) {
+    for (const group of groups) {
+      if (result.length >= limit) return result;
+      if (group[round]) result.push(group[round]);
+    }
+  }
+  return result;
+}
+
+function rawRelevantExcerpt(raw: string, question: string, maxChars = 1900) {
+  if (raw.length <= maxChars) return raw;
+  const synonyms: Record<string, string[]> = {
+    pct: ["paracetamol", "parasetamol", "acetaminophen", "acetaminofen"],
+    paracetamol: ["parasetamol", "acetaminophen", "pct"],
+    parasetamol: ["paracetamol", "acetaminophen", "pct"],
+    acetaminophen: ["paracetamol", "parasetamol", "pct"],
+  };
+  const ignored = new Set([
+    "carikan", "cari", "temukan", "tolong", "saya", "aku", "ingin", "yang", "dan",
+    "dengan", "dari", "untuk", "dalam", "sumber", "file", "folder", "database",
+    "monografi", "monograph", "halaman", "jelaskan", "materi", "tentang",
+  ]);
+  const seeds = (question.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi) || [])
+    .filter((term) => !ignored.has(term));
+  const terms = [...new Set(seeds.flatMap((term) => [term, ...(synonyms[term] || [])]))];
+  const normalized = raw.toLowerCase();
+  let bestAt = -1;
+  let bestScore = -1;
+  for (const term of terms) {
+    let at = normalized.indexOf(term);
+    let checked = 0;
+    while (at !== -1 && checked < 40) {
+      const center = Math.max(0, at - 180);
+      const window = normalized.slice(center, center + maxChars);
+      const coverage = terms.filter((candidate) => window.includes(candidate)).length;
+      const score = coverage * 100 + Math.min(term.length, 25);
+      if (score > bestScore) { bestScore = score; bestAt = at; }
+      at = normalized.indexOf(term, at + term.length);
+      checked++;
+    }
+  }
+  const start = Math.max(0, (bestAt < 0 ? 0 : bestAt) - 180);
+  const excerpt = raw.slice(start, start + maxChars);
+  return (start ? "…" : "") + excerpt + (start + maxChars < raw.length ? "…" : "");
+}
+
+export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000, question = "") {
   let used = 0;
   const parts: string[] = [];
 
@@ -126,7 +197,7 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000)
     if (!raw) continue;
 
     const remaining = maxChars - used;
-    const body = raw.slice(0, Math.max(0, remaining));
+    const body = rawRelevantExcerpt(raw, question, Math.min(1900, Math.max(0, remaining - 300)));
     if (!body) break;
 
     const pageLabel =
@@ -135,12 +206,13 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000)
           ? ` | HALAMAN PDF ${row.source_page_start}`
           : ` | HALAMAN PDF ${row.source_page_start}-${row.source_page_end}`
         : "";
+    const sourceId = row.source_file_id || row.id;
     const part =
-      `[${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | CONTENT MATCH · RAW/ORIGINAL]\n${body}`;
+      `[SOURCE_ID: ${sourceId} | ${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | CUPLIKAN ISI RAW ASLI]\\n${body}`;
 
     parts.push(part);
     used += part.length;
   }
 
-  return parts.join("\n\n---\n\n");
+  return parts.join("\\n\\n---\\n\\n");
 }
