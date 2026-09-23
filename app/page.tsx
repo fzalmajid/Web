@@ -7711,10 +7711,63 @@ function AiDatabaseSourcePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [vectorRunning, setVectorRunning] = useState(false);
+  const [vectorStatus, setVectorStatus] = useState<{ model: string; pendingEntries: number; vectorsCreated?: number } | null>(null);
+  const [vectorError, setVectorError] = useState("");
+  const stopVectorRef = useRef(false);
 
   useEffect(() => {
     if (disabled) setOpen(false);
   }, [disabled]);
+
+  useEffect(() => () => { stopVectorRef.current = true; }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    supabase.functions.invoke("semantic-index", { body: { action: "status" } })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) { setVectorError("Status indeks belum dapat dibaca."); return; }
+        setVectorStatus({
+          model: String(data?.model || ""),
+          pendingEntries: Number(data?.pendingEntries || 0)
+        });
+      })
+      .catch(() => { if (!cancelled) setVectorError("Status indeks belum dapat dibaca."); });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  async function runVectorBackfill() {
+    if (vectorRunning) { stopVectorRef.current = true; return; }
+    stopVectorRef.current = false;
+    setVectorRunning(true);
+    setVectorError("");
+    try {
+      // Every request is authenticated and bounded; progress persists in Supabase.
+      for (let batch = 0; batch < 1500 && !stopVectorRef.current; batch++) {
+        const { data, error } = await supabase.functions.invoke("semantic-index", {
+          body: { action: "backfill", maxVectors: 16, maxEntries: 6 }
+        });
+        if (error || !data || data.error) throw new Error("Pengindeksan terganggu. Coba lanjutkan dari progres terakhir.");
+        setVectorStatus({
+          model: String(data.model || ""),
+          pendingEntries: Number(data.pendingEntries || 0),
+          vectorsCreated: Number(data.vectorsCreated || 0)
+        });
+        if (Number(data.pendingEntries || 0) === 0) break;
+        if (!Number(data.vectorsCreated || 0) && !Number(data.entriesCompleted || 0)) {
+          throw new Error("Tidak ada halaman yang dapat diproses. Periksa status RAW/OCR.");
+        }
+        // Yield rendering and allow the user to stop between batches.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 60));
+      }
+    } catch (error) {
+      setVectorError(error instanceof Error ? error.message : "Gagal membuat embedding.");
+    } finally {
+      setVectorRunning(false);
+    }
+  }
 
   const folderNodes = useMemo(() => nodes.filter(isFolderLikeNode), [nodes]);
   const selectedCount = nodeIds.length + fileIds.length;
@@ -7925,6 +7978,26 @@ function AiDatabaseSourcePicker({
               <small>Tentukan sumber jawaban AI, lalu pilih folder/file bila Database aktif.</small>
             </div>
             <button type="button" onClick={() => setOpen(false)}>×</button>
+          </div>
+
+          <div className="aiDatabaseSourceTools" style={{ flexWrap: "wrap", gap: 8 }}>
+            <strong>🧠 Pencarian embedding</strong>
+            <small className="muted">
+              {vectorStatus
+                ? (vectorStatus.pendingEntries === 0
+                    ? "Semua dokumen RAW yang dapat diproses sudah terindeks."
+                    : vectorStatus.pendingEntries + " dokumen masih perlu diindeks.")
+                : "Indeks berdasarkan isi RAW/OCR; tanpa kuota Gemini."}
+              {vectorStatus?.model === "Supabase/gte-small"
+                ? " · Model lokal gte-small (terutama bahasa Inggris)."
+                : vectorStatus?.model === "intfloat/multilingual-e5-small"
+                  ? " · Model Hugging Face multilingual-e5-small."
+                  : ""}
+            </small>
+            <button type="button" className="ghost" onClick={runVectorBackfill}>
+              {vectorRunning ? "Hentikan" : "Indeks seluruh Database"}
+            </button>
+            {vectorError && <small role="alert">{vectorError}</small>}
           </div>
 
           {sources && onSourcesChange && (
