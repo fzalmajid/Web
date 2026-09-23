@@ -12,7 +12,130 @@ export type KnowledgeSource = {
   source_page_start?: number | null;
   source_page_end?: number | null;
   score?: number | null;
+  bibliographic_work_id?: string;
+  bibliographic_work_title?: string;
+  bibliographic_edition?: string | null;
+  bibliographic_year?: string | null;
 };
+
+type BibliographyHint = {
+  source_file_id: string;
+  file_name: string;
+  front_matter: string | null;
+  size_bytes: number | null;
+};
+
+function romanEdition(value: string): string {
+  const numerals: Record<string, string> = {
+    i: "1", ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7",
+    viii: "8", ix: "9", x: "10", xi: "11", xii: "12"
+  };
+  return numerals[value.toLowerCase()] || String(Number(value) || value).toLowerCase();
+}
+
+function publicationEdition(fileName: string, firstPages: string): string {
+  // OCR sometimes separates cover text: "S I X T H E D I T I O N".
+  const cover = firstPages.replace(/\b(?:[A-Za-z]\s+){4,}[A-Za-z]\b/g,
+    (match) => match.replace(/\s+/g, ""))
+    .replace(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)(edition)\b/gi, "$1 $2");
+  const ordinals: Record<string, string> = {
+    first: "1", second: "2", third: "3", fourth: "4", fifth: "5",
+    sixth: "6", seventh: "7", eighth: "8", ninth: "9", tenth: "10"
+  };
+  const spelled = /\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+edition\b/i
+    .exec(cover);
+  if (spelled) return ordinals[spelled[1].toLowerCase()];
+  const numeric = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:edition|edisi|ed\.)\b/i.exec(cover);
+  if (numeric) return String(Number(numeric[1]));
+  // Cover is authoritative; the filename is a fallback only.
+  const roman = /\b(?:edisi|edition|ed\.?)(?:\s+ke\s*[-:]?)?\s+([ivxlcdm]{1,7}|\d{1,2})\b/i.exec(cover);
+  if (roman) return romanEdition(roman[1]);
+  const fileOrdinal = /\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+edition\b/i.exec(fileName);
+  if (fileOrdinal) return ordinals[fileOrdinal[1].toLowerCase()];
+  const fileEdition = /\b(?:edisi|edition|ed\.?)(?:\s+ke\s*[-:]?)?\s+([ivxlcdm]{1,7}|\d{1,2})\b/i.exec(fileName);
+  return fileEdition ? romanEdition(fileEdition[1]) : "";
+}
+
+function publicationYear(fileName: string, firstPages: string): string {
+  const fromFile = /\b(19\d{2}|20\d{2})\b/.exec(fileName);
+  if (fromFile) return fromFile[1];
+  // Only explicit publication/copyright metadata, not arbitrary book years.
+  const explicit = /\b(?:copyright|published\s+in|publication\s+year|Kementerian\s+Kesehatan\s+RI\.?|©)\s*[:.,-]?\s*(19\d{2}|20\d{2})\b/i.exec(firstPages);
+  return explicit ? explicit[1] : "";
+}
+
+function normalizedPublicationTitle(fileName: string): string {
+  let title = fileName.replace(/\.(?:pdf|docx?|pptx?|txt|md)$/i, "")
+    .replace(/_original_pdf_pages_\d+-\d+/gi, "")
+    .replace(/(?:[\s_-]+(?:pdf\s*)?pages?[\s_-]*\d+(?:\s*[-–]\s*\d+)?)$/gi, "")
+    .replace(/(?:[\s_-]+(?:part|bagian|jilid|volume|vol\.?)[\s_-]*[a-z0-9]+)$/gi, "")
+    .replace(/\b(?:edisi|edition|ed\.?)\s*(?:ke\s*[-:]?)?(?:[ivxlcdm]{1,7}|\d{1,2})(?:st|nd|rd|th)?\b/gi, "")
+    .replace(/\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+edition\b/gi, "")
+    .replace(/\b(?:19|20)\d{2}\b/g, "")
+    .replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (/^analchem\s*2[. ]1$/i.test(title)) title = "Analytical Chemistry 2.1";
+  // Farmakope A/B are file/volume labels, not necessarily different works.
+  if (/^farmakope\s+indonesia\b/i.test(title)) {
+    title = title.replace(/\s+\b(?:a|b|part\s*\d+)\b$/i, "").trim();
+  }
+  return title || fileName.replace(/\.[^.]+$/, "");
+}
+
+/** The same published work gets ONE bibliography identity across pages/files.
+ * Different editions stay distinct, even when uploaded with identical names.
+ * Unverifiable edition/identity never gets merged merely by filename. */
+export async function annotateBibliographicWorks(
+  supabase: SupabaseClient, rows: KnowledgeSource[]
+): Promise<KnowledgeSource[]> {
+  const ids = Array.from(new Set(rows.map((row) => row.source_file_id).filter(
+    (id): id is string => Boolean(id)
+  )));
+  if (!ids.length) return rows.map((row) => ({
+    ...row, bibliographic_work_id: "entry:" + row.id,
+    bibliographic_work_title: row.title
+  }));
+  let hints: BibliographyHint[] = [];
+  try {
+    const { data, error } = await supabase.rpc("lookup_source_bibliography", {
+      p_source_file_ids: ids.slice(0, 100)
+    });
+    if (error) throw error;
+    hints = Array.isArray(data) ? data as BibliographyHint[] : [];
+  } catch {
+    // Bibliography lookup should never prevent answering a question.
+  }
+  const byId = new Map(hints.map((hint) => [hint.source_file_id, hint]));
+  return rows.map((row) => {
+    const fileId = row.source_file_id;
+    const hint = fileId ? byId.get(fileId) : undefined;
+    if (!hint) return {
+      ...row,
+      bibliographic_work_id: fileId ? "file:" + fileId : "entry:" + row.id,
+      bibliographic_work_title: row.title.replace(/\s*·\s*Halaman\s+\d+(?:\s*[-–]\s*\d+)?/i, "")
+    };
+    const title = normalizedPublicationTitle(hint.file_name);
+    const edition = publicationEdition(hint.file_name, hint.front_matter || "");
+    const year = publicationYear(hint.file_name, hint.front_matter || "");
+    const normalized = title.toLocaleLowerCase("en").replace(/[^a-z0-9À-ÿ]+/gi, " ").trim();
+    // The edition is essential when two files have the same title.
+    const workId = edition
+      ? "work:" + normalized + "|edition:" + edition + (year ? "|year:" + year : "")
+      : "file:" + fileId;
+    const editionLabel = edition
+      ? (/^farmakope\s+indonesia/i.test(title)
+          ? "Edisi " + (["I","II","III","IV","V","VI","VII","VIII","IX","X"][Number(edition)-1] || edition)
+          : "Edisi " + edition)
+      : "";
+    return {
+      ...row,
+      bibliographic_work_id: workId,
+      bibliographic_work_title: title +
+        (editionLabel ? " (" + editionLabel + (year ? ", " + year : "") + ")" : year ? " (" + year + ")" : ""),
+      bibliographic_edition: edition || null,
+      bibliographic_year: year || null
+    };
+  });
+}
 
 async function hydrateRawContent(
   supabase: SupabaseClient,
