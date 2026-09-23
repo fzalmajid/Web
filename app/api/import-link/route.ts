@@ -58,6 +58,10 @@ function htmlToText(html: string) {
     .trim();
 }
 
+function fallbackTitle(url: URL) {
+  return url.hostname + (url.pathname === "/" ? "" : url.pathname).slice(0, 150);
+}
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -83,33 +87,49 @@ export async function POST(req: NextRequest) {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
-    let response: Response;
+    let response: Response | null = null;
+    let importNote = "";
     try {
       response = await fetch(url.toString(), {
         redirect: "follow",
         signal: controller.signal,
-        headers: { "User-Agent": "RuangBelajar/1.0" },
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; RuangBelajar/1.0; +https://web-fzalmajid.vercel.app)",
+          Accept: "text/html,application/xhtml+xml,application/json,text/plain,*/*",
+        },
         cache: "no-store",
       });
+    } catch (error: any) {
+      importNote = error?.name === "AbortError"
+        ? "Server sumber terlalu lama merespons. URL disimpan sebagai referensi dan akan dicoba lagi saat dipakai AI."
+        : "Server sumber belum dapat dibaca saat ini. URL disimpan sebagai referensi dan akan dicoba lagi saat dipakai AI.";
     } finally {
       clearTimeout(timer);
     }
 
-    if (!response.ok) return NextResponse.json({ error: "Link tidak dapat dibaca (" + response.status + ")." }, { status: 400 });
-    const type = String(response.headers.get("content-type") || "").toLowerCase();
-    if (!type.includes("text/html") && !type.includes("text/plain") && !type.includes("application/json")) {
-      return NextResponse.json({ error: "Link bukan halaman teks yang dapat dibaca langsung." }, { status: 400 });
+    let title = fallbackTitle(url);
+    let rawText = "SOURCE URL: " + url.toString();
+    let mimeType = "text/html";
+
+    if (response && response.ok) {
+      const type = String(response.headers.get("content-type") || "").toLowerCase();
+      mimeType = type.split(";")[0] || mimeType;
+      if (type.includes("text/html") || type.includes("text/plain") || type.includes("application/json")) {
+        const rawBody = (await response.text()).slice(0, 2_000_000);
+        const extracted = type.includes("text/html") ? htmlToText(rawBody) : rawBody.trim();
+        const titleMatch = rawBody.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        const pageTitle = titleMatch ? htmlToText(titleMatch[1]).slice(0, 180) : "";
+        if (pageTitle) title = pageTitle;
+        if (extracted) rawText = (rawText + "\n\n" + extracted).slice(0, 120000);
+        else importNote = "Halaman tidak mengandung teks yang dapat diekstrak. URL tetap disimpan sebagai referensi.";
+      } else {
+        importNote = "Link mengarah ke file atau format yang belum dapat diekstrak langsung. URL tetap disimpan sebagai referensi.";
+      }
+    } else if (response) {
+      importNote = "Server sumber mengembalikan HTTP " + response.status + ". URL tetap disimpan sebagai referensi dan akan dicoba lagi saat dipakai AI.";
     }
 
-    const rawBody = (await response.text()).slice(0, 2_000_000);
-    const extracted = type.includes("text/html") ? htmlToText(rawBody) : rawBody.trim();
-    if (!extracted) return NextResponse.json({ error: "Tidak ada teks yang dapat dibaca dari link ini." }, { status: 422 });
-
-    const titleMatch = rawBody.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-    const pageTitle = titleMatch ? htmlToText(titleMatch[1]).slice(0, 180) : url.hostname;
-    const rawText = ("SOURCE URL: " + url.toString() + "\n\n" + extracted).slice(0, 120000);
-
-    const title = pageTitle || url.hostname;
+    if (importNote) rawText += "\n\nCATATAN IMPOR: " + importNote;
     const { data: source, error: sourceError } = await supabase
       .from("source_files")
       .insert({
@@ -117,13 +137,13 @@ export async function POST(req: NextRequest) {
         node_id: nodeId,
         file_path: url.toString(),
         file_name: title,
-        mime_type: "text/html",
+        mime_type: mimeType,
         size_bytes: new TextEncoder().encode(rawText).length,
         processing_status: "ready",
         raw_text: rawText,
         structured_text: null,
         corrections: [],
-        error_message: null,
+        error_message: importNote || null,
         source_kind: "link",
         source_url: url.toString(),
       })
@@ -158,6 +178,7 @@ export async function POST(req: NextRequest) {
       title,
       url: url.toString(),
       rawText,
+      warning: importNote || null,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.name === "AbortError" ? "Link terlalu lama merespons." : error?.message || "Gagal membaca link." }, { status: 500 });
