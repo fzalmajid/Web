@@ -12,7 +12,7 @@ import {
   ExternalAiError,
   type ExternalAiAttachment,
 } from "@/lib/externalAi";
-import { buildKnowledgeContext, diversifyKnowledgeSources, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge } from "@/lib/knowledge";
+import { buildKnowledgeContext, diversifyKnowledgeSources, fuseHybridKnowledge, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
 import {
   modelPlanForSelection,
   modelProvider,
@@ -725,7 +725,7 @@ function formatDatabaseLookup(question: string, rows: any[]) {
   const seen = new Set<string>();
   const chosen: any[] = [];
   for (const row of rows) {
-    if (chosen.length >= 10) break;
+    if (chosen.length >= 24) break;
     const key = String(row.source_file_id || row.id) + ":" +
       String(row.source_page_start || row.category || row.id);
     if (seen.has(key)) continue;
@@ -823,9 +823,11 @@ export async function POST(req: NextRequest) {
     const contextSourceLimit = aiMode === "high" ? 48 : aiMode === "medium" ? 40 : 32;
     const fallbackLimit = aiMode === "high" ? 80 : aiMode === "medium" ? 60 : 40;
     let data: any[] = [];
+    let semanticStatus = "not-requested";
+    let semanticModel: string | null = null;
 
     if (useDatabase) {
-      data = hasExplicitDatabaseSources
+      const lexical = hasExplicitDatabaseSources
         ? await searchSelectedKnowledge(
             supabase,
             databaseSearchQuery,
@@ -834,6 +836,16 @@ export async function POST(req: NextRequest) {
             searchLimit
           )
         : await searchScopeKnowledge(supabase, databaseSearchQuery, scopeNodeId, searchLimit);
+
+      // Independent embedding worker: no Gemini call or Gemini credits here.
+      // Folder and file filters are rechecked by RLS-protected database SQL.
+      const semantic = await searchSemanticKnowledge(
+        supabase, databaseSearchQuery, scopeNodeId,
+        sourceNodeIds, sourceFileIds, hasExplicitDatabaseSources, searchLimit
+      );
+      semanticStatus = semantic.status;
+      semanticModel = semantic.model;
+      data = fuseHybridKnowledge(lexical, semantic.rows, 120, question.trim(), semantic.model || "");
 
       const broadDatabaseQuestion =
         /\b(ringkas|rangkum|overview|gambaran|jelaskan materi|apa isi|pelajari semua|seluruh materi)\b/i.test(
@@ -883,6 +895,8 @@ export async function POST(req: NextRequest) {
         selectedSources,
         model: "Pencarian Database · tanpa Gemini",
         provider: "database-index",
+        semanticStatus,
+        semanticModel,
       });
     }
 
@@ -1210,6 +1224,8 @@ export async function POST(req: NextRequest) {
         answer: result.text,
         citationWarnings: citationStructuralWarnings(result.text, citationStyle, citationOutputs),
         sources: databaseSources,
+        semanticStatus,
+        semanticModel,
         webSources: result.webSources,
         grounded: !useAi,
         publicWeb: useWeb,
