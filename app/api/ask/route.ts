@@ -12,7 +12,7 @@ import {
   ExternalAiError,
   type ExternalAiAttachment,
 } from "@/lib/externalAi";
-import { buildKnowledgeContext, diversifyKnowledgeSources, fuseHybridKnowledge, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
+import { buildKnowledgeContext, diversifyKnowledgeSources, fuseHybridKnowledge, prioritizeQuestionRelevantSources, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
 import {
   modelPlanForSelection,
   modelProvider,
@@ -825,8 +825,14 @@ export async function POST(req: NextRequest) {
     let data: any[] = [];
     let semanticStatus = "not-requested";
     let semanticModel: string | null = null;
+    let databaseWarning: string | null = null;
+    const casualAiQuestion =
+      useAi && !hasExplicitDatabaseSources && !attachmentRaw && !attachmentUrl &&
+      !body.attachmentPath &&
+      /^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(question.trim());
 
-    if (useDatabase) {
+    if (useDatabase && !casualAiQuestion) {
+      try {
       const lexical = hasExplicitDatabaseSources
         ? await searchSelectedKnowledge(
             supabase,
@@ -863,7 +869,26 @@ export async function POST(req: NextRequest) {
       }
       // Round one: highest-relevance passage from every independent source.
       // Only afterwards include additional passages from those same sources.
-      data = diversifyKnowledgeSources(data, contextSourceLimit, 3);
+      data = diversifyKnowledgeSources(
+        prioritizeQuestionRelevantSources(data, question.trim()),
+        contextSourceLimit, 3
+      );
+      } catch (databaseError: any) {
+        // Retrieval timeouts (e.g. Postgres 57014 on large OCR books) must not
+        // stop an otherwise valid AI-only conversational answer.
+        console.warn("[DATABASE_RETRIEVAL_UNAVAILABLE]", {
+          code: String(databaseError?.code || "unknown").slice(0, 30),
+          reason: "Search failed; no database content was cited"
+        });
+        data = [];
+        semanticStatus = "fallback";
+        databaseWarning =
+          "Pencarian materi pribadi sedang gagal sementara; jawaban berikut tidak didasarkan pada Database. " +
+          "Jika butuh sitasi dokumen, coba lagi setelah indeks materi siap.";
+        if (!useAi && !useWeb) {
+          return NextResponse.json({ error: databaseWarning }, { status: 503 });
+        }
+      }
     }
 
     const lookupOnly =
@@ -874,6 +899,10 @@ export async function POST(req: NextRequest) {
       !attachmentRaw &&
       !attachmentUrl &&
       !body.attachmentPath;
+
+    if (lookupOnly && databaseWarning) {
+      return NextResponse.json({ error: databaseWarning }, { status: 503 });
+    }
 
     if (lookupOnly) {
       return NextResponse.json({
@@ -901,7 +930,7 @@ export async function POST(req: NextRequest) {
     }
 
     const currentRawAssets = await loadCurrentRawAttachment(supabase, userData.user.id, body);
-    const databaseRawAssets = useDatabase
+    const databaseRawAssets = useDatabase && !databaseWarning && !casualAiQuestion
       ? data.length
         ? []
         : sourceFileIds.length
@@ -963,7 +992,11 @@ export async function POST(req: NextRequest) {
     const contextLimit = aiMode === "high" ? 63000 : aiMode === "medium" ? 48000 : 33000;
     const context = data.length
       ? buildKnowledgeContext(data, contextLimit, question.trim())
-      : "(Database pribadi kosong atau tidak dipilih.)";
+      : databaseWarning
+        ? "(Pencarian Database gagal sementara. Jangan mengutip atau mengarang sumber pribadi.)"
+        : casualAiQuestion
+          ? "(Pertanyaan percakapan umum; Database tidak perlu dicari.)"
+          : "(Database pribadi kosong atau tidak dipilih.)";
 
     const databaseSources = useDatabase
       ? data.map((m) => ({
@@ -981,7 +1014,7 @@ export async function POST(req: NextRequest) {
       question,
       context,
       useAi,
-      useDatabase,
+      useDatabase: useDatabase && !databaseWarning && !casualAiQuestion,
       useWeb,
       aiMode,
       attachmentTitle: attachmentTitle || (attachmentUrl ? "Link lampiran" : ""),
@@ -989,7 +1022,9 @@ export async function POST(req: NextRequest) {
       citationStyle,
       citationOutputs,
       artifactFormat,
-    });
+    }) + (/\b(eksipien|excipients?)\b/i.test(question.trim()) && data.length
+      ? "\n\nPRIORITAS RELEVANSI: Untuk fungsi atau pemilihan eksipien tablet, gunakan monografi eksipien yang benar-benar cocok dari Handbook of Pharmaceutical Excipients atau referensi eksipien lain. Farmakope dipakai untuk fakta zat aktif/spesifikasi yang relevan, bukan sebagai satu-satunya sumber eksipien. Eksipien yang tidak menyebut PCT tetap bisa relevan sebagai bahan tambahan, tetapi jangan mengklaim formula tablet PCT sudah terbukti tanpa sumber formulasi. Sitasi hanya halaman yang memuat fakta terkait."
+      : "");
 
     const sharedGemini = selectedProvider === "gemini" && !geminiAuth.ownGemini;
     const action = useWeb ? "ask_web" : "ask";
@@ -1224,6 +1259,7 @@ export async function POST(req: NextRequest) {
         answer: result.text,
         citationWarnings: citationStructuralWarnings(result.text, citationStyle, citationOutputs),
         sources: databaseSources,
+        warning: databaseWarning || undefined,
         semanticStatus,
         semanticModel,
         webSources: result.webSources,
