@@ -8,6 +8,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import {
   AI_MODEL_CATALOG,
+  AI_RESPONSE_LENGTHS,
   defaultSelection,
   legacyModeForSelection,
   modelCapability,
@@ -16,6 +17,7 @@ import {
   selectionFromLegacyMode,
   type AiEffort,
   type AiModelId,
+  type AiResponseLength,
   type AiSelection,
 } from "@/lib/aiModels";
 
@@ -466,7 +468,7 @@ function aiRequestHeaders(session: Session, selection?: AiSelection) {
         : {}),
     ...(openAIKey ? { "X-RB-OpenAI-Key": openAIKey } : {}),
     ...(anthropicKey ? { "X-RB-Anthropic-Key": anthropicKey } : {}),
-    ...(selection ? { "X-RB-AI-Model": selection.model, "X-RB-AI-Effort": selection.effort } : {}),
+    ...(selection ? { "X-RB-AI-Model": selection.model, "X-RB-AI-Effort": selection.effort, "X-RB-AI-Length": selection.length || "medium" } : {}),
   };
 }
 
@@ -1001,6 +1003,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         scopeNodeId={aiScopeId}
         scopeName={aiScopeName}
         entries={entries}
+        files={files}
         nodes={nodes}
         onChange={refresh}
       />
@@ -7130,9 +7133,24 @@ function PracticePage({
                   )}
 
                   {submitted && quiz.grading_mode === "ai" && aiResult && (
-                    <div className={aiResult.correct ? "answerState ok" : "answerState bad"}>
-                      <strong>{aiResult.gradable ? (aiResult.correct ? "Benar" : "Belum benar") : "Belum dapat dinilai"} · {aiResult.score}/100</strong>
+                    <div className={aiResult.correct ? "answerState ok" : aiResult.score > 0 ? "answerState partial" : "answerState bad"}>
+                      <strong>{
+                        !aiResult.gradable
+                          ? "Belum dapat dinilai · 0/100"
+                          : aiResult.score === 100
+                            ? "Benar · 100/100"
+                            : aiResult.score === 70
+                              ? "Hampir benar · 70/100"
+                              : aiResult.score === 50
+                                ? "Benar sebagian · 50/100"
+                                : aiResult.score === 25
+                                  ? "Benar sedikit · 25/100"
+                                  : "Salah · 0/100"
+                      }</strong>
                       {aiResult.feedback && <><br /><RichText text={aiResult.feedback} /></>}
+                      {quiz.quiz_type === "essay" && quiz.correct_answer && (
+                        <><br /><small>Jawaban acuan (referensi): <RichText text={quiz.correct_answer} /></small></>
+                      )}
                       {aiResult.basis && <><br /><small>Dasar Database: <RichText text={aiResult.basis} /></small></>}
                     </div>
                   )}
@@ -7173,6 +7191,253 @@ function PracticePage({
         </>
       )}
     </section>
+  );
+}
+
+function AiDatabaseSourcePicker({
+  nodes,
+  files,
+  nodeIds,
+  fileIds,
+  onChange,
+  currentNodeId,
+  disabled = false,
+  sources,
+  onSourcesChange,
+  selectionModel,
+}: {
+  nodes: StudyNode[];
+  files: SourceFile[];
+  nodeIds: string[];
+  fileIds: string[];
+  onChange: (next: { nodeIds: string[]; fileIds: string[] }) => void;
+  currentNodeId?: string | null;
+  disabled?: boolean;
+  sources?: AiSourceKind[];
+  onSourcesChange?: (sources: AiSourceKind[]) => void;
+  selectionModel?: AiModelId;
+}) {
+  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  const folderNodes = useMemo(() => nodes.filter(isFolderLikeNode), [nodes]);
+  const selectedCount = nodeIds.length + fileIds.length;
+
+  const childrenByParent = useMemo(() => {
+    const visible = new Set(folderNodes.map((node) => node.id));
+    const map = new Map<string | null, StudyNode[]>();
+    for (const node of folderNodes) {
+      const parent = node.parent_id && visible.has(node.parent_id) ? node.parent_id : null;
+      const list = map.get(parent) || [];
+      list.push(node);
+      map.set(parent, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.title.localeCompare(b.title, "id"));
+    return map;
+  }, [folderNodes]);
+
+  const filesByNode = useMemo(() => {
+    const map = new Map<string, SourceFile[]>();
+    for (const file of files) {
+      const list = map.get(file.node_id) || [];
+      list.push(file);
+      map.set(file.node_id, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.file_name.localeCompare(b.file_name, "id"));
+    return map;
+  }, [files]);
+
+  useEffect(() => {
+    if (!currentNodeId) return;
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const next = new Set<string>();
+    let cursor = byId.get(currentNodeId);
+    while (cursor) {
+      next.add(cursor.id);
+      cursor = cursor.parent_id ? byId.get(cursor.parent_id) : undefined;
+    }
+    setExpanded((current) => new Set([...current, ...next]));
+  }, [currentNodeId, nodes]);
+
+  function toggleFolder(id: string) {
+    const next = nodeIds.includes(id) ? nodeIds.filter((item) => item !== id) : [...nodeIds, id];
+    onChange({ nodeIds: next, fileIds });
+  }
+
+  function toggleFile(id: string) {
+    const next = fileIds.includes(id) ? fileIds.filter((item) => item !== id) : [...fileIds, id];
+    onChange({ nodeIds, fileIds: next });
+  }
+
+  function toggleExpanded(id: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSourceKind(source: AiSourceKind) {
+    if (!sources || !onSourcesChange) return;
+    if (selectionModel === "local" && source !== "database") return;
+    const active = sources.includes(source);
+    const next = active ? sources.filter((item) => item !== source) : [...sources, source];
+    if (!next.length) return;
+    onSourcesChange(next);
+  }
+
+  const databaseEnabled = !sources || sources.includes("database");
+
+  function renderBranch(parentId: string | null, depth: number): any {
+    return (childrenByParent.get(parentId) || []).map((node) => {
+      const children = childrenByParent.get(node.id) || [];
+      const localFiles = filesByNode.get(node.id) || [];
+      const hasChildren = children.length > 0 || localFiles.length > 0;
+      const isExpanded = expanded.has(node.id);
+      const selected = nodeIds.includes(node.id);
+      return (
+        <div className="aiSourceTreeBranch" key={node.id}>
+          <div className={selected ? "aiSourceTreeRow selected" : "aiSourceTreeRow"} style={{ paddingLeft: 8 + depth * 16 }}>
+            <button
+              type="button"
+              className="aiSourceTreeExpand"
+              onClick={() => hasChildren && toggleExpanded(node.id)}
+              disabled={!hasChildren}
+              aria-label={hasChildren ? (isExpanded ? "Tutup" : "Buka") : "Kosong"}
+            >
+              {hasChildren ? (isExpanded ? "⌄" : ">") : "·"}
+            </button>
+            <button type="button" className="aiSourceTreeChoice" onClick={() => toggleFolder(node.id)}>
+              <span className={selected ? "sourceCheck checked" : "sourceCheck"}>{selected ? "✓" : ""}</span>
+              <span>{node.emoji || "📁"}</span>
+              <strong>{node.title}</strong>
+              <small>Folder</small>
+            </button>
+          </div>
+
+          {isExpanded && (
+            <>
+              {localFiles.map((file) => {
+                const fileSelected = fileIds.includes(file.id);
+                return (
+                  <button
+                    type="button"
+                    key={file.id}
+                    className={fileSelected ? "aiSourceFileRow selected" : "aiSourceFileRow"}
+                    style={{ paddingLeft: 36 + depth * 16 }}
+                    onClick={() => toggleFile(file.id)}
+                  >
+                    <span className={fileSelected ? "sourceCheck checked" : "sourceCheck"}>{fileSelected ? "✓" : ""}</span>
+                    <span>{file.mime_type === "application/pdf" ? "📕" : file.source_kind === "link" ? "🔗" : "📄"}</span>
+                    <strong>{file.file_name}</strong>
+                    <small>File</small>
+                  </button>
+                );
+              })}
+              {renderBranch(node.id, depth + 1)}
+            </>
+          )}
+        </div>
+      );
+    });
+  }
+
+  return (
+    <div className="aiDatabaseSourcePicker">
+      <button
+        type="button"
+        className={
+          (selectedCount ? "chooseSourcesTrigger active" : "chooseSourcesTrigger") +
+          (disabled ? " disabled" : "")
+        }
+        onClick={() => setOpen((current) => !current)}
+        disabled={disabled}
+        aria-disabled={disabled}
+        title={disabled ? "Aktifkan Database untuk memilih folder atau file sumber." : "Pilih folder atau file sumber"}
+      >
+        <span>☷</span>
+        <span>
+          <strong>Pilih sumber</strong>
+          <small>{selectedCount ? selectedCount + " dipilih" : "Folder / file"}</small>
+        </span>
+        <b>{open ? "⌄" : ">"}</b>
+      </button>
+
+      {open && (
+        <div className="aiDatabaseSourcePopover">
+          <div className="aiDatabaseSourceHead">
+            <div>
+              <strong>Pilih sumber</strong>
+              <small>Tentukan sumber jawaban AI, lalu pilih folder/file bila Database aktif.</small>
+            </div>
+            <button type="button" onClick={() => setOpen(false)}>×</button>
+          </div>
+
+          {sources && onSourcesChange && (
+            <div className="aiSourceKindsInPicker">
+              <small>SUMBER JAWABAN</small>
+              <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
+                {([
+                  { id: "ai" as const, label: "AI" },
+                  { id: "database" as const, label: "Database" },
+                  { id: "web" as const, label: "Web" },
+                ]).map((item) => {
+                  const itemDisabled = selectionModel === "local" && item.id !== "database";
+                  return (
+                    <button
+                      type="button"
+                      key={item.id}
+                      className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
+                      onClick={() => toggleSourceKind(item.id)}
+                      aria-pressed={sources.includes(item.id)}
+                      disabled={itemDisabled}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {!databaseEnabled && (
+            <div className="aiDatabaseDisabledHint">
+              Aktifkan <strong>Database</strong> untuk memilih folder atau file tertentu.
+            </div>
+          )}
+
+          <div className={databaseEnabled ? "aiDatabaseSourceContent" : "aiDatabaseSourceContent disabled"}>
+          <div className="aiDatabaseSourceTools">
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => onChange({ nodeIds: [], fileIds: [] })}
+            >
+              Otomatis dari halaman aktif
+            </button>
+            {selectedCount > 0 && (
+              <button type="button" className="ghost" onClick={() => onChange({ nodeIds: [], fileIds: [] })}>
+                Hapus pilihan
+              </button>
+            )}
+          </div>
+          <div className="aiDatabaseSourceTree">
+            {renderBranch(null, 0)}
+            {!folderNodes.length && <small className="muted">Belum ada folder sumber.</small>}
+          </div>
+          <div className="aiDatabaseSourceDone">
+            <span>{databaseEnabled ? (selectedCount ? selectedCount + " sumber dipilih" : "Mengikuti folder/halaman yang sedang aktif") : "Database tidak aktif"}</span>
+            <button type="button" className="primary" onClick={() => setOpen(false)}>Selesai</button>
+          </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -7327,6 +7592,9 @@ function AiModePicker({
     visibleModels.find((item) => item.id !== "local") ||
     visibleModels[0];
   const selectedEffort = selected?.efforts.find((item) => item.value === value.effort);
+  const selectedLength =
+    AI_RESPONSE_LENGTHS.find((item) => item.value === (value.length || "medium")) ||
+    AI_RESPONSE_LENGTHS[1];
 
   function modelRouteLabel(item: (typeof visibleModels)[number]) {
     if (item.provider === "gemini") {
@@ -7356,13 +7624,15 @@ function AiModePicker({
 
   function chooseModel(model: AiModelId) {
     const next = defaultSelection(model, context);
-    onChange(next);
-    if (!modelCapability(model).efforts.length) setOpen(false);
+    onChange({ ...next, length: value.length || "medium" });
   }
 
   function chooseEffort(effort: AiEffort) {
-    onChange({ model: selected.id, effort });
-    setOpen(false);
+    onChange({ model: selected.id, effort, length: value.length || "medium" });
+  }
+
+  function chooseLength(length: AiResponseLength) {
+    onChange({ model: selected.id, effort: value.effort, length });
   }
 
   return (
@@ -7378,6 +7648,7 @@ function AiModePicker({
           <small>
             {selected?.label || "Local"}
             {selected?.id !== "local" && selectedEffort ? " · " + selectedEffort.label : ""}
+            {" · " + selectedLength.label}
           </small>
         </span>
         <b>⌄</b>
@@ -7387,7 +7658,7 @@ function AiModePicker({
         <div className="aiModePopover aiModelPopover">
           <div className="modelPickerHead">
             <div>
-              <span className="aiModeSectionLabel">CHOOSE MODEL</span>
+              <span className="aiModeSectionLabel">MODEL</span>
               <strong>{selected?.label || "Local"}</strong>
             </div>
             <div className="modelPickerActions">
@@ -7418,8 +7689,8 @@ function AiModePicker({
           {!!selected?.efforts.length && (
             <div className="modelEffortPanel">
               <div>
-                <span className="aiModeSectionLabel">REASONING · {selected.label}</span>
-                <small>Pilih tingkat penalaran untuk model ini.</small>
+                <span className="aiModeSectionLabel">TINGKAT PENALARAN · {selected.label}</span>
+                <small>Pilih tingkat kecerdasan/penalaran yang tersedia untuk model ini.</small>
               </div>
               <div className="aiEffortGrid">
                 {selected.efforts.map((effort) => (
@@ -7436,6 +7707,27 @@ function AiModePicker({
               </div>
             </div>
           )}
+
+          <div className="modelLengthPanel">
+            <div>
+              <span className="aiModeSectionLabel">PANJANG JAWABAN</span>
+              <small>Atur seberapa ringkas atau lengkap jawaban, Study, Quiz, dan hasil AI.</small>
+            </div>
+            <div className="aiLengthGrid">
+              {AI_RESPONSE_LENGTHS.map((length) => (
+                <button
+                  type="button"
+                  key={length.value}
+                  className={(value.length || "medium") === length.value ? "aiLengthOption active" : "aiLengthOption"}
+                  onClick={() => chooseLength(length.value)}
+                >
+                  <strong>{length.label}</strong>
+                  <small>{length.hint}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button
             type="button"
             className="modelPluginButton modelPluginButtonBottom"
@@ -7587,6 +7879,7 @@ function AiSourceModelBar({
   compact = true,
   allowLocal = false,
   context = "general",
+  showSources = true,
 }: {
   sources: AiSourceKind[];
   onSourcesChange: (sources: AiSourceKind[]) => void;
@@ -7596,6 +7889,7 @@ function AiSourceModelBar({
   compact?: boolean;
   allowLocal?: boolean;
   context?: "general" | "chat";
+  showSources?: boolean;
 }) {
   useEffect(() => {
     if (selection.model === "local" && (sources.length !== 1 || sources[0] !== "database")) {
@@ -7613,28 +7907,30 @@ function AiSourceModelBar({
 
   return (
     <div className="askControls aiSourceModelBar">
-      <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
-        {([
-          { id: "ai" as const, label: "AI" },
-          { id: "database" as const, label: "Database" },
-          { id: "web" as const, label: "Web" },
-        ]).map((item) => {
-          const disabled = selection.model === "local" && item.id !== "database";
-          return (
-            <button
-              type="button"
-              key={item.id}
-              className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
-              onClick={() => toggle(item.id)}
-              aria-pressed={sources.includes(item.id)}
-              disabled={disabled}
-              title={disabled ? "Model Local memakai Database saja." : undefined}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </div>
+      {showSources && (
+        <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
+          {([
+            { id: "ai" as const, label: "AI" },
+            { id: "database" as const, label: "Database" },
+            { id: "web" as const, label: "Web" },
+          ]).map((item) => {
+            const disabled = selection.model === "local" && item.id !== "database";
+            return (
+              <button
+                type="button"
+                key={item.id}
+                className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
+                onClick={() => toggle(item.id)}
+                aria-pressed={sources.includes(item.id)}
+                disabled={disabled}
+                title={disabled ? "Model Local memakai Database saja." : undefined}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <CitationPicker compact={compact} />
       <AiModePicker
         value={selection}
@@ -7743,6 +8039,7 @@ function BottomAskBar({
   scopeNodeId,
   scopeName,
   entries,
+  files,
   nodes,
   onChange,
 }: {
@@ -7750,6 +8047,7 @@ function BottomAskBar({
   scopeNodeId: string | null;
   scopeName: string;
   entries: KnowledgeEntry[];
+  files: SourceFile[];
   nodes: StudyNode[];
   onChange: () => void;
 }) {
@@ -7759,10 +8057,12 @@ function BottomAskBar({
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
-  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["database"]);
+  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["ai", "database"]);
+  const [selectedSourceNodeIds, setSelectedSourceNodeIds] = useState<string[]>([]);
+  const [selectedSourceFileIds, setSelectedSourceFileIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
   const [composerBottom, setComposerBottom] = useState(16);
   const [composerHeight, setComposerHeight] = useState(118);
@@ -8004,6 +8304,17 @@ function BottomAskBar({
   }
 
   function scopedLocalEntries() {
+    const hasExplicit = selectedSourceNodeIds.length > 0 || selectedSourceFileIds.length > 0;
+    if (hasExplicit) {
+      const nodeIds = new Set<string>();
+      for (const nodeId of selectedSourceNodeIds) {
+        for (const id of collectSubtreeIds(nodes, nodeId)) nodeIds.add(id);
+      }
+      const fileIds = new Set(selectedSourceFileIds);
+      return entries.filter(
+        (item) => nodeIds.has(item.node_id) || (!!item.source_file_id && fileIds.has(item.source_file_id))
+      );
+    }
     if (!scopeNodeId) return entries;
     const ids = collectSubtreeIds(nodes, scopeNodeId);
     return entries.filter((item) => ids.includes(item.node_id));
@@ -8828,6 +9139,8 @@ function BottomAskBar({
       body: JSON.stringify({
         question,
         scopeNodeId,
+        sourceNodeIds: selectedSourceNodeIds,
+        sourceFileIds: selectedSourceFileIds,
         aiMode,
         sources: selectedSources,
         attachmentTitle:
@@ -8909,17 +9222,42 @@ function BottomAskBar({
           <span />
         </button>
         <div className="askTopRow">
-          <div className="askScope" title={scopeName}>{scopeName}</div>
-          <AiSourceModelBar
-            sources={selectedSources}
-            onSourcesChange={setSelectedSources}
-            selection={aiSelection}
-            onSelectionChange={setAiSelection}
-            action="ask"
-            context="chat"
-            compact
-            allowLocal
-          />
+          <div className="askTopControls">
+            <div className="askScope" title={scopeName}>{scopeName}</div>
+            <AiDatabaseSourcePicker
+              nodes={nodes}
+              files={files}
+              nodeIds={selectedSourceNodeIds}
+              fileIds={selectedSourceFileIds}
+              currentNodeId={scopeNodeId}
+              sources={selectedSources}
+              onSourcesChange={setSelectedSources}
+              selectionModel={aiSelection.model}
+              onChange={(next) => {
+                setSelectedSourceNodeIds(next.nodeIds);
+                setSelectedSourceFileIds(next.fileIds);
+                if (
+                  (next.nodeIds.length || next.fileIds.length) &&
+                  !selectedSources.includes("database")
+                ) {
+                  setSelectedSources((current) =>
+                    current.includes("database") ? current : [...current, "database"]
+                  );
+                }
+              }}
+            />
+            <AiSourceModelBar
+              sources={selectedSources}
+              onSourcesChange={setSelectedSources}
+              selection={aiSelection}
+              onSelectionChange={setAiSelection}
+              action="ask"
+              context="chat"
+              compact
+              allowLocal
+              showSources={false}
+            />
+          </div>
         </div>
         <div className="askInputRow">
           <input
