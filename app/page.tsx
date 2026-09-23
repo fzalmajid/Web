@@ -1190,24 +1190,58 @@ async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
   return row as SourceFile;
 }
 
+type PdfImportProgress = {
+  startPage: number;
+  processedThroughPage: number;
+  totalPages: number;
+  nextStartPage: number | null;
+};
+
+/** A page batch is one request so scanned/long PDFs do not time out in one giant OCR call. */
+async function importStoredRawFile(
+  session: Session,
+  row: Pick<SourceFile, "id" | "file_path" | "file_name" | "mime_type" | "node_id">,
+  selection: AiSelection,
+  onProgress?: (progress: PdfImportProgress) => void
+) {
+  let nextStartPage = 1;
+  for (let requestNumber = 0; requestNumber < 10000; requestNumber++) {
+    const response = await fetch("/api/import-file", {
+      method: "POST",
+      headers: aiRequestHeaders(session, selection),
+      body: JSON.stringify({
+        sourceFileId: row.id,
+        filePath: row.file_path,
+        fileName: row.file_name,
+        mimeType: row.mime_type,
+        nodeId: row.node_id,
+        aiMode: legacyModeForSelection(selection),
+        operation: "raw",
+        pdfStartPage: nextStartPage,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Gagal membaca file RAW.");
+    const progress = result.pdfProgress as PdfImportProgress | undefined;
+    if (!progress) return result;
+    onProgress?.(progress);
+    if (!progress.nextStartPage) return result;
+    if (
+      !Number.isFinite(progress.nextStartPage) ||
+      progress.nextStartPage <= nextStartPage ||
+      progress.nextStartPage > progress.totalPages
+    ) {
+      throw new Error("Progres pembacaan PDF tidak valid. Silakan ulangi proses.");
+    }
+    nextStartPage = progress.nextStartPage;
+  }
+  throw new Error("PDF sangat panjang. Proses dihentikan agar tidak melakukan permintaan tanpa batas.");
+}
+
 async function ensureRawFileText(session: Session, row: SourceFile) {
-  if (row.raw_text?.trim()) return row;
-  const extractionSelection = defaultSelection("gemini-2.5-flash");
-  const response = await fetch("/api/import-file", {
-    method: "POST",
-    headers: aiRequestHeaders(session, extractionSelection),
-    body: JSON.stringify({
-      sourceFileId: row.id,
-      filePath: row.file_path,
-      fileName: row.file_name,
-      mimeType: row.mime_type,
-      nodeId: row.node_id,
-      aiMode: legacyModeForSelection(extractionSelection),
-      operation: "raw",
-    }),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || "Gagal membaca RAW file.");
+  if (row.processing_status === "ready" && row.raw_text?.trim()) return row;
+  const selection = defaultSelection("gemini-2.5-flash");
+  await importStoredRawFile(session, row, selection);
   return row;
 }
 
@@ -4230,28 +4264,21 @@ function DatabasePage({
       return;
     }
 
-    const response = await fetch("/api/import-file", {
-      method: "POST",
-      headers: aiRequestHeaders(session, aiSelection),
-      body: JSON.stringify({
-        sourceFileId: row.id,
-        filePath: path,
-        fileName: selectedFile.name,
-        mimeType,
-        nodeId: node.id,
-        aiMode,
-        operation: "raw",
-      }),
-    });
-
-    const result = await response.json();
-    setFileBusy(false);
-
-    if (!response.ok) {
-      setFileStatus("File tersimpan, tetapi pemrosesan gagal.");
+    try {
+      await importStoredRawFile(session, row, aiSelection, (progress) => {
+        setFileStatus(
+          "PDF: selesai halaman " + progress.processedThroughPage +
+          " dari " + progress.totalPages + ". " +
+          (progress.nextStartPage ? "Melanjutkan OCR..." : "Seluruh halaman siap.")
+        );
+      });
+    } catch (error: any) {
+      setFileBusy(false);
+      setFileStatus("File asli tersimpan, tetapi pembacaan belum lengkap.");
       onChange();
-      return alert(result.error || "Gagal memproses file.");
+      return alert(error?.message || "Gagal memproses file.");
     }
+    setFileBusy(false);
 
     setSelectedFile(null);
     setFileStatus("Selesai. RAW/original sudah masuk Database. Versi AI belum dibuat.");
@@ -4501,8 +4528,8 @@ function DatabaseFileCard({
   );
 
   async function createAiCopy() {
-    if (!file.raw_text?.trim()) {
-      return alert("RAW belum siap. Tunggu proses pembacaan file selesai.");
+    if (file.processing_status !== "ready" || !file.raw_text?.trim()) {
+      return alert("RAW belum lengkap. Tunggu semua halaman selesai dibaca sebelum membuat Copy by AI.");
     }
     if (copySelection.model === "local") {
       return alert("Versi AI membutuhkan model cloud.");
@@ -5427,28 +5454,21 @@ function StudyPage({
       return;
     }
 
-    const response = await fetch("/api/import-file", {
-      method: "POST",
-      headers: aiRequestHeaders(session, quickDbAiSelection),
-      body: JSON.stringify({
-        sourceFileId: row.id,
-        filePath: path,
-        fileName: quickDbFile.name,
-        mimeType,
-        nodeId: database.id,
-        aiMode: quickDbAiMode,
-        operation: "raw",
-      }),
-    });
-
-    const result = await response.json();
-    setQuickFileBusy(false);
-
-    if (!response.ok) {
-      setQuickDbStatus("File tersimpan, tetapi pemrosesan gagal.");
+    try {
+      await importStoredRawFile(session, row, quickDbAiSelection, (progress) => {
+        setQuickDbStatus(
+          "PDF: selesai halaman " + progress.processedThroughPage +
+          " dari " + progress.totalPages +
+          (progress.nextStartPage ? " · melanjutkan..." : " · seluruh halaman siap.")
+        );
+      });
+    } catch (error: any) {
+      setQuickFileBusy(false);
+      setQuickDbStatus("File asli tersimpan, tetapi pembacaan belum lengkap.");
       onChange();
-      return alert(result.error || "Gagal memproses file.");
+      return alert(error?.message || "Gagal memproses file.");
     }
+    setQuickFileBusy(false);
 
     setQuickDbFile(null);
     setQuickDbStatus("Selesai. RAW/original sudah masuk folder dan otomatis dipilih sebagai sumber Study.");
@@ -9267,40 +9287,24 @@ function BottomAskBar({
       setAttachmentBusy(false);
       if (entryError) return alert(entryError.message);
     } else {
-      const response = await fetch("/api/import-file", {
-        method: "POST",
-        headers: aiRequestHeaders(session, aiSelection),
-        body: JSON.stringify({
-          sourceFileId: row.id,
-          filePath: path,
-          fileName: file.name,
-          mimeType,
-          nodeId: target.id,
-          aiMode,
-          operation: "raw",
-        }),
-      });
-      const result = await response.json().catch(() => ({}));
-      setAttachmentBusy(false);
-
-      if (!response.ok) {
-        await supabase.from("knowledge_entries").insert({
-          user_id: session.user.id,
-          node_id: target.id,
-          title: file.name,
-          category: "Lampiran RAW",
-          content: pendingAttachment.rawText || file.name,
-          raw_content: pendingAttachment.rawText || file.name,
-          source_type: "file",
-          source_file_id: row.id,
+      try {
+        await importStoredRawFile(session, row, aiSelection, (progress) => {
+          setAttachmentStatus(
+            "PDF: halaman " + progress.processedThroughPage + "/" +
+            progress.totalPages + (progress.nextStartPage ? " · melanjutkan OCR..." : " · selesai.")
+          );
         });
+      } catch (error: any) {
+        setAttachmentBusy(false);
         setAttachmentStatus(
-          "File asli sudah masuk Database; versi tertata belum selesai."
+          "File asli tersimpan, tetapi RAW belum lengkap: " +
+          (error?.message || "Gagal membaca file.")
         );
         setPendingAttachment(null);
         onChange();
         return;
       }
+      setAttachmentBusy(false);
     }
 
     setAttachmentStatus(
