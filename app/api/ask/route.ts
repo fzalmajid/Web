@@ -682,6 +682,68 @@ function buildPrompt({
   return sections.concat([""], rules).flat().join("\n");
 }
 
+
+/**
+ * Extraction-only Database lookup. Runs without an LLM or provider API call.
+ * The SQL RPC has already searched every eligible descendant folder, indexed
+ * individual OCR/page chunks, and ranked by body content rather than filename.
+ */
+function databaseLookupTerms(question: string) {
+  const ignored = new Set([
+    "yang","dan","atau","dari","untuk","dengan","tentang","secara","detail",
+    "tolong","saya","aku","mau","ingin","cari","carikan","temukan","lokasi",
+    "dimana","mana","di","dalam","file","folder","database","sumber","materi",
+    "monografi","monograph","halaman","berapa","page","find","locate","show",
+    "the","and","for","with","from","about","please","me",
+  ]);
+  const words = (question.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi) || [])
+    .filter((word) => !ignored.has(word));
+  const synonym: Record<string, string[]> = {
+    paracetamol: ["parasetamol","acetaminophen","acetaminofen"],
+    parasetamol: ["paracetamol","acetaminophen","acetaminofen"],
+    acetaminophen: ["paracetamol","parasetamol"],
+    acetaminofen: ["paracetamol","parasetamol"],
+  };
+  return Array.from(new Set(words.flatMap((word) => [word, ...(synonym[word] || [])])));
+}
+
+function formatDatabaseLookup(question: string, rows: any[]) {
+  const terms = databaseLookupTerms(question);
+  const seen = new Set<string>();
+  const chosen: any[] = [];
+  for (const row of rows) {
+    if (chosen.length >= 10) break;
+    const key = String(row.source_file_id || row.id) + ":" +
+      String(row.source_page_start || row.category || row.id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    chosen.push(row);
+  }
+  const parts = ["Ditemukan " + rows.length + " bagian yang cocok dalam isi Database dan subfolder terpilih. Berikut lokasi dan cuplikan dari teks sumber (bukan rangkuman AI):"];
+  for (const row of chosen) {
+    const raw = String(row.raw_content || row.content || "").replace(/\s+/g, " ").trim();
+    const lowered = raw.toLowerCase();
+    let firstIndex = -1;
+    for (const word of terms) {
+      const i = lowered.indexOf(word);
+      if (i >= 0 && (firstIndex < 0 || i < firstIndex)) firstIndex = i;
+    }
+    const start = Math.max(0, (firstIndex >= 0 ? firstIndex : 0) - 135);
+    const snippet = raw.slice(start, Math.min(raw.length, start + 430)).trim();
+    const pageLabel = row.source_page_start
+      ? " · halaman PDF " + row.source_page_start +
+        (row.source_page_end && row.source_page_end !== row.source_page_start ? "–" + row.source_page_end : "")
+      : "";
+    parts.push(
+      "- **" + row.title + "**" + pageLabel +
+      (row.category ? " · " + row.category : "") +
+      (snippet ? "\n  Cuplikan: " + (start ? "…" : "") + snippet + (start + 430 < raw.length ? "…" : "") : "")
+    );
+  }
+  parts.push("Pilih file atau halaman yang disebut di atas untuk membaca konteks lengkap. Nomor halaman PDF bisa berbeda dari nomor halaman cetak.");
+  return parts.join("\n\n");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const token = bearer(req);
@@ -773,6 +835,38 @@ export async function POST(req: NextRequest) {
           : await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
       }
 
+    }
+
+    const lookupOnly =
+      useDatabase &&
+      !useWeb &&
+      /\b(carikan|cari|temukan|lokasi|dimana|di mana|halaman berapa|find|locate|search for|show me)\b/i.test(question) &&
+      !/\b(jelaskan|ringkas|rangkum|uraikan|analisis|bandingkan|hitung|buat|tuliskan|explain|summarize|compare|analyze)\b/i.test(question) &&
+      !attachmentRaw &&
+      !attachmentUrl &&
+      !body.attachmentPath;
+
+    if (lookupOnly) {
+      return NextResponse.json({
+        answer: data.length
+          ? formatDatabaseLookup(question, data)
+          : "Tidak ditemukan kecocokan dalam isi materi yang sudah berhasil diindeks pada folder dan subfolder terpilih. Periksa apakah OCR/RAW seluruh halaman berstatus siap.",
+        sources: data.map((row) => ({
+          id: row.id,
+          node_id: row.node_id,
+          title: row.title,
+          category: row.category,
+          source_file_id: row.source_file_id || null,
+          page_start: row.source_page_start || null,
+          page_end: row.source_page_end || null,
+        })),
+        webSources: [],
+        grounded: true,
+        publicWeb: false,
+        selectedSources,
+        model: "Pencarian Database · tanpa Gemini",
+        provider: "database-index",
+      });
     }
 
     const currentRawAssets = await loadCurrentRawAttachment(supabase, userData.user.id, body);
