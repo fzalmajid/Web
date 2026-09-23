@@ -7794,7 +7794,7 @@ function AiDatabaseSourcePicker({
       const selected = nodeIds.includes(node.id);
       return (
         <div className="aiSourceTreeBranch" key={node.id}>
-          <div className={selected ? "aiSourceTreeRow selected" : "aiSourceTreeRow"} style={{ paddingLeft: 8 + depth * 16 }}>
+          <div className={selected ? "aiSourceTreeRow selected" : currentNodeId === node.id && !selectedCount ? "aiSourceTreeRow current" : "aiSourceTreeRow"} style={{ paddingLeft: 8 + depth * 16 }}>
             <button
               type="button"
               className="aiSourceTreeExpand"
@@ -7872,7 +7872,7 @@ function AiDatabaseSourcePicker({
 
           {sources && onSourcesChange && (
             <div className="aiSourceKindsInPicker">
-              <small>SUMBER JAWABAN</small>
+              <small>SUMBER JAWABAN · AI / DATABASE / WEB</small>
               <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
                 {([
                   { id: "ai" as const, label: "AI" },
@@ -7905,6 +7905,7 @@ function AiDatabaseSourcePicker({
 
           <div className={databaseEnabled ? "aiDatabaseSourceContent" : "aiDatabaseSourceContent disabled"}>
           <div className="aiDatabaseSourceTools">
+            <strong className="aiSourceTreeLabel">FOLDER &amp; FILE</strong>
             <button
               type="button"
               className="ghost"
@@ -7918,7 +7919,16 @@ function AiDatabaseSourcePicker({
               </button>
             )}
           </div>
-          <div className="aiDatabaseSourceTree">
+          <div className="aiDatabaseSourceTree" role="tree" aria-label="Pilih folder dan file sumber">
+            <button
+              type="button"
+              className={!selectedCount ? "aiSourceRootRow active" : "aiSourceRootRow"}
+              onClick={() => onChange({ nodeIds: [], fileIds: [] })}
+              aria-label="Beranda — gunakan folder halaman aktif secara otomatis"
+            >
+              <span aria-hidden="true">⌂</span><strong>Beranda</strong>
+              <small>{!selectedCount ? "Otomatis" : "Semua folder"}</small>
+            </button>
             {renderBranch(null, 0)}
             {!folderNodes.length && <small className="muted">Belum ada folder sumber.</small>}
           </div>

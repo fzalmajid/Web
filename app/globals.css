@@ -9321,3 +9321,15 @@ summary{
 .citationOfficialGuide{display:grid;gap:6px;margin:8px 10px;padding:10px;border:1px solid var(--line);border-radius:11px;background:var(--soft)}
 .citationOfficialGuide a{color:var(--accent-strong);font-size:.72rem;font-weight:800;text-decoration:underline;overflow-wrap:anywhere}
 .citationOfficialGuide small{font-size:.65rem;color:var(--muted);line-height:1.4}
+
+/* Align Pick Source popup with the main AI folder tree and keep source toggles inside picker. */
+.aiDatabaseSourcePopover{width:min(660px,calc(100vw - 20px))!important;max-height:min(78dvh,740px)!important}
+.aiDatabaseSourceTree{padding:8px 10px 12px!important;background:var(--card)}
+.aiSourceTreeLabel{font-size:.64rem;letter-spacing:.07em;color:var(--muted);white-space:nowrap;margin-right:auto}
+.aiSourceRootRow{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:var(--card);color:var(--ink);padding:10px 12px;margin-bottom:5px;border-radius:8px}
+.aiSourceRootRow strong{font-size:.78rem}.aiSourceRootRow small{font-size:.64rem;color:var(--muted)}
+.aiSourceRootRow.active,.aiSourceTreeRow.current{background:color-mix(in srgb,var(--soft) 76%,var(--accent) 24%);border-radius:10px}
+.aiSourceTreeRow{min-height:42px}.aiSourceTreeChoice{min-height:38px}.aiSourceTreeExpand{min-height:38px}
+.aiDatabaseSourceContent>.aiDatabaseSourceTree{min-height:160px!important}
+.gptComposer .aiDatabaseSourcePopover{height:min(72dvh,680px)!important}
+@media(max-width:767px){.aiDatabaseSourcePopover{width:min(100vw - 16px,660px)!important}.aiDatabaseSourceTree{padding:5px 6px 10px!important}.gptComposer .aiDatabaseSourcePopover{height:min(72dvh,660px)!important}.aiSourceTreeChoice small,.aiSourceFileRow small{display:none}.aiSourceTreeChoice,.aiSourceFileRow{grid-template-columns:20px 24px minmax(0,1fr)}}

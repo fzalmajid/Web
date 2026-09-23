@@ -7,16 +7,16 @@ export type CitationOutput = "in-text" | "bibliography";
 export const CITATION_STYLE_GUIDES: Record<Exclude<CitationStyle, "none">, {
   name: string; url: string; secondaryUrl?: string;
 }> = {
-  apa: { name: "APA Publication Manual, edisi ke-7", url: "https://www.apa.org/pubs/books/publication-manual-7th-edition-paperback" },
-  mla: { name: "MLA Style Center — MLA Handbook, edisi ke-9", url: "https://style.mla.org/in-text-citations-overview/" },
-  harvard: { name: "University of Leeds — Leeds Harvard", url: "https://library.leeds.ac.uk/info/1402/referencing/50/leeds_harvard_introduction/3" },
+  apa: { name: "APA Style — panduan gratis sitasi dan contoh referensi APA 7", url: "https://apastyle.apa.org/style-grammar-guidelines/references/examples", secondaryUrl: "https://apastyle.apa.org/style-grammar-guidelines/citations/basic-principles" },
+  mla: { name: "MLA Style Center — panduan gratis Works Cited MLA 9", url: "https://style.mla.org/works-cited/works-cited-a-quick-guide/", secondaryUrl: "https://style.mla.org/in-text-citations-overview/" },
+  harvard: { name: "University of Leeds — Leeds Harvard, pedoman gratis", url: "https://library.leeds.ac.uk/info/1402/referencing/50/leeds_harvard_introduction/1", secondaryUrl: "https://library.leeds.ac.uk/referencing-examples/9/leeds-harvard/73/book" },
   vancouver: {
-    name: "ICMJE Recommendations — citation-sequence",
+    name: "ICMJE Recommendations — Vancouver citation-sequence gratis",
     url: "https://icmje.org/recommendations/browse/manuscript-preparation/preparing-for-submission.html",
     secondaryUrl: "https://www.ncbi.nlm.nih.gov/books/NBK7256/",
   },
   ieee: { name: "IEEE Reference Guide", url: "https://journals.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/7/IEEE_Reference_Guide.pdf" },
-  chicago: { name: "The Chicago Manual of Style, edisi ke-18 — Author-Date", url: "https://www.chicagomanualofstyle.org/tools_citationguide" },
+  chicago: { name: "The Chicago Manual of Style — panduan Author-Date gratis", url: "https://www.chicagomanualofstyle.org/tools_citationguide/citation-guide-2" },
 };
 
 
@@ -82,6 +82,8 @@ export function citationInstruction(
       "NO AUTHOR: pindahkan judul ke posisi author pada References; in-text gunakan short title yang cocok dengan entri References. NO DATE: gunakan n.d.",
       "REFERENCES: alfabetis berdasarkan author/authorless-title. Cantumkan semua penulis sampai 20; bila 21+, tulis 19 pertama, ellipsis, lalu penulis terakhir. Format artikel jurnal: Author, A. A. (Year). Article title. *Journal Title, volume*(issue), pages. https://doi.org/... jika ada. Format buku: Author, A. A. (Year). *Book title* (edition bila bukan pertama). Publisher. Gunakan DOI dalam bentuk https://doi.org/... bila DOI benar-benar tersedia. Jangan menambahkan kota penerbit untuk buku.",
       "Hanya masukkan sumber yang benar-benar disitasi ke bagian References.",
+      "SUMBER BERUPA BUKU: judul buku italic dan sentence case; edisi ditulis dalam kurung setelah judul hanya bila bukan edisi pertama. ARTIKEL: judul artikel sentence case dan nama jurnal beserta volume italic; issue dalam kurung tidak italic. Judul web dengan author organisasi tidak otomatis mengulang nama situs bila identik.",
+      "KUTIPAN LANGSUNG TANPA HALAMAN: gunakan paragraf (para.) atau heading+paragraf hanya jika locator tersebut tersedia dan dapat dibuktikan, bukan nomor halaman hasil tebakan.",
     ],
     mla: [
       "GAYA: MLA 9th edition.",
@@ -90,6 +92,7 @@ export function citationInstruction(
       "THREE+ AUTHORS: gunakan surname penulis pertama + et al. sesuai entri Works Cited.",
       "WORKS CITED: susun alfabetis berdasarkan elemen pertama entri. Bangun entri dari core elements yang benar-benar tersedia: author, title of source, title of container, contributors, version, number, publisher, publication date, location/DOI/URL.",
       "Judul bagian akhir harus 'Works Cited'. Hanya masukkan karya yang benar-benar dirujuk.",
+      "BOOK: Author, First name. *Book Title*. Publisher, Year. JOURNAL: Author. \"Article Title.\" *Journal Title*, vol. N, no. N, Year, pp. X–Y, DOI/URL bila tersedia. Web: \"Page Title.\" *Site Name*, Publisher jika berbeda, Date, URL. Jangan menambah volume/issue yang tidak ada.",
     ],
     harvard: [
       "GAYA: Leeds Harvard. Harvard memiliki banyak varian; aplikasi ini WAJIB mengikuti varian University of Leeds agar format deterministik.",
@@ -99,6 +102,8 @@ export function citationInstruction(
       "REFERENCE LIST: alfabetis menurut author/corporate author. Jangan memakai ibid.; ulangi citation yang diperlukan.",
       "TRANSLATION/VERSION: cite versi yang benar-benar dibaca. Jangan otomatis membuat pasangan tahun asli/tahun terjemahan.",
       "Jika metadata tidak lengkap, gunakan hanya elemen yang benar-benar tersedia; jangan mengarang author, tahun, publisher, DOI, atau URL.",
+      "BOOK LEEDS: Family name, INITIAL(S). Year. *Title*. Edition (if not first). Place: Publisher. Dua author memakai and; in-text tiga+ memakai et al. tetapi referensi mencantumkan semua author sesuai panduan Leeds.",
+      "PDF yang ditemukan daring dicatat berdasarkan tipe publikasi asli; untuk kutipan langsung atau ide spesifik sertakan locator halaman bila terbukti. Jangan menggabungkan format Leeds dengan APA.",
     ],
     vancouver: [
       "GAYA: Vancouver yang diimplementasikan sebagai ICMJE citation-sequence + NLM Citing Medicine.",
@@ -107,6 +112,8 @@ export function citationInstruction(
       "JOURNAL REFERENCES: ikuti NLM Citing Medicine: Author AA, Author BB. Article title. Abbreviated Journal Title. Year;volume(issue):page–page. DOI bila tersedia. Nama jurnal memakai singkatan MEDLINE hanya jika diverifikasi dari NLM Catalog/PubMed; jangan menebak singkatan.",
       "AUTHORS: format NLM adalah surname diikuti initials. Jangan mengarang author. Bila tidak ada person/organization author, mulai entri dengan title, sesuai aturan NLM.",
       "Jangan menambahkan sumber hanya untuk memperbanyak nomor; setiap reference harus mendukung pernyataan yang terkait.",
+      "ICMJE: penomoran pertama kali muncul berlaku juga pada sitasi di tabel/gambar sesuai urutan pertama tabel/gambar disebut. Cek retraction menggunakan PubMed bila ada akses web dan sitasi artikel kedokteran. Jangan menyebut sumber AI sebagai referensi utama.",
+      "BOOK NLM: Author AA. *Book title*. Edition. Place: Publisher; Year. JOURNAL NLM: Author AA. Article title. Verified NLM Journal Abbreviation. Year;volume(issue):pages. Bila judul jurnal tidak memiliki singkatan terverifikasi, jangan menebak.",
     ],
     ieee: [
       "GAYA: IEEE Reference Guide.",
@@ -115,6 +122,7 @@ export function citationInstruction(
       "REFERENCE ORDER: daftar References mengikuti nomor/urutan kemunculan pertama, bukan alfabetis. Satu nomor hanya untuk satu reference.",
       "AUTHORS: initials nama depan/tengah mendahului surname. Daftar semua author sampai enam; bila lebih dari enam, gunakan nama author pertama diikuti et al., sesuai IEEE Reference Guide.",
       "LOCATOR: bila mengutip bagian spesifik dan locator tersedia, bentuk seperti [3, pp. 5–10] dapat digunakan. Jangan mengarang locator.",
+      "IEEE: nomor sitasi berada SEBELUM titik atau tanda baca akhir kalimat; jangan gunakan rentang [1]–[4]. Referensi tetap memiliki penomoran [1], [2] dst., nama depan berupa inisial sebelum nama keluarga, artikel di dalam tanda kutip dan nama jurnal/buku italic bila bentuk output memungkinkan.",
     ],
     chicago: [
       "GAYA: Chicago Manual of Style — Author-Date, bukan Notes and Bibliography.",
@@ -124,6 +132,7 @@ export function citationInstruction(
       "SAME AUTHOR/YEAR: gunakan suffix a, b, dst. secara konsisten bila memang diperlukan.",
       "BOOKS: place of publication tidak diperlukan dalam Chicago edisi terbaru. Jangan menambahkannya hanya karena template lama.",
       "NO DATE: gunakan n.d. hanya bila tanggal memang tidak tersedia. Jangan menebak.",
+      "CHICAGO 18 AUTHOR-DATE: dalam bibliografi buku: Surname, Given Name. Year. *Book Title*. Publisher. Jurnal: Surname, Given Name. Year. \"Article Title.\" *Journal Title* volume (issue): pages. DOI/URL jika diverifikasi. Untuk buku tanpa halaman tetap gunakan locator bab/section bila memang tersedia.",
     ],
   };
 
@@ -148,7 +157,7 @@ export function citationInstruction(
 
   return [
     "FORMAT SITASI USER — PATUHI STYLE SECARA TERPISAH:",
-    "Pedoman otoritatif untuk gaya ini: " + guide.name + " — " + guide.url + (guide.secondaryUrl ? " ; panduan bibliografi: " + guide.secondaryUrl : "") + ". Panduan ini adalah aturan format, BUKAN sumber isi jawaban.",
+    "Pedoman PUBLIK dan bebas dibaca untuk gaya ini: " + guide.name + " — " + guide.url + (guide.secondaryUrl ? " ; panduan pelengkap: " + guide.secondaryUrl : "") + ". Gunakan aturan yang tersedia dalam panduan publik tersebut; jangan mengaku telah mengakses bagian manual berbayar. Panduan gaya BUKAN referensi isi jawaban.",
     ...styleRules[style],
     ...outputRules,
     "",
@@ -162,6 +171,12 @@ export function citationInstruction(
     "- Citation dan reference list harus konsisten satu-ke-satu: setiap marker harus dapat dipetakan ke entri/identitas sumber yang sama, dan nomor numeric tidak boleh berubah di tengah jawaban.",
     "- SEBELUM MENJAWAB: buat inventaris sumber yang benar-benar dibaca beserta penulis, tahun, judul, halaman asli bila terbukti, penerbit/jurnal dan DOI/URL bila diverifikasi. Hanya referensi dalam inventaris boleh disitasi. Periksa nama dan tahun di marker terhadap entri akhir; untuk numeric periksa urutan pertama dan reuse angka sumber sama.",
     "- Jangan mengklaim akurasi bibliografi 100% jika metadata dokumen tidak lengkap atau belum diverifikasi ke publikasi asli. Jelaskan keterbatasannya secara singkat jika relevan.",
+    "- DOKUMEN SUMBER: bedakan tipe karya (buku, bab buku, jurnal, laman web, laporan, PPT kuliah, PDF hasil scan). PDF hanyalah format berkas, bukan jenis referensi. Ambil metadata dari halaman judul/halaman hak cipta atau metadata bibliografis terverifikasi, bukan menebak dari nama file.",
+    "- DOI, URL, ISBN, penulis, tahun, jurnal, edisi, penerbit, dan nomor halaman harus benar-benar ada dan cocok dengan karya yang dibaca. Jika tidak terverifikasi, jangan tulis DOI/URL/ISBN karangan; minta metadata untuk melengkapi referensi.",
+    "- Gunakan hanya satu varian style yang dipilih user. Jangan mencampur APA/Harvard/Chicago, urutan alfabetis versus urutan sitasi, tanda kurung versus kurung siku, atau aturan dan jumlah penulis.",
+    "- Jika file lokal tidak memiliki pengarang/tahun yang dapat diverifikasi, identifikasi dengan judul yang benar-benar terlihat, gunakan aturan no-author/no-date style terkait bila sah, dan beri catatan bahwa metadata tidak lengkap; JANGAN menjadikan tanggal upload sebagai tahun terbit.",
+    "- Sebelum menampilkan jawaban, periksa secara eksplisit: (1) setiap klaim berbasis referensi berasal dari sumber yang benar-benar dibaca, (2) locator merujuk halaman asli yang terverifikasi, (3) setiap sitasi cocok ke satu entri, (4) setiap entri benar-benar dipakai, (5) format sesuai style terpilih.",
+    "- Jika user hanya memilih sitasi dalam teks tanpa daftar pustaka, jangan menghasilkan daftar pustaka; jika hanya daftar pustaka, jangan menyisipkan sitasi dalam teks. Metadata yang tidak lengkap harus dilaporkan, bukan dipalsukan.",
   ].join("\n");
 }
 
