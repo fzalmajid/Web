@@ -254,33 +254,62 @@ export async function searchSemanticKnowledge(
   sourceNodeIds: string[],
   sourceFileIds: string[],
   explicitlySelected: boolean,
-  limit = 80
+  limit = 80,
+  clientEmbedding?: { model: string; vector: number[] } | null
 ): Promise<SemanticRetrieval> {
   const empty: SemanticRetrieval = { rows: [], model: null, status: "fallback" };
   try {
-    const { data: available, error: availabilityError } = await supabase
-      .from("knowledge_vector_chunks").select("id").limit(1);
-    if (availabilityError || !available?.length) {
+    const model = clientEmbedding?.model === "intfloat/multilingual-e5-small"
+      ? clientEmbedding.model : "Supabase/gte-small";
+    const vector = clientEmbedding?.model === model && Array.isArray(clientEmbedding.vector) &&
+      clientEmbedding.vector.length === 384 && clientEmbedding.vector.every(
+        (value) => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 1.001
+      ) && Math.abs(Math.sqrt(clientEmbedding.vector.reduce((sum, n) => sum + n * n, 0)) - 1) < 0.025
+      ? clientEmbedding.vector : null;
+
+    // Never assume the presence of a different model's 384-dimensional vectors
+    // means this query is semantically searchable; embedding spaces cannot mix.
+    const requestedModel = vector ? model : "Supabase/gte-small";
+    const { count, error: availabilityError } = await supabase
+      .from("knowledge_vector_chunks")
+      .select("id", { count: "exact", head: true }).eq("model", requestedModel);
+    if (availabilityError) return empty;
+    if (!Number(count || 0)) {
+      if (!vector) {
+        const { count: hfCount } = await supabase.from("knowledge_vector_chunks")
+          .select("id", { count: "exact", head: true })
+          .eq("model", "intfloat/multilingual-e5-small");
+        if (Number(hfCount || 0) > 0) {
+          return { ...empty, model: "intfloat/multilingual-e5-small", status: "fallback" };
+        }
+      }
       return { ...empty, status: "index-pending" };
     }
-    const { data: embedded, error: embeddingError } = await supabase.functions.invoke(
-      "semantic-index", { body: { action: "query", text: question } }
-    );
-    if (embeddingError || !embedded || !Array.isArray(embedded.vector) ||
-        embedded.vector.length !== 384 || !embedded.model) return empty;
-    const model = String(embedded.model);
+
+    let activeVector = vector;
+    if (!activeVector) {
+      // This is an optional legacy fallback for previously cached English
+      // embeddings. Browser-produced multilingual vectors take precedence.
+      const { data: embedded, error: embeddingError } = await supabase.functions.invoke(
+        "semantic-index", { body: { action: "query", text: question } }
+      );
+      if (embeddingError || !embedded || embedded.model !== requestedModel ||
+          !Array.isArray(embedded.vector) || embedded.vector.length !== 384) return empty;
+      activeVector = embedded.vector;
+    }
+
     const { data, error } = await supabase.rpc("match_knowledge_vectors", {
-      p_vector: embedded.vector,
-      p_model: model,
+      p_vector: activeVector,
+      p_model: requestedModel,
       p_scope_node_id: scopeNodeId,
       p_source_node_ids: sourceNodeIds,
       p_source_file_ids: sourceFileIds,
       p_use_selected: explicitlySelected,
-      p_min_similarity: model === "intfloat/multilingual-e5-small" ? 0.82 : 0.75,
+      p_min_similarity: requestedModel === "intfloat/multilingual-e5-small" ? 0.82 : 0.75,
       p_limit: Math.min(120, Math.max(1, limit))
     });
     if (error) return empty;
-    return { rows: (data || []) as KnowledgeSource[], model, status: "ready" };
+    return { rows: (data || []) as KnowledgeSource[], model: requestedModel, status: "ready" };
   } catch {
     return empty;
   }
