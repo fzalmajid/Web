@@ -12,7 +12,7 @@ import {
   ExternalAiError,
   type ExternalAiAttachment,
 } from "@/lib/externalAi";
-import { buildKnowledgeContext, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge } from "@/lib/knowledge";
+import { buildKnowledgeContext, diversifyKnowledgeSources, fuseHybridKnowledge, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
 import {
   modelPlanForSelection,
   modelProvider,
@@ -632,7 +632,9 @@ function buildPrompt({
     "Aturan:",
     "- Jika ada LAMPIRAN RAW/ORIGINAL, baca sumber mentah itu secara langsung dan jadikan isi literalnya sebagai konteks utama lampiran.",
     "- Untuk Database, prioritaskan RAW/ORIGINAL content. Versi tertata/ringkasan hanya bantuan dan tidak boleh menggantikan fakta yang ada pada raw.",
-    "- Jika beberapa sumber Database relevan, sintesis lintas sumber dan manfaatkan sebanyak mungkin referensi BERBEDA yang benar-benar mendukung jawaban.",
+    "- TELUSURI sumber berbeda yang relevan terlebih dahulu. Bila banyak sumber berbeda mendukung pertanyaan, gunakan sebanyak mungkin dalam batas konteks tanpa memasukkan sumber yang tidak relevan.",
+    "- Sebelum mengulang sitasi satu buku/file, periksa semua sumber BERBEDA yang sudah ditemukan dan gunakan yang memang mendukung klaim. Boleh mengulang sumber utama sesudah sumber relevan lain terwakili, atau bila klaim hanya didukung sumber utama.",
+    "- Jika hanya ada satu atau dua sumber relevan, gunakan hanya itu. Jika tidak ada bukti relevan dalam Database, katakan tidak ditemukan; jangan membuat kutipan atau daftar pustaka palsu.",
     "- Fokus relevansi pada ISI sumber, bukan nama file atau judul. Jangan memasukkan, mengutip, atau menampilkan sumber yang hanya kebetulan memiliki judul mirip tetapi isi chunk tidak mendukung pertanyaan.",
     "- Sumber yang hanya menyebut topik secara sepintas tidak perlu dipakai. Lebih baik sedikit sumber yang sangat relevan daripada banyak sumber yang lemah/tidak cocok.",
     "- Jangan mengabaikan handbook/referensi utama hanya karena materi kuliah lain memakai istilah yang lebih mirip dengan pertanyaan.",
@@ -688,6 +690,16 @@ function buildPrompt({
  * The SQL RPC has already searched every eligible descendant folder, indexed
  * individual OCR/page chunks, and ranked by body content rather than filename.
  */
+function expandPharmacyQuery(question: string) {
+  // "PCT" is contextual: in a paracetamol monograph query, expand it to
+  // medicine synonyms before FTS; do not assume it always means paracetamol.
+  if (!/\bpct\b/i.test(question) ||
+      !/\b(monografi|monograph|parasetamol|paracetamol|acetaminophen|analgesik|obat)\b/i.test(question)) {
+    return question;
+  }
+  return question.replace(/\bpct\b/gi, "paracetamol parasetamol acetaminophen");
+}
+
 function databaseLookupTerms(question: string) {
   const ignored = new Set([
     "yang","dan","atau","dari","untuk","dengan","tentang","secara","detail",
@@ -699,6 +711,7 @@ function databaseLookupTerms(question: string) {
   const words = (question.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi) || [])
     .filter((word) => !ignored.has(word));
   const synonym: Record<string, string[]> = {
+    pct: ["paracetamol","parasetamol","acetaminophen","acetaminofen"],
     paracetamol: ["parasetamol","acetaminophen","acetaminofen"],
     parasetamol: ["paracetamol","acetaminophen","acetaminofen"],
     acetaminophen: ["paracetamol","parasetamol"],
@@ -712,14 +725,14 @@ function formatDatabaseLookup(question: string, rows: any[]) {
   const seen = new Set<string>();
   const chosen: any[] = [];
   for (const row of rows) {
-    if (chosen.length >= 10) break;
+    if (chosen.length >= 24) break;
     const key = String(row.source_file_id || row.id) + ":" +
       String(row.source_page_start || row.category || row.id);
     if (seen.has(key)) continue;
     seen.add(key);
     chosen.push(row);
   }
-  const parts = ["Ditemukan " + rows.length + " bagian yang cocok dalam isi Database dan subfolder terpilih. Berikut lokasi dan cuplikan dari teks sumber (bukan rangkuman AI):"];
+  const parts = ["Berikut " + rows.length + " bagian relevan hasil pencarian isi Database dan subfolder terpilih. Sumber berbeda ditampilkan sebelum cuplikan berulang dari sumber yang sama (bukan rangkuman AI):"];
   for (const row of chosen) {
     const raw = String(row.raw_content || row.content || "").replace(/\s+/g, " ").trim();
     const lowered = raw.toLowerCase();
@@ -805,20 +818,34 @@ export async function POST(req: NextRequest) {
 
     // Cheap database retrieval runs BEFORE the LLM. Search broadly across the selected
     // folder and every descendant, then send only the strongest content/page chunks.
-    const searchLimit = aiMode === "high" ? 36 : aiMode === "medium" ? 28 : 20;
+    const databaseSearchQuery = expandPharmacyQuery(question.trim());
+    const searchLimit = 80; // Gather a broad candidate pool before source-level reranking.
+    const contextSourceLimit = aiMode === "high" ? 48 : aiMode === "medium" ? 40 : 32;
     const fallbackLimit = aiMode === "high" ? 80 : aiMode === "medium" ? 60 : 40;
     let data: any[] = [];
+    let semanticStatus = "not-requested";
+    let semanticModel: string | null = null;
 
     if (useDatabase) {
-      data = hasExplicitDatabaseSources
+      const lexical = hasExplicitDatabaseSources
         ? await searchSelectedKnowledge(
             supabase,
-            question.trim(),
+            databaseSearchQuery,
             sourceNodeIds,
             sourceFileIds,
             searchLimit
           )
-        : await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
+        : await searchScopeKnowledge(supabase, databaseSearchQuery, scopeNodeId, searchLimit);
+
+      // Independent embedding worker: no Gemini call or Gemini credits here.
+      // Folder and file filters are rechecked by RLS-protected database SQL.
+      const semantic = await searchSemanticKnowledge(
+        supabase, databaseSearchQuery, scopeNodeId,
+        sourceNodeIds, sourceFileIds, hasExplicitDatabaseSources, searchLimit
+      );
+      semanticStatus = semantic.status;
+      semanticModel = semantic.model;
+      data = fuseHybridKnowledge(lexical, semantic.rows, 120, question.trim(), semantic.model || "");
 
       const broadDatabaseQuestion =
         /\b(ringkas|rangkum|overview|gambaran|jelaskan materi|apa isi|pelajari semua|seluruh materi)\b/i.test(
@@ -834,7 +861,9 @@ export async function POST(req: NextRequest) {
             )
           : await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
       }
-
+      // Round one: highest-relevance passage from every independent source.
+      // Only afterwards include additional passages from those same sources.
+      data = diversifyKnowledgeSources(data, contextSourceLimit, 3);
     }
 
     const lookupOnly =
@@ -866,6 +895,8 @@ export async function POST(req: NextRequest) {
         selectedSources,
         model: "Pencarian Database · tanpa Gemini",
         provider: "database-index",
+        semanticStatus,
+        semanticModel,
       });
     }
 
@@ -931,7 +962,7 @@ export async function POST(req: NextRequest) {
     // 1.5× context budget to match the broader retrieval pass.
     const contextLimit = aiMode === "high" ? 63000 : aiMode === "medium" ? 48000 : 33000;
     const context = data.length
-      ? buildKnowledgeContext(data, contextLimit)
+      ? buildKnowledgeContext(data, contextLimit, question.trim())
       : "(Database pribadi kosong atau tidak dipilih.)";
 
     const databaseSources = useDatabase
@@ -1193,6 +1224,8 @@ export async function POST(req: NextRequest) {
         answer: result.text,
         citationWarnings: citationStructuralWarnings(result.text, citationStyle, citationOutputs),
         sources: databaseSources,
+        semanticStatus,
+        semanticModel,
         webSources: result.webSources,
         grounded: !useAi,
         publicWeb: useWeb,
