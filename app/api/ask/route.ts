@@ -28,7 +28,7 @@ import {
   normalizeAiMode,
   recordAiTokenUsage,
 } from "@/lib/aiQuota";
-import { citationInstruction, normalizeCitationOptions, type CitationOutput, type CitationStyle } from "@/lib/citations";
+import { citationInstruction, citationStructuralWarnings, normalizeCitationOptions, type CitationOutput, type CitationStyle } from "@/lib/citations";
 import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } from "@/lib/artifacts";
 
 function bearer(req: NextRequest) {
@@ -1094,6 +1094,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         answer: result.text,
+        citationWarnings: citationStructuralWarnings(result.text, citationStyle, citationOutputs),
         sources: databaseSources,
         webSources: result.webSources,
         grounded: !useAi,
@@ -1115,6 +1116,7 @@ export async function POST(req: NextRequest) {
       if (alternate) {
         return NextResponse.json({
           answer: alternate.result.text,
+          citationWarnings: citationStructuralWarnings(alternate.result.text, citationStyle, citationOutputs),
           sources: databaseSources,
           webSources: alternate.result.webSources,
           grounded: !useAi,
@@ -1166,6 +1168,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         answer: fallbackResult.text,
+        citationWarnings: citationStructuralWarnings(fallbackResult.text, citationStyle, citationOutputs),
         sources: fallbackSources.includes("database") ? databaseSources : [],
         webSources: [],
         grounded: !fallbackSources.includes("ai"),

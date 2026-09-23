@@ -7,6 +7,7 @@ import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
+import { CITATION_STYLE_GUIDES } from "@/lib/citations";
 import { assertPdfFile } from "@/lib/pdfValidation";
 import { isChunkedPdfPath, getChunkedPdfManifest, downloadChunkedPdf, removeStoredStudyFile, copyChunkedPdf, saveLargePdfToFolder, type LargePdfSourceRow } from "@/lib/largePdfClient";
 import {
@@ -175,12 +176,12 @@ type CitationPrefs = { style: CitationStyle; outputs: CitationOutput[] };
 
 const citationStyleOptions: Array<{ value: CitationStyle; label: string; preview: string }> = [
   { value: "none", label: "Tanpa sitasi", preview: "Tidak ada marker" },
-  { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · (Nama, TahunAsli/TahunVersi)" },
+  { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · (Nama et al., Tahun)" },
   { value: "mla", label: "MLA 9", preview: "(Nama Halaman) · (Halaman)" },
-  { value: "harvard", label: "Harvard", preview: "(Nama, Tahun) · (Nama, TahunAsli/TahunVersi)" },
+  { value: "harvard", label: "Harvard (Leeds)", preview: "(Nama, Tahun) · (Nama et al., Tahun)" },
   { value: "vancouver", label: "Vancouver", preview: "(1) · (2)" },
   { value: "ieee", label: "IEEE", preview: "[1] · [2]" },
-  { value: "chicago", label: "Chicago Author-Date", preview: "(Nama Tahun) · (Nama TahunAsli/TahunVersi)" },
+  { value: "chicago", label: "Chicago 18 Author-Date", preview: "(Nama Tahun) · (Nama et al. Tahun)" },
 ];
 
 function readCitationPrefs(): CitationPrefs {
@@ -8232,6 +8233,7 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
   }
 
   const selected = citationStyleOptions.find((item) => item.value === prefs.style) || citationStyleOptions[0];
+  const officialGuide = prefs.style === "none" ? null : CITATION_STYLE_GUIDES[prefs.style];
 
   return (
     <div ref={wrapRef} className={compact ? "citationPicker compact" : "citationPicker"}>
@@ -8274,6 +8276,19 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
 
           {prefs.style !== "none" && (
             <>
+              {officialGuide && (
+                <div className="citationOfficialGuide">
+                  <a href={officialGuide.url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>
+                    Pedoman resmi: {officialGuide.name} ↗
+                  </a>
+                  {officialGuide.secondaryUrl && (
+                    <a href={officialGuide.secondaryUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>
+                      Panduan bibliografi NLM ↗
+                    </a>
+                  )}
+                  <small>Akurasi sitasi bergantung pada metadata sumber yang benar-benar tersedia dan terverifikasi.</small>
+                </div>
+              )}
               <div className="citationOutputTitle">Tampilkan sebagai</div>
               <div className="citationOutputChoices">
                 <button
@@ -9630,7 +9645,7 @@ function BottomAskBar({
     setAnswerModel(String(data.model || ""));
     setSources(data.sources || []);
     setWebSources(data.webSources || []);
-    setWarning(data.warning || "");
+    setWarning([data.warning, ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : [])].filter(Boolean).join(" · "));
     if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
       setSelectedSources(data.selectedSources);
     }
