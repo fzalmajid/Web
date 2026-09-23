@@ -150,7 +150,7 @@ Deno.serve(async (request: Request) => {
           source_page_end: entry.source_page_end,
           chunk_index: index,
           snippet,
-          embedding: JSON.stringify(vector),
+          embedding: vector,
           model,
           entry_updated_at: entry.entry_updated_at
         }, { onConflict: "entry_id,model,chunk_index" });
