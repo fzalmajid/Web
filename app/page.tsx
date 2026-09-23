@@ -9288,7 +9288,7 @@ function BottomAskBar({
       if (entryError) return alert(entryError.message);
     } else {
       try {
-        await importStoredRawFile(session, row, aiSelection, (progress) => {
+        await importStoredRawFile(session, { id: row.id, file_path: path, file_name: file.name, mime_type: mimeType, node_id: target.id }, aiSelection, (progress) => {
           setAttachmentStatus(
             "PDF: halaman " + progress.processedThroughPage + "/" +
             progress.totalPages + (progress.nextStartPage ? " · melanjutkan OCR..." : " · selesai.")
