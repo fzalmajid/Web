@@ -21,6 +21,9 @@ export class ExternalAiError extends Error {
 
 function normalizeExternalError(provider: "OpenAI" | "Claude", status: number, data: any) {
   const raw = String(data?.error?.message || data?.message || "");
+  const providerCode = String(data?.error?.code || "").toLowerCase();
+  const providerType = String(data?.error?.type || "").toLowerCase();
+  const detail = [providerCode, providerType, raw.toLowerCase()].join(" ");
   if (status === 401 || status === 403) {
     return new ExternalAiError(
       provider + " credential tidak valid atau tidak punya izin untuk model tersebut.",
@@ -28,11 +31,49 @@ function normalizeExternalError(provider: "OpenAI" | "Claude", status: number, d
       "PROVIDER_AUTH"
     );
   }
-  if (status === 429 || /quota|rate.?limit|insufficient_quota|too many requests/i.test(raw)) {
+
+  // HTTP 429 is NOT proof that the user's balance is exhausted. The provider
+  // also uses 429 for request/token rate limits. Preserve the distinction.
+  if (/credit_balance_exhausted/.test(detail)) {
     return new ExternalAiError(
-      "Quota " + provider + " user sedang tercapai. Coba lagi setelah quota tersedia.",
+      "Saldo kredit API " + provider + " pada organisasi/proyek ini habis. Periksa Billing API (bukan saldo ChatGPT).",
       429,
-      "PROVIDER_QUOTA"
+      "PROVIDER_CREDIT_EXHAUSTED"
+    );
+  }
+  if (/project_spend_limit_exceeded/.test(detail)) {
+    return new ExternalAiError(
+      "Batas pengeluaran proyek API " + provider + " tercapai. Periksa limit proyek yang dipakai API key.",
+      429,
+      "PROVIDER_PROJECT_SPEND_LIMIT"
+    );
+  }
+  if (/organization_spend_limit_exceeded|organization_usage_limit_exceeded/.test(detail)) {
+    return new ExternalAiError(
+      "Batas pengeluaran/penggunaan organisasi API " + provider + " tercapai. Periksa limit organisasi.",
+      429,
+      "PROVIDER_ORG_LIMIT"
+    );
+  }
+  if (/insufficient_quota|billing_hard_limit_reached|exceeded your current quota/.test(detail)) {
+    return new ExternalAiError(
+      provider + " mengembalikan insufficient_quota: periksa saldo kredit dan limit billing API pada proyek/organisasi pemilik API key.",
+      429,
+      "PROVIDER_INSUFFICIENT_QUOTA"
+    );
+  }
+  if (status === 429 || /rate.?limit|too many requests/i.test(detail)) {
+    if (/rate.?limit|requests per minute|tokens per minute|too many requests/i.test(detail)) {
+      return new ExternalAiError(
+        "Batas kecepatan permintaan/token " + provider + " tercapai sementara (rate limit), bukan berarti saldo API habis. Coba permintaan lebih kecil atau setelah batas pulih.",
+        429,
+        "PROVIDER_RATE_LIMIT"
+      );
+    }
+    return new ExternalAiError(
+      provider + " mengembalikan HTTP 429, tetapi kode detail tidak tersedia. Belum dapat dipastikan apakah rate limit, saldo kredit, atau limit proyek.",
+      429,
+      "PROVIDER_429_UNCLASSIFIED"
     );
   }
   if (status === 404 || /model.*not found|model.*not available|does not exist/i.test(raw)) {
