@@ -208,11 +208,11 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000,
         : "";
     const sourceId = row.source_file_id || row.id;
     const part =
-      `[SOURCE_ID: ${sourceId} | ${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | CUPLIKAN ISI RAW ASLI]\\n${body}`;
+      `[SOURCE_ID: ${sourceId} | ${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | CUPLIKAN ISI RAW ASLI]\n${body}`;
 
     parts.push(part);
     used += part.length;
   }
 
-  return parts.join("\\n\\n---\\n\\n");
+  return parts.join("\n\n---\n\n");
 }
