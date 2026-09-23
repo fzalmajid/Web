@@ -147,7 +147,7 @@ export async function searchSemanticKnowledge(
         embedded.vector.length !== 384 || !embedded.model) return empty;
     const model = String(embedded.model);
     const { data, error } = await supabase.rpc("match_knowledge_vectors", {
-      p_vector: JSON.stringify(embedded.vector),
+      p_vector: embedded.vector,
       p_model: model,
       p_scope_node_id: scopeNodeId,
       p_source_node_ids: sourceNodeIds,
