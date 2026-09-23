@@ -1,4 +1,5 @@
 import { PDFDocument } from "pdf-lib";
+import { assertPdfFile } from "./pdfValidation";
 
 /** Free-tier Storage permits 50 MiB per object, not per document. */
 export const STORAGE_OBJECT_LIMIT = 50 * 1024 * 1024;
@@ -71,14 +72,16 @@ export async function* pdfOcrParts(
   onStatus?: (label: string) => void
 ): AsyncGenerator<PdfOcrPart> {
   checkLargePdf(file);
+  await assertPdfFile(file);
   const input = new Uint8Array(await file.arrayBuffer());
   let source: PDFDocument;
   try {
     source = await PDFDocument.load(input, { updateMetadata: false });
   } catch {
     throw new Error(
-      "PDF tidak dapat dibagi untuk OCR. Pastikan dokumen tidak dikunci, " +
-      "rusak, atau dilindungi kata sandi."
+      "Header PDF ditemukan, tetapi struktur halaman tidak bisa diproses. " +
+      "PDF mungkin rusak, dienkripsi, menggunakan struktur yang tidak kompatibel, atau terpotong. " +
+      "Coba ekspor ulang menjadi PDF standar yang tidak dikunci."
     );
   }
 

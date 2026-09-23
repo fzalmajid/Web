@@ -7,6 +7,7 @@ import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
+import { assertPdfFile } from "@/lib/pdfValidation";
 import { isChunkedPdfPath, getChunkedPdfManifest, downloadChunkedPdf, removeStoredStudyFile, copyChunkedPdf, saveLargePdfToFolder, type LargePdfSourceRow } from "@/lib/largePdfClient";
 import {
   AI_MODEL_CATALOG,
@@ -1133,7 +1134,8 @@ function clientReadableTextFile(file: File) {
 
 async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
   const mimeType = inferMime(file) || "application/octet-stream";
-  if (file.size > 50 * 1024 * 1024) throw new Error("File maksimal 50 MB.");
+  await assertPdfFile(file);
+  if (file.size > STORAGE_OBJECT_LIMIT) throw new Error("File terlalu besar untuk unggah biasa; gunakan alur PDF hingga 200 MB di Database.");
 
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
   const path = user.id + "/" + nodeId + "/" + crypto.randomUUID() + "-" + safeName;
@@ -1260,6 +1262,7 @@ async function saveOversizedPdf(
   if (file.size > MAX_LARGE_PDF_BYTES) {
     throw new Error("PDF maksimal 200 MB untuk upload otomatis. Bagi file lebih besar terlebih dahulu.");
   }
+  await assertPdfFile(file);
   if (selection.model === "local") {
     throw new Error("PDF hasil scan di atas 50 MB membutuhkan Gemini untuk pembacaan OCR. Pilih model Gemini.");
   }
@@ -4269,6 +4272,7 @@ function DatabasePage({
 
     const mimeType = inferMime(selectedFile);
     if (!mimeType) return alert("Jenis file belum didukung.");
+    try { await assertPdfFile(selectedFile); } catch (error: any) { return alert(error?.message || "PDF tidak valid."); }
     if (selectedFile.size > STORAGE_OBJECT_LIMIT) {
       setFileBusy(true);
       setFileStatus("Menyiapkan upload PDF besar...");
@@ -9312,6 +9316,7 @@ function BottomAskBar({
   }
 
   async function processAskAttachment(file: File) {
+    try { await assertPdfFile(file); } catch (error: any) { return alert(error?.message || "PDF tidak valid."); }
     if (file.size > STORAGE_OBJECT_LIMIT) {
       if (!isLargePdf(file)) {
         alert("Pada Supabase Free, lampiran selain PDF maksimal 50 MB. PDF hingga 200 MB dapat langsung disimpan dan dibaca lewat Database.");

@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import { assertPdfFile } from "./pdfValidation";
 import {
   STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, MAX_LARGE_FILE_BYTES, PDF_STORAGE_PART_BYTES,
   LARGE_PDF_MANIFEST_KIND, LARGE_FILE_MANIFEST_KIND,
@@ -210,6 +211,7 @@ export async function saveLargePdfToFolder(
   onUploaded?: () => void
 ): Promise<LargePdfSourceRow> {
   if (file.size <= STORAGE_OBJECT_LIMIT) throw new Error("PDF ini bisa diunggah biasa.");
+  await assertPdfFile(file);
   if (file.size > MAX_LARGE_PDF_BYTES) {
     throw new Error("PDF maksimal 200 MB untuk upload otomatis.");
   }

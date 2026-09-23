@@ -9,6 +9,7 @@ import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 import { packPdfPages } from "@/lib/pdfIndex";
+import { assertPdfHeader } from "@/lib/pdfValidation";
 import { readOfficeDocument, readPdfNativeBatch, readPdfBatchWithOcr, pdfPageNeedsOcr } from "@/lib/visualOcr";
 
 function bearer(req: NextRequest) {
@@ -217,6 +218,9 @@ export async function POST(req: NextRequest) {
       }
 
       buffer = Buffer.from(await blob.arrayBuffer());
+      if (mimeType === "application/pdf" || /\.pdf$/i.test(fileName) || ocrPartPath) {
+        assertPdfHeader(buffer.subarray(0, 2048), fileName);
+      }
     }
 
     // A PDF is indexed in small page batches. This avoids large single OCR responses,

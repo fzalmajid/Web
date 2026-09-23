@@ -6,6 +6,7 @@ import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 import { readOfficeDocument, readPdfNativeBatch, readPdfBatchWithOcr } from "@/lib/visualOcr";
+import { assertPdfHeader } from "@/lib/pdfValidation";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -42,6 +43,9 @@ export async function POST(req: NextRequest) {
     const mimeType = normalizeMime(file.type);
     const fileName = file.name || "Lampiran";
     const buffer = Buffer.from(await file.arrayBuffer());
+    if (mimeType === "application/pdf" || /\.pdf$/i.test(fileName)) {
+      assertPdfHeader(buffer.subarray(0, 2048), fileName);
+    }
     let rawText = "";
 
     if (fileName.toLowerCase().endsWith(".docx") || mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
