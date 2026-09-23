@@ -4657,6 +4657,8 @@ function DatabaseFileCard({
   }, [previewUrl]);
   const [copyOpen, setCopyOpen] = useState(false);
   const [copyBusy, setCopyBusy] = useState(false);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryStatus, setRetryStatus] = useState("");
   const [copyMode, setCopyMode] = useState<"compact" | "medium" | "complex">(
     file.ai_copy_mode || "medium"
   );
@@ -4697,6 +4699,43 @@ function DatabaseFileCard({
     setCopyOpen(false);
     onChange();
   }
+  async function retryRawExtraction(event: any) {
+    event.stopPropagation();
+    if (retryBusy || file.source_kind === "link" || file.processing_status !== "error") return;
+    if (isChunkedPdfPath(file.file_path)) {
+      alert("PDF berukuran besar tersimpan dalam beberapa bagian. Untuk memproses ulang semua halamannya, unggah file asli kembali dari perangkat. Jangan hapus file lama sebelum hasil baru siap.");
+      return;
+    }
+
+    setRetryBusy(true);
+    setRetryStatus("Memeriksa ulang PDF/file yang sudah tersimpan...");
+    const selection = defaultSelection("gemini-2.5-flash");
+    try {
+      const { error: updateError } = await supabase.from("source_files")
+        .update({ processing_status: "processing", error_message: null })
+        .eq("id", file.id)
+        .eq("node_id", file.node_id);
+      if (updateError) throw updateError;
+      await importStoredRawFile(session, file, selection, (progress) => {
+        setRetryStatus(
+          "Membaca halaman " + progress.processedThroughPage + "/" +
+          progress.totalPages + (progress.nextStartPage ? " · melanjutkan..." : " · selesai")
+        );
+      });
+      setRetryStatus("Pembacaan RAW selesai. Materi sudah dapat digunakan sebagai sumber AI.");
+    } catch (error: any) {
+      const message = String(error?.message || "Gagal memproses ulang RAW.");
+      await supabase.from("source_files").update({
+        processing_status: "error",
+        error_message: message.slice(0, 600),
+      }).eq("id", file.id).eq("node_id", file.node_id);
+      setRetryStatus("Proses ulang gagal: " + message);
+    } finally {
+      setRetryBusy(false);
+      onChange();
+    }
+  }
+
   const isLink = file.source_kind === "link" || Boolean(file.source_url);
   const isImage = file.mime_type.startsWith("image/");
   const isAudio = file.mime_type.startsWith("audio/");
@@ -4769,6 +4808,12 @@ function DatabaseFileCard({
           >
             ...
           </button>
+          {file.processing_status === "error" && !isLink && (
+            <button className="ghost" type="button" disabled={retryBusy}
+              onClick={retryRawExtraction}>
+              {retryBusy ? "Memproses ulang..." : "Ulang baca RAW"}
+            </button>
+          )}
           {!compact && (
             <>
               <button className="ghost" type="button" disabled={previewBusy} onClick={(event) => { event.stopPropagation(); preview(); }}>
@@ -4800,6 +4845,10 @@ function DatabaseFileCard({
         </div>
       </div>
 
+      {file.processing_status === "error" && file.error_message && !retryStatus && (
+        <p className="rawRetryMessage" role="status">Proses sebelumnya gagal: {file.error_message}</p>
+      )}
+      {retryStatus && <p className="rawRetryMessage" role="status">{retryStatus}</p>}
       {previewUrl && isImage && (
         <div className="databaseMediaPreview">
           <img src={previewUrl} alt={file.file_name} />
