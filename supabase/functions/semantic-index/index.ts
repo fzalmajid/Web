@@ -7,7 +7,15 @@ const LOCAL_MODEL = "Supabase/gte-small";
 const localSession = new Supabase.ai.Session("gte-small");
 const CHUNK_CHARS = 1350;
 const OVERLAP_CHARS = 170;
-const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
+// Browser calls send an OPTIONS preflight for Authorization and apikey.
+// Without this response the index button never reached the function.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-api-version",
+  "Access-Control-Max-Age": "86400"
+};
+const jsonHeaders = { ...corsHeaders, "content-type": "application/json; charset=utf-8" };
 
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: jsonHeaders });
@@ -17,6 +25,12 @@ function errorMessage(error: unknown) {
 }
 function normalizeVector(raw: unknown): number[] {
   let value: unknown = raw;
+  if (value && typeof value === "object" && "data" in value) {
+    value = (value as { data: unknown }).data;
+  }
+  if (value instanceof Float32Array || value instanceof Float64Array) {
+    value = Array.from(value);
+  }
   // Providers may wrap their pooled output in an outer batch dimension.
   while (Array.isArray(value) && value.length === 1 && Array.isArray(value[0])) value = value[0];
   if (Array.isArray(value) && value.length > 1 && Array.isArray(value[0])) {
@@ -79,6 +93,9 @@ type PendingEntry = {
 };
 
 Deno.serve(async (request: Request) => {
+  if (request.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: corsHeaders });
+  }
   if (request.method !== "POST") return json({ error: "POST only" }, 405);
   const authorization = request.headers.get("authorization") || "";
   if (!authorization.startsWith("Bearer ")) return json({ error: "Login diperlukan." }, 401);
@@ -102,7 +119,18 @@ Deno.serve(async (request: Request) => {
   if (payload.action === "status") {
     const { data, error } = await db.rpc("count_pending_knowledge_embeddings", { p_model: model });
     if (error) return json({ error: error.message }, 500);
-    return json({ model, pendingEntries: Number(data || 0) });
+    const { count, error: countError } = await db
+      .from("knowledge_vector_chunks")
+      .select("id", { count: "exact", head: true })
+      .eq("model", model);
+    if (countError) return json({ error: countError.message }, 500);
+    return json({
+      model,
+      provider: model === HF_MODEL ? "Hugging Face multilingual" : "Supabase local (English-oriented)",
+      pendingEntries: Number(data || 0),
+      indexedVectors: Number(count || 0),
+      hfConfigured: Boolean(Deno.env.get("HF_TOKEN")?.trim())
+    });
   }
 
   if (payload.action === "query") {
