@@ -4498,7 +4498,7 @@ function DatabasePage({
 
         <article className="panel">
           <h2>Upload file</h2>
-          <p className="muted">PDF, DOCX, PPTX, TXT/MD/CSV/JSON, gambar, audio, dan video. Audio/video akan ditranskrip dulu.</p>
+          <p className="muted">PDF sampai 200 MB (tersimpan utuh dan diproses bertahap). Format lain maksimal 50 MB pada paket Free. PDF scan, PPTX, gambar, audio, dan video dibaca dengan AI.</p>
           <form className="stack" onSubmit={uploadFile}>
             <input
               type="file"
@@ -5880,7 +5880,7 @@ function StudyPage({
 
                 <article className="panel">
                   <h2>Upload file</h2>
-                  <p className="muted">PDF, DOCX, PPTX, TXT/MD/CSV/JSON, gambar, audio, dan video. Audio/video akan ditranskrip dulu.</p>
+                  <p className="muted">PDF sampai 200 MB (tersimpan utuh dan diproses bertahap). Format lain maksimal 50 MB pada paket Free. PDF scan, PPTX, gambar, audio, dan video dibaca dengan AI.</p>
                   <form className="stack" onSubmit={uploadQuickDatabaseFile}>
                     <input
                       type="file"
