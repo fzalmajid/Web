@@ -191,13 +191,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "File tidak ditemukan." }, { status: 404 });
     }
 
+    const segmentedOriginal = row.file_path.endsWith(".rbmanifest.json");
+    const ocrPartPath = String(body.ocrPartPath || "");
+    if (segmentedOriginal && operation === "ai-copy") {
+      return NextResponse.json({ error: "Copy by AI untuk PDF besar tidak boleh memakai preview RAW yang terpotong. Gunakan Study atau Tanya AI dengan Database agar seluruh bagian dapat dicari." }, { status: 400 });
+    }
+    if (segmentedOriginal && (!ocrPartPath || !ocrPartPath.startsWith(row.file_path + ".ocrpart-") || !/\.pdf$/i.test(ocrPartPath))) {
+      return NextResponse.json({ error: "PDF besar harus diproses menggunakan bagian halaman yang sudah diverifikasi." }, { status: 400 });
+    }
+    if (!segmentedOriginal && ocrPartPath) {
+      return NextResponse.json({ error: "Bagian OCR tidak cocok dengan dokumen." }, { status: 400 });
+    }
+    const pageOffset = segmentedOriginal ? Math.max(0, Math.floor(Number(body.pdfPageOffset) || 0)) : 0;
     let rawText = operation === "ai-copy" ? String(row.raw_text || "").trim() : "";
     let buffer: Buffer | null = null;
 
     if (!rawText) {
       const { data: blob, error: downloadError } = await supabase.storage
         .from("study-files")
-        .download(filePath);
+        .download(ocrPartPath || filePath);
       if (downloadError || !blob) throw downloadError || new Error("File tidak dapat dibaca.");
 
       if (blob.size > 50 * 1024 * 1024) {
@@ -239,7 +251,7 @@ export async function POST(req: NextRequest) {
       });
       const chunks = packPdfPages(
         pages.map((page) => ({
-          page: page.page,
+          page: page.page + pageOffset,
           text: page.text.trim() || "[tidak ada teks terbaca]",
         })),
         12000
@@ -280,13 +292,13 @@ export async function POST(req: NextRequest) {
       }
 
       const nextStartPage = batch.endPage < batch.totalPages ? batch.endPage + 1 : null;
-      const currentPreview = startPage === 1 ? "" : String(row.raw_text || "");
+      const currentPreview = startPage === 1 && !body.pdfAppend ? "" : String(row.raw_text || "");
       const batchText = chunks.map((chunk) => chunk.text).join("\n\n");
       // RAW is fully indexed in knowledge_entries; source_files.raw_text is a bounded preview.
       const previewText = (currentPreview + (currentPreview ? "\n\n" : "") + batchText).slice(0, 120000);
       const { error: pdfUpdateError } = await supabase.from("source_files").update({
         raw_text: previewText,
-        processing_status: nextStartPage ? "processing" : "ready",
+        processing_status: nextStartPage || segmentedOriginal ? "processing" : "ready",
         structured_text: null,
         corrections: [],
         error_message: null,
