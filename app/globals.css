@@ -9251,3 +9251,68 @@ summary{
     height:min(58dvh,520px)!important;
   }
 }
+
+/* Editable manual RAW notes; browser-owned dialogs are not used. */
+.rawNoteEditorBackdrop{
+  z-index:550;
+  place-items:center!important;
+  padding:14px;
+}
+.rawNoteEditorSheet{
+  width:min(980px,100%);
+  height:min(87dvh,820px);
+  min-height:min(500px,78dvh);
+  max-height:92dvh;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  overflow:hidden;
+  background:var(--card);
+  color:var(--ink);
+  border:1px solid var(--line);
+  border-radius:20px;
+  padding:20px;
+}
+.rawNoteEditorSheet .sheetHead{flex:0 0 auto}
+.rawNoteEditorSheet .sheetHead h2{margin:3px 0}
+.rawNoteEditorSheet .closeBtn{background:var(--card);color:var(--ink)}
+.rawNoteEditorForm{display:flex;flex:1 1 auto;min-height:0;flex-direction:column;gap:9px}
+.rawNoteEditorForm>label{font-size:.78rem;font-weight:800}
+.rawNoteEditorForm textarea{
+  min-height:120px;
+  height:auto;
+  flex:1 1 auto;
+  resize:none;
+  overflow:auto;
+  white-space:pre-wrap;
+  font-family:inherit;
+  line-height:1.55!important;
+  background:var(--card);
+  color:var(--ink);
+  padding:13px!important;
+}
+.rawNoteEditorFooter{display:grid;gap:10px}
+.rawNoteEditorFooter>small{font-size:.72rem}
+.rawNoteEditorActions,.rawNoteCardActions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.rawNoteCardActions .ghost{padding:8px 11px}
+.rawNotePreviewEdit{justify-self:start}
+@media(max-width:767px){
+  .rawNoteEditorBackdrop{padding:6px!important;place-items:center!important}
+  .rawNoteEditorSheet{
+    width:100%!important;
+    max-width:100%!important;
+    height:min(88dvh,860px)!important;
+    min-height:0!important;
+    max-height:90dvh!important;
+    margin:0!important;
+    padding:13px!important;
+    border-radius:16px!important;
+  }
+  .rawNoteEditorForm textarea{min-height:180px}
+}

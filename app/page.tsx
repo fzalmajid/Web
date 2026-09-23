@@ -1260,7 +1260,7 @@ type ExplorerDragItem = {
 type ExplorerClipboardItem = ExplorerDragItem | null;
 
 type ExplorerPreviewItem =
-  | { kind: "entry"; title: string; label: string; text: string }
+  | { kind: "entry"; entryId?: string; title: string; label: string; text: string }
   | { kind: "file"; file: SourceFile }
   | { kind: "recording"; recording: Recording };
 
@@ -1487,6 +1487,7 @@ function FolderPage({
   const [clipboardItem, setClipboardItem] = useState<ExplorerClipboardItem>(null);
   const [contextMenu, setContextMenu] = useState<ExplorerContextMenu>(null);
   const [previewItem, setPreviewItem] = useState<ExplorerPreviewItem | null>(null);
+  const [editingRawEntry, setEditingRawEntry] = useState<KnowledgeEntry | null>(null);
   const [renameTarget, setRenameTarget] = useState<{
     kind: "entry" | "file";
     id: string;
@@ -1576,6 +1577,7 @@ function FolderPage({
       if (entry) {
         setPreviewItem({
           kind: "entry",
+          entryId: entry.id,
           title: entry.title,
           label: entry.category || "Teks",
           text: entry.raw_content || entry.content,
@@ -1986,6 +1988,7 @@ function FolderPage({
                   onContextMenu={(event) => openContextMenu(event, { kind: "entry", id: entry.id })}
                   onClick={() => setPreviewItem({
                     kind: "entry",
+                    entryId: entry.id,
                     title: entry.title,
                     label: entry.category || "Teks",
                     text: entry.raw_content || entry.content,
@@ -2062,6 +2065,15 @@ function FolderPage({
           recordings={recordings}
           onClose={closeContextMenu}
           onPreview={() => previewContextItem(contextMenu.item)}
+          canEditContent={contextMenu.item.kind === "entry" && entries.some((row) => row.id === contextMenu.item.id && row.source_type === "manual" && !row.source_file_id)}
+          onEditContent={() => {
+            const item = contextMenu.item;
+            closeContextMenu();
+            if (item.kind === "entry") {
+              const entry = entries.find((row) => row.id === item.id);
+              if (entry?.source_type === "manual" && !entry.source_file_id) setEditingRawEntry(entry);
+            }
+          }}
           onRename={() => {
             const item = contextMenu.item;
             closeContextMenu();
@@ -2098,7 +2110,30 @@ function FolderPage({
       )}
 
       {previewItem && (
-        <ExplorerPreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />
+        <ExplorerPreviewModal
+          item={previewItem}
+          onClose={() => setPreviewItem(null)}
+          onEdit={previewItem.kind === "entry" && entries.some((row) => row.id === previewItem.entryId && row.source_type === "manual" && !row.source_file_id)
+            ? () => {
+                const entry = entries.find((row) => row.id === previewItem.entryId);
+                if (entry) {
+                  setPreviewItem(null);
+                  setEditingRawEntry(entry);
+                }
+              }
+            : undefined}
+        />
+      )}
+
+      {editingRawEntry && (
+        <RawNoteEditor
+          entry={editingRawEntry}
+          onClose={() => setEditingRawEntry(null)}
+          onSaved={() => {
+            setEditingRawEntry(null);
+            onChange();
+          }}
+        />
       )}
 
       {renameTarget && (
@@ -2174,6 +2209,98 @@ function FolderPage({
   );
 }
 
+function RawNoteEditor({
+  entry,
+  onClose,
+  onSaved,
+}: {
+  entry: KnowledgeEntry;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [text, setText] = useState(entry.raw_content ?? entry.content ?? "");
+  const [busy, setBusy] = useState(false);
+  const [errorText, setErrorText] = useState("");
+  const initialText = entry.raw_content ?? entry.content ?? "";
+  const changed = text !== initialText;
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy || !changed) return;
+    if (entry.source_type !== "manual" || entry.source_file_id) {
+      setErrorText("Hanya isi catatan RAW manual yang bisa diedit. File asli tidak diubah.");
+      return;
+    }
+    if (!text.trim()) {
+      setErrorText("Isi catatan tidak boleh kosong.");
+      return;
+    }
+    if (text.length > 250000) {
+      setErrorText("Isi catatan maksimal 250.000 karakter. Pisahkan menjadi beberapa catatan.");
+      return;
+    }
+
+    setBusy(true);
+    setErrorText("");
+    const { data, error } = await supabase
+      .from("knowledge_entries")
+      .update({ content: text, raw_content: text })
+      .eq("id", entry.id)
+      .eq("user_id", entry.user_id)
+      .eq("source_type", "manual")
+      .is("source_file_id", null)
+      .select("id")
+      .maybeSingle();
+    setBusy(false);
+    if (error || !data) {
+      setErrorText(error?.message || "Catatan tidak ditemukan atau tidak boleh diedit.");
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div className="sheetBackdrop rawNoteEditorBackdrop" onMouseDown={() => { if (!busy) onClose(); }}>
+      <section className="addSheet rawNoteEditorSheet" role="dialog" aria-modal="true" aria-labelledby="rawNoteEditorTitle" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="sheetHead">
+          <div>
+            <p className="eyebrow">CATATAN RAW</p>
+            <h2 id="rawNoteEditorTitle">Edit isi catatan</h2>
+            <small className="muted">{entry.title}</small>
+          </div>
+          <button type="button" className="closeBtn" aria-label="Tutup editor" disabled={busy} onClick={onClose}>×</button>
+        </div>
+        <form className="rawNoteEditorForm" onSubmit={save}>
+          <label htmlFor="rawNoteEditorText">Isi catatan</label>
+          <textarea
+            id="rawNoteEditorText"
+            value={text}
+            onChange={(event) => {
+              setText(event.target.value);
+              if (errorText) setErrorText("");
+            }}
+            onKeyDown={(event) => { if (event.key === "Escape" && !busy) onClose(); }}
+            autoFocus
+            spellCheck={false}
+            disabled={busy}
+            aria-describedby="rawNoteEditorHint"
+          />
+          <div className="rawNoteEditorFooter">
+            <small id="rawNoteEditorHint" className="muted">Isi terbaru akan digunakan oleh AI Database · {text.length.toLocaleString("id-ID")} karakter</small>
+            {errorText && <p className="explorerRenameError" role="alert">{errorText}</p>}
+            <div className="rawNoteEditorActions">
+              <button type="button" className="ghost" disabled={busy} onClick={onClose}>Batal</button>
+              <button type="submit" className="primary" disabled={busy || !changed || !text.trim() || text.length > 250000}>
+                {busy ? "Menyimpan..." : "Simpan isi"}
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function ExplorerActionMenu({
   menu,
   clipboardItem,
@@ -2183,6 +2310,8 @@ function ExplorerActionMenu({
   onClose,
   onPreview,
   onRename,
+  canEditContent,
+  onEditContent,
   onCopy,
   onPaste,
   onDownload,
@@ -2196,6 +2325,8 @@ function ExplorerActionMenu({
   onClose: () => void;
   onPreview: () => void;
   onRename: () => void;
+  canEditContent: boolean;
+  onEditContent: () => void;
   onCopy: () => void;
   onPaste: () => void;
   onDownload: () => void;
@@ -2215,6 +2346,7 @@ function ExplorerActionMenu({
       >
         <button type="button" onClick={onPreview}>Preview</button>
         {(file || entry) && <button type="button" onClick={onRename}>Ubah nama</button>}
+        {canEditContent && <button type="button" onClick={onEditContent}>Edit isi</button>}
         <button type="button" onClick={onCopy}>Copy</button>
         {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
         {canDownload && <button type="button" onClick={onDownload}>Download</button>}
@@ -2227,9 +2359,11 @@ function ExplorerActionMenu({
 function ExplorerPreviewModal({
   item,
   onClose,
+  onEdit,
 }: {
   item: ExplorerPreviewItem;
   onClose: () => void;
+  onEdit?: () => void;
 }) {
   return (
     <div className="sheetBackdrop previewBackdrop" onMouseDown={onClose}>
@@ -2252,9 +2386,12 @@ function ExplorerPreviewModal({
           </div>
         )}
         {item.kind === "entry" && (
-          <div className="dataText raw">
-            <RichText text={item.text || "Belum ada isi."} />
-          </div>
+          <>
+            {onEdit && <button type="button" className="ghost rawNotePreviewEdit" onClick={onEdit}>Edit isi catatan RAW</button>}
+            <div className="dataText raw">
+              <RichText text={item.text || "Belum ada isi."} />
+            </div>
+          </>
         )}
       </section>
     </div>
@@ -3956,6 +4093,7 @@ function DatabasePage({
   const [linkUrl, setLinkUrl] = useState("");
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkStatus, setLinkStatus] = useState("");
+  const [editingRawEntry, setEditingRawEntry] = useState<KnowledgeEntry | null>(null);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
   const aiMode = legacyModeForSelection(aiSelection);
 
@@ -4249,6 +4387,17 @@ function DatabasePage({
         </article>
       </div>
 
+      {editingRawEntry && (
+        <RawNoteEditor
+          entry={editingRawEntry}
+          onClose={() => setEditingRawEntry(null)}
+          onSaved={() => {
+            setEditingRawEntry(null);
+            onChange();
+          }}
+        />
+      )}
+
       <section className="databaseList">
         <h2>Isi Database</h2>
         {!localEntries.length && !localFiles.length && !localRecordings.length && <p className="muted">Belum ada isi.</p>}
@@ -4260,7 +4409,12 @@ function DatabasePage({
                 <small>{entry.category || entry.source_type}</small>
                 <h3>{entry.title}</h3>
               </div>
-              <button className="dangerSmall" onClick={() => removeEntry(entry.id)}>Hapus</button>
+              <div className="rawNoteCardActions">
+                {entry.source_type === "manual" && !entry.source_file_id && (
+                  <button type="button" className="ghost" onClick={() => setEditingRawEntry(entry)}>Edit isi</button>
+                )}
+                <button className="dangerSmall" onClick={() => removeEntry(entry.id)}>Hapus</button>
+              </div>
             </div>
             <div className="dataText raw"><RichText text={entry.raw_content || entry.content} /></div>
             {entry.raw_content && entry.content && entry.raw_content !== entry.content && (
