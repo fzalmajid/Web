@@ -390,9 +390,17 @@ export function diversifyKnowledgeSources(
   const bySource = new Map<string, KnowledgeSource[]>();
   for (const row of rows) {
     if (!String(row.raw_content || row.content || "").trim()) continue;
-    const sourceKey = row.source_file_id || "entry:" + row.id;
+    const sourceKey = row.bibliographic_work_id || row.source_file_id || "entry:" + row.id;
     const group = bySource.get(sourceKey) || [];
-    if (!group.some((existing) => existing.id === row.id)) group.push(row);
+    // Copies or split PDF parts from the same edition must not consume two
+    // bibliography slots for the very same source page/content.
+    const duplicate = group.some((existing) =>
+      existing.id === row.id ||
+      (existing.source_page_start === row.source_page_start &&
+       String(existing.raw_content || existing.content || "").slice(0, 240) ===
+       String(row.raw_content || row.content || "").slice(0, 240))
+    );
+    if (!duplicate) group.push(row);
     bySource.set(sourceKey, group);
   }
   const groups = [...bySource.values()];
@@ -454,7 +462,7 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000,
   let used = 0;
   const parts: string[] = [];
   const distinctSources = new Set(rows.filter((row) => row.source_type !== "transcript")
-    .map((row) => row.source_file_id || "entry:" + row.id)).size;
+    .map((row) => row.bibliographic_work_id || row.source_file_id || "entry:" + row.id)).size;
   // Reserve a first-pass evidence excerpt from as many genuinely retrieved
   // sources as possible before allocating space to repeated book pages.
   const firstPassChars = Math.max(480, Math.min(1700,
@@ -471,7 +479,7 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000,
     const raw = String(row.raw_content || row.content || "").trim();
     if (!raw) continue;
 
-    const sourceKey = row.source_file_id || "entry:" + row.id;
+    const sourceKey = row.bibliographic_work_id || row.source_file_id || "entry:" + row.id;
     const firstMention = !seenSources.has(sourceKey);
     const remaining = maxChars - used;
     const excerptBudget = firstMention ? firstPassChars : 1700;
@@ -487,8 +495,10 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000,
           : ` | HALAMAN PDF ${row.source_page_start}-${row.source_page_end}`
         : "";
     const sourceId = row.source_file_id || row.id;
+    const publication = row.bibliographic_work_title || row.title;
+    const workId = row.bibliographic_work_id || sourceId;
     const part =
-      `[SOURCE_ID: ${sourceId} | ${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | CUPLIKAN ISI RAW ASLI]\n${body}`;
+      `[WORK_ID: ${workId} | KARYA BIBLIOGRAFIS: ${publication} | SOURCE_ID: ${sourceId} | FILE/HALAMAN: ${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | CUPLIKAN ISI RAW ASLI]\n${body}`;
 
     parts.push(part);
     used += part.length;
