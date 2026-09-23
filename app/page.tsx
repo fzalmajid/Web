@@ -2517,6 +2517,7 @@ function ExplorerPreviewModal({
 function FilePreviewBody({ file }: { file: SourceFile }) {
   const [signedUrl, setSignedUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [previewError, setPreviewError] = useState("");
   const isLink = file.source_kind === "link" || Boolean(file.source_url);
   const isImage = file.mime_type.startsWith("image/");
   const isAudio = file.mime_type.startsWith("audio/");
@@ -2526,16 +2527,31 @@ function FilePreviewBody({ file }: { file: SourceFile }) {
   useEffect(() => {
     if (isLink) return;
     let active = true;
+    let objectUrl = "";
+    setSignedUrl("");
+    setPreviewError("");
     setBusy(true);
-    supabase.storage
-      .from("study-files")
-      .createSignedUrl(file.file_path, 60 * 60)
-      .then(({ data }) => {
-        if (active) setSignedUrl(data?.signedUrl || "");
-      })
-      .finally(() => active && setBusy(false));
+    void (async () => {
+      try {
+        if (isChunkedPdfPath(file.file_path)) {
+          const blob = await downloadChunkedPdf(file.file_path);
+          objectUrl = URL.createObjectURL(blob);
+          if (active) setSignedUrl(objectUrl);
+        } else {
+          const { data, error } = await supabase.storage.from("study-files")
+            .createSignedUrl(file.file_path, 60 * 60);
+          if (error) throw error;
+          if (active) setSignedUrl(data?.signedUrl || "");
+        }
+      } catch (error: any) {
+        if (active) setPreviewError(error?.message || "Gagal membuka preview PDF.");
+      } finally {
+        if (active) setBusy(false);
+      }
+    })();
     return () => {
       active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [file.id]);
 
@@ -2550,6 +2566,7 @@ function FilePreviewBody({ file }: { file: SourceFile }) {
   }
 
   if (busy) return <div className="notice">Menyiapkan preview...</div>;
+  if (previewError) return <div className="notice">{previewError}</div>;
 
   return (
     <div className="previewStack">
@@ -4630,6 +4647,9 @@ function DatabaseFileCard({
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
+  useEffect(() => () => {
+    if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
   const [copyOpen, setCopyOpen] = useState(false);
   const [copyBusy, setCopyBusy] = useState(false);
   const [copyMode, setCopyMode] = useState<"compact" | "medium" | "complex">(
@@ -4682,21 +4702,31 @@ function DatabaseFileCard({
       if (url) window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
-    setPreviewBusy(true);
-    const { data, error } = await supabase.storage
-      .from("study-files")
-      .createSignedUrl(file.file_path, 60 * 60);
-    setPreviewBusy(false);
-
-    if (error || !data?.signedUrl) {
-      alert(error?.message || "File belum dapat dibuka.");
+    if (previewUrl) {
+      setPreviewUrl("");
       return;
     }
-
-    if (canInlinePreview) {
-      setPreviewUrl((current) => current ? "" : data.signedUrl);
-    } else {
-      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    setPreviewBusy(true);
+    try {
+      let url = "";
+      if (isChunkedPdfPath(file.file_path)) {
+        const blob = await downloadChunkedPdf(file.file_path);
+        url = URL.createObjectURL(blob);
+      } else {
+        const { data, error } = await supabase.storage.from("study-files")
+          .createSignedUrl(file.file_path, 60 * 60);
+        if (error || !data?.signedUrl) throw error || new Error("File belum dapat dibuka.");
+        url = data.signedUrl;
+      }
+      if (canInlinePreview) {
+        setPreviewUrl(url);
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    } catch (error: any) {
+      alert(error?.message || "File belum dapat dibuka.");
+    } finally {
+      setPreviewBusy(false);
     }
   }
 
