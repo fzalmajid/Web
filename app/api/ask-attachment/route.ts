@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
-import JSZip from "jszip";
 import { createServerSupabase } from "@/lib/supabase";
 import { geminiGenerateDetailed } from "@/lib/gemini";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { readOfficeDocument, readPdfNativeBatch, readPdfBatchWithOcr } from "@/lib/visualOcr";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -20,100 +20,6 @@ function normalizeMime(value: string) {
 
 function isTextMime(mime: string) {
   return mime.startsWith("text/") || ["application/json", "application/xml"].includes(mime);
-}
-
-function decodeXml(value: string) {
-  return value
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&")
-    .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_m, code) => String.fromCharCode(parseInt(code, 16)));
-}
-
-async function extractPptxText(buffer: Buffer) {
-  const zip = await JSZip.loadAsync(buffer);
-  const names = Object.keys(zip.files)
-    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
-    .sort((a, b) => Number(a.match(/slide(\d+)\.xml/i)?.[1] || 0) - Number(b.match(/slide(\d+)\.xml/i)?.[1] || 0));
-
-  const slides: string[] = [];
-  for (const name of names) {
-    const xml = await zip.file(name)?.async("string");
-    if (!xml) continue;
-    const pieces = Array.from(xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/gi))
-      .map((match) => decodeXml(match[1]).trim())
-      .filter(Boolean);
-    if (pieces.length) slides.push(pieces.join("\n"));
-  }
-  return slides.join("\n\n");
-}
-
-type VisionPart = { label: string; mimeType: string; data: string };
-
-function imageMime(name: string) {
-  const ext = name.toLowerCase().split(".").pop() || "";
-  const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    webp: "image/webp",
-    gif: "image/gif",
-    bmp: "image/bmp",
-    tif: "image/tiff",
-    tiff: "image/tiff",
-  };
-  return map[ext] || "";
-}
-
-async function extractOfficeImages(buffer: Buffer, kind: "pptx" | "docx") {
-  const zip = await JSZip.loadAsync(buffer);
-  const prefix = kind === "pptx" ? "ppt/media/" : "word/media/";
-  const names = Object.keys(zip.files)
-    .filter((name) => name.toLowerCase().startsWith(prefix) && imageMime(name))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const parts: VisionPart[] = [];
-  for (const name of names.slice(0, 40)) {
-    const file = zip.file(name);
-    if (!file) continue;
-    parts.push({
-      label: kind === "pptx" ? `Slide image ${parts.length + 1}` : `Document image ${parts.length + 1}`,
-      mimeType: imageMime(name),
-      data: await file.async("base64"),
-    });
-  }
-  return parts;
-}
-
-async function readVisionImages(
-  parts: VisionPart[],
-  selection: ReturnType<typeof selectionFromHeaders>,
-  aiMode: ReturnType<typeof normalizeAiMode>,
-  auth: ReturnType<typeof geminiUserAuthFromHeaders>
-) {
-  const chunks: string[] = [];
-  for (const part of parts) {
-    const result = await geminiGenerateDetailed(
-      [
-        {
-          text: `OCR seluruh tulisan yang terlihat pada gambar ini secara literal. Pertahankan urutan, judul, nomor, tabel, rumus, dan daftar. Jangan meringkas atau menebak. Jika bagian tidak terbaca, tandai [tidak terbaca].\n\nSumber: ${part.label}`,
-        },
-        { inlineData: { mimeType: part.mimeType, data: part.data } },
-      ],
-      "Baca gambar secara teliti. Jangan mengarang teks yang tidak terlihat.",
-      {
-        models: modelPlanForSelection(selection.model, aiMode, "standard"),
-        effort: selection.effort,
-        apiKey: auth.apiKey,
-        accessToken: auth.accessToken,
-        projectId: auth.projectId,
-      }
-    );
-    chunks.push(`${part.label}:\n${result.text.trim()}`);
-  }
-  return chunks.filter(Boolean).join("\n\n");
 }
 
 export const runtime = "nodejs";
@@ -140,23 +46,56 @@ export async function POST(req: NextRequest) {
 
     if (fileName.toLowerCase().endsWith(".docx") || mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
       rawText = (await mammoth.extractRawText({ buffer })).value.trim();
-    } else if (fileName.toLowerCase().endsWith(".pptx") || mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation") {
-      rawText = (await extractPptxText(buffer)).trim();
     } else if (isTextMime(mimeType)) {
       rawText = buffer.toString("utf8").trim();
     }
 
-    if (!rawText && (fileName.toLowerCase().endsWith(".pptx") || mimeType.includes("presentation") || fileName.toLowerCase().endsWith(".docx") || mimeType.includes("wordprocessingml"))) {
-      const selection = selectionFromHeaders(req.headers, "general", normalizeAiMode(String(form.get("aiMode") || "instant")));
-      const auth = geminiUserAuthFromHeaders(req.headers);
-      const images = await extractOfficeImages(buffer, fileName.toLowerCase().endsWith(".pptx") || mimeType.includes("presentation") ? "pptx" : "docx");
-      if (images.length) rawText = await readVisionImages(images, selection, normalizeAiMode(String(form.get("aiMode") || "instant")), auth);
+    const aiMode = normalizeAiMode(String(form.get("aiMode") || "instant"));
+    const selection = selectionFromHeaders(req.headers, "general", aiMode);
+    const auth = geminiUserAuthFromHeaders(req.headers);
+    const ocrOptions = {
+      selection,
+      aiMode,
+      auth,
+      onUsage: async (
+        usage: Awaited<ReturnType<typeof geminiGenerateDetailed>>["usage"],
+        model: string
+      ) => {
+        await recordAiTokenUsage(supabase, usage, model, auth.provider);
+      },
+    };
+
+    if (fileName.toLowerCase().endsWith(".pptx") || mimeType.includes("presentation") ||
+        fileName.toLowerCase().endsWith(".docx") || mimeType.includes("wordprocessingml")) {
+      // Extract embedded scan screenshots even when some slides already contain digital text.
+      const kind = fileName.toLowerCase().endsWith(".pptx") || mimeType.includes("presentation")
+        ? "pptx" : "docx";
+      rawText = await readOfficeDocument(buffer, kind, rawText, ocrOptions);
+    }
+
+    if (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
+      const pages: Array<{ page: number; text: string }> = [];
+      let start = 1;
+      for (;;) {
+        const batch = await readPdfNativeBatch(buffer, start);
+        if (batch.totalPages > 24) {
+          return NextResponse.json({
+            error: "PDF berisi " + batch.totalPages + " halaman. Untuk pembacaan lengkap, simpan ke Database; sistem akan memproses semua halaman secara bertahap.",
+          }, { status: 413 });
+        }
+        if (!batch.pages.length) throw new Error("Tidak ada halaman PDF yang dapat dibaca.");
+        const withOcr = await readPdfBatchWithOcr(buffer, batch.pages, ocrOptions);
+        pages.push(...withOcr);
+        if (batch.endPage >= batch.totalPages) break;
+        if (batch.endPage < start) throw new Error("Pembacaan PDF tidak menunjukkan kemajuan.");
+        start = batch.endPage + 1;
+      }
+      rawText = pages.map((page) =>
+        "[Halaman " + page.page + "]\n" + (page.text.trim() || "[tidak ada teks terbaca]")
+      ).join("\n\n");
     }
 
     if (!rawText) {
-      const aiMode = normalizeAiMode(String(form.get("aiMode") || "instant"));
-      const selection = selectionFromHeaders(req.headers, "general", aiMode);
-      const auth = geminiUserAuthFromHeaders(req.headers);
       const base64 = buffer.toString("base64");
       const isMedia = mimeType.startsWith("audio/") || mimeType.startsWith("video/");
       const prompt = isMedia
@@ -183,6 +122,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!rawText) return NextResponse.json({ error: "Tidak ada isi mentah yang berhasil dibaca." }, { status: 422 });
+    if (rawText.length > 60000) return NextResponse.json({ error: "Teks file terlalu panjang untuk lampiran Tanya AI. Simpan ke Database untuk pemrosesan lengkap per bagian." }, { status: 413 });
 
     return NextResponse.json({
       fileName,
