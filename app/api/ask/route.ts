@@ -693,11 +693,11 @@ function buildPrompt({
 function expandPharmacyQuery(question: string) {
   // "PCT" is contextual: in a paracetamol monograph query, expand it to
   // medicine synonyms before FTS; do not assume it always means paracetamol.
-  if (!/\\bpct\\b/i.test(question) ||
-      !/\\b(monografi|monograph|parasetamol|paracetamol|acetaminophen|analgesik|obat)\\b/i.test(question)) {
+  if (!/\bpct\b/i.test(question) ||
+      !/\b(monografi|monograph|parasetamol|paracetamol|acetaminophen|analgesik|obat)\b/i.test(question)) {
     return question;
   }
-  return question.replace(/\\bpct\\b/gi, "paracetamol parasetamol acetaminophen");
+  return question.replace(/\bpct\b/gi, "paracetamol parasetamol acetaminophen");
 }
 
 function databaseLookupTerms(question: string) {
