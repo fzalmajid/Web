@@ -12,7 +12,7 @@ import {
   ExternalAiError,
   type ExternalAiAttachment,
 } from "@/lib/externalAi";
-import { buildKnowledgeContext, diversifyKnowledgeSources, fuseHybridKnowledge, prioritizeQuestionRelevantSources, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
+import { annotateBibliographicWorks, buildKnowledgeContext, diversifyKnowledgeSources, fuseHybridKnowledge, prioritizeQuestionRelevantSources, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
 import {
   modelPlanForSelection,
   modelProvider,
@@ -867,8 +867,10 @@ export async function POST(req: NextRequest) {
             )
           : await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
       }
-      // Round one: highest-relevance passage from every independent source.
-      // Only afterwards include additional passages from those same sources.
+      // First identify the *published work* (edition/year), not just the PDF.
+      // Multiple file chunks/copies of one edition become one bibliography unit.
+      data = await annotateBibliographicWorks(supabase, data);
+      // First relevant excerpt from each bibliographic work, then further pages.
       data = diversifyKnowledgeSources(
         prioritizeQuestionRelevantSources(data, question.trim()),
         contextSourceLimit, 3
@@ -989,7 +991,13 @@ export async function POST(req: NextRequest) {
     }
 
     // 1.5× context budget to match the broader retrieval pass.
-    const contextLimit = aiMode === "high" ? 63000 : aiMode === "medium" ? 48000 : 33000;
+    // Spend context tokens in proportion to the requested answer, not a fixed
+    // 33–63k characters for every query. Keep multi-work coverage first.
+    const contextLimit = aiSelection.length === "short"
+      ? (aiMode === "high" ? 22000 : 17000)
+      : aiSelection.length === "long"
+        ? (aiMode === "high" ? 63000 : aiMode === "medium" ? 48000 : 35000)
+        : (aiMode === "high" ? 44000 : aiMode === "medium" ? 34000 : 25000);
     const context = data.length
       ? buildKnowledgeContext(data, contextLimit, question.trim())
       : databaseWarning
@@ -998,17 +1006,41 @@ export async function POST(req: NextRequest) {
           ? "(Pertanyaan percakapan umum; Database tidak perlu dicari.)"
           : "(Database pribadi kosong atau tidak dipilih.)";
 
-    const databaseSources = useDatabase
-      ? data.map((m) => ({
+    // The UI bibliography/source panel has one entry per published work,
+    // while the LLM context preserves independent page locators.
+    const sourceByWork = new Map<string, any>();
+    if (useDatabase && !databaseWarning && !casualAiQuestion) {
+      for (const m of data) {
+        const key = String(m.bibliographic_work_id || m.source_file_id || m.id);
+        const pageStart = Number(m.source_page_start) || null;
+        const pageEnd = Number(m.source_page_end) || pageStart;
+        const existing = sourceByWork.get(key);
+        if (existing) {
+          if (pageStart) {
+            const range = pageEnd && pageEnd !== pageStart
+              ? pageStart + "–" + pageEnd : String(pageStart);
+            if (!existing.page_ranges.includes(range)) existing.page_ranges.push(range);
+          }
+          continue;
+        }
+        sourceByWork.set(key, {
           id: m.id,
           node_id: m.node_id,
-          title: m.title,
+          title: m.bibliographic_work_title || m.title,
           category: m.category,
           source_file_id: m.source_file_id || null,
-          page_start: m.source_page_start || null,
-          page_end: m.source_page_end || null,
-        }))
-      : [];
+          bibliographic_work_id: key,
+          edition: m.bibliographic_edition || null,
+          year: m.bibliographic_year || null,
+          page_start: pageStart,
+          page_end: pageEnd,
+          page_ranges: pageStart ? [
+            pageEnd && pageEnd !== pageStart ? pageStart + "–" + pageEnd : String(pageStart)
+          ] : []
+        });
+      }
+    }
+    const databaseSources = Array.from(sourceByWork.values());
 
     const prompt = buildPrompt({
       question,
