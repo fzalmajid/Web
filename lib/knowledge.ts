@@ -285,6 +285,13 @@ function rawRelevantExcerpt(raw: string, question: string, maxChars = 1900) {
 export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000, question = "") {
   let used = 0;
   const parts: string[] = [];
+  const distinctSources = new Set(rows.filter((row) => row.source_type !== "transcript")
+    .map((row) => row.source_file_id || "entry:" + row.id)).size;
+  // Reserve a first-pass evidence excerpt from as many genuinely retrieved
+  // sources as possible before allocating space to repeated book pages.
+  const firstPassChars = Math.max(480, Math.min(1700,
+    Math.floor((maxChars - distinctSources * 190) / Math.max(1, distinctSources))));
+  const seenSources = new Set<string>();
 
   for (const row of rows) {
     if (used >= maxChars) break;
@@ -296,8 +303,13 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000,
     const raw = String(row.raw_content || row.content || "").trim();
     if (!raw) continue;
 
+    const sourceKey = row.source_file_id || "entry:" + row.id;
+    const firstMention = !seenSources.has(sourceKey);
     const remaining = maxChars - used;
-    const body = rawRelevantExcerpt(raw, question, Math.min(1900, Math.max(0, remaining - 300)));
+    const excerptBudget = firstMention ? firstPassChars : 1700;
+    const body = rawRelevantExcerpt(raw, question,
+      Math.min(excerptBudget, Math.max(0, remaining - 300)));
+    seenSources.add(sourceKey);
     if (!body) break;
 
     const pageLabel =
