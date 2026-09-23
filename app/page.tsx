@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
+import { isChunkedPdfPath, getChunkedPdfManifest, downloadChunkedPdf, removeStoredStudyFile, copyChunkedPdf, saveLargePdfToFolder, type LargePdfSourceRow } from "@/lib/largePdfClient";
 import {
   AI_MODEL_CATALOG,
   AI_RESPONSE_LENGTHS,
@@ -1202,7 +1204,8 @@ async function importStoredRawFile(
   session: Session,
   row: Pick<SourceFile, "id" | "file_path" | "file_name" | "mime_type" | "node_id">,
   selection: AiSelection,
-  onProgress?: (progress: PdfImportProgress) => void
+  onProgress?: (progress: PdfImportProgress) => void,
+  options?: { ocrPartPath?: string; pdfPageOffset?: number; pdfAppend?: boolean }
 ) {
   let nextStartPage = 1;
   for (let requestNumber = 0; requestNumber < 10000; requestNumber++) {
@@ -1218,6 +1221,7 @@ async function importStoredRawFile(
         aiMode: legacyModeForSelection(selection),
         operation: "raw",
         pdfStartPage: nextStartPage,
+        ...(options || {}),
       }),
     });
     const result = await response.json().catch(() => ({}));
@@ -1236,6 +1240,48 @@ async function importStoredRawFile(
     nextStartPage = progress.nextStartPage;
   }
   throw new Error("PDF sangat panjang. Proses dihentikan agar tidak melakukan permintaan tanpa batas.");
+}
+
+async function saveOversizedPdf(
+  session: Session,
+  user: User,
+  nodeId: string,
+  file: File,
+  selection: AiSelection,
+  onStatus?: (value: string) => void,
+  onUploaded?: () => void
+): Promise<LargePdfSourceRow> {
+  if (!isLargePdf(file)) {
+    throw new Error(
+      "Supabase Free membatasi file selain PDF hingga 50 MB per file. " +
+      "PDF hingga 200 MB bisa disimpan utuh dengan upload bertahap."
+    );
+  }
+  if (file.size > MAX_LARGE_PDF_BYTES) {
+    throw new Error("PDF maksimal 200 MB untuk upload otomatis. Bagi file lebih besar terlebih dahulu.");
+  }
+  if (selection.model === "local") {
+    throw new Error("PDF hasil scan di atas 50 MB membutuhkan Gemini untuk pembacaan OCR. Pilih model Gemini.");
+  }
+  return saveLargePdfToFolder(
+    user,
+    nodeId,
+    file,
+    async (row, path, part: PdfOcrPart) => {
+      await importStoredRawFile(
+        session,
+        row,
+        selection,
+        (progress) => onStatus?.(
+          "Membaca PDF halaman " + (part.startPage - 1 + progress.processedThroughPage) +
+          " dari " + part.totalPages + "..."
+        ),
+        { ocrPartPath: path, pdfPageOffset: part.startPage - 1, pdfAppend: true }
+      );
+    },
+    onStatus,
+    onUploaded
+  );
 }
 
 async function ensureRawFileText(session: Session, row: SourceFile) {
