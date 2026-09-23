@@ -11029,10 +11029,22 @@ function ApiProviderConnection({
   const [keyInput, setKeyInput] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [testModel, setTestModel] = useState("");
 
   useEffect(() => {
     setConnected(Boolean(window.sessionStorage.getItem(config.storageKey)));
   }, [config.storageKey]);
+
+  // /v1/models confirms that a key can list models, not that it has usable
+  // credits or sufficient per-model rate limits. Provide a separate real test.
+  const testModels = provider === "openai"
+    ? getStoredModelIds(config.modelsKey).filter((model) => model.startsWith("gpt-")).slice(0, 60)
+    : [];
+  const activeTestModel = testModels.includes(testModel)
+    ? testModel
+    : testModels.find((model) => model === "gpt-5.6-luna") ||
+      testModels.find((model) => model === "gpt-5.5") ||
+      testModels[0] || "";
 
   async function connect() {
     const candidate = keyInput.trim() || String(window.sessionStorage.getItem(config.storageKey) || "").trim();
@@ -11070,9 +11082,48 @@ function ApiProviderConnection({
     emitPluginChange();
     const models = Array.isArray(data.recommendedAvailable) ? data.recommendedAvailable : [];
     setMessage(
-      "Terhubung untuk sesi browser ini." +
+      "API key dikenali untuk sesi browser ini; saldo/limit belum diuji. Klik Uji GPT dengan API nyata." +
         (models.length ? " Model tersedia: " + models.join(", ") + "." : "")
     );
+  }
+
+  async function testOpenAI() {
+    if (provider !== "openai") return;
+    const key = String(window.sessionStorage.getItem(config.storageKey) || "").trim();
+    if (!key || !activeTestModel) {
+      setMessage("Hubungkan API key dan pilih model GPT dahulu.");
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/test-openai-key", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + session.access_token,
+          "X-RB-OpenAI-Key": key,
+        },
+        body: JSON.stringify({ model: activeTestModel }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) {
+        const providerCode = String(result.providerCode || result.classification || "");
+        setMessage(
+          "Uji " + activeTestModel + " gagal: " +
+          String(result.error || "Provider belum dapat dipakai.") +
+          (providerCode ? " · kode: " + providerCode : "")
+        );
+      } else {
+        setMessage(
+          "✓ Uji " + activeTestModel + " berhasil. OpenAI menerima permintaan generasi nyata; bukan sekadar verifikasi API key."
+        );
+      }
+    } catch {
+      setMessage("Uji GPT gagal dijalankan karena koneksi atau server. Coba lagi.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function disconnect() {
@@ -11130,7 +11181,35 @@ function ApiProviderConnection({
               </a>
             </div>
 
-            {connected && <button className="ghost" onClick={disconnect}>Putuskan plugin</button>}
+            {provider === "openai" && connected && (
+              <div className="geminiConnectActions" style={{ flexWrap: "wrap", gap: 10 }}>
+                <label className="geminiKeyField">
+                  Model untuk uji saldo &amp; akses
+                  <select
+                    value={activeTestModel}
+                    onChange={(event) => setTestModel(event.target.value)}
+                    disabled={busy || !testModels.length}
+                  >
+                    {testModels.map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={testOpenAI}
+                  disabled={busy || !activeTestModel}
+                >
+                  {busy ? "Menguji GPT..." : "Uji GPT dengan API nyata"}
+                </button>
+                <small className="muted">
+                  Mengirim satu permintaan singkat memakai API key di browser; dapat dikenakan biaya API kecil.
+                  Hasilnya membedakan saldo/billing dari rate limit sementara.
+                </small>
+              </div>
+            )}
+            {connected && <button className="ghost" onClick={disconnect}>Putuskan plugin</button>
             {message && <div className="notice">{message}</div>}
           </section>
         </div>
