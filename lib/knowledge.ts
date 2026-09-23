@@ -242,6 +242,11 @@ export function prioritizeQuestionRelevantSources(
     let relevance = Number(row.score) || 0;
     if (excipientBook && substantiveExcipient) relevance += 36000;
     else if (substantiveExcipient) relevance += 9500;
+    // The opening HOPE pages contain a contents list and introduction, not
+    // actual substance monographs; prefer chapters on starch, calcium
+    // phosphate, magnesium stearate, etc. with substantive material data.
+    const page = Number(row.source_page_start || 0);
+    if (excipientBook && page >= 1 && page <= 21) relevance -= 26000;
     if (apiPage && !substantiveExcipient) relevance -= 6000;
     return { ...row, score: relevance };
   });
