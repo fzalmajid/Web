@@ -7713,7 +7713,7 @@ function AiDatabaseSourcePicker({
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [vectorRunning, setVectorRunning] = useState(false);
-  const [vectorStatus, setVectorStatus] = useState<{ model: string; pendingEntries: number; vectorsCreated?: number } | null>(null);
+  const [vectorStatus, setVectorStatus] = useState<{ model: string; pendingEntries: number; indexedVectors: number; provider?: string } | null>(null);
   const [vectorError, setVectorError] = useState("");
   const stopVectorRef = useRef(false);
 
@@ -7732,7 +7732,9 @@ function AiDatabaseSourcePicker({
         if (error) { setVectorError("Status indeks belum dapat dibaca."); return; }
         setVectorStatus({
           model: String(data?.model || ""),
-          pendingEntries: Number(data?.pendingEntries || 0)
+          pendingEntries: Number(data?.pendingEntries || 0),
+          indexedVectors: Number(data?.indexedVectors || 0),
+          provider: String(data?.provider || "")
         });
       })
       .catch(() => { if (!cancelled) setVectorError("Status indeks belum dapat dibaca."); });
@@ -7750,12 +7752,16 @@ function AiDatabaseSourcePicker({
         const { data, error } = await supabase.functions.invoke("semantic-index", {
           body: { action: "backfill", maxVectors: 16, maxEntries: 6 }
         });
-        if (error || !data || data.error) throw new Error("Pengindeksan terganggu. Coba lanjutkan dari progres terakhir.");
-        setVectorStatus({
-          model: String(data.model || ""),
+        if (error || !data || data.error) {
+          const message = String(data?.error || error?.message || "Pengindeksan terganggu.");
+          throw new Error(message + " Progres yang sudah tersimpan tidak hilang.");
+        }
+        setVectorStatus((previous) => ({
+          model: String(data.model || previous?.model || ""),
           pendingEntries: Number(data.pendingEntries || 0),
-          vectorsCreated: Number(data.vectorsCreated || 0)
-        });
+          indexedVectors: Number(previous?.indexedVectors || 0) + Number(data.vectorsCreated || 0),
+          provider: previous?.provider
+        }));
         if (Number(data.pendingEntries || 0) === 0) break;
         if (!Number(data.vectorsCreated || 0) && !Number(data.entriesCompleted || 0)) {
           throw new Error("Tidak ada halaman yang dapat diproses. Periksa status RAW/OCR.");
@@ -7985,14 +7991,17 @@ function AiDatabaseSourcePicker({
             <strong>🧠 Pencarian embedding</strong>
             <small className="muted">
               {vectorStatus
-                ? (vectorStatus.pendingEntries === 0
-                    ? "Semua dokumen RAW yang dapat diproses sudah terindeks."
-                    : vectorStatus.pendingEntries + " dokumen masih perlu diindeks.")
-                : "Indeks berdasarkan isi RAW/OCR; tanpa kuota Gemini."}
+                ? (vectorStatus.indexedVectors === 0
+                    ? "Belum aktif untuk pencarian: 0 vektor tersimpan. "
+                    : vectorStatus.indexedVectors + " vektor terindeks. ") +
+                  (vectorStatus.pendingEntries === 0
+                    ? "Semua dokumen RAW yang memenuhi syarat sudah diproses."
+                    : vectorStatus.pendingEntries + " entri masih perlu diindeks.")
+                : "Indeks berdasarkan isi RAW/OCR. Periksa status setelah login."}
               {vectorStatus?.model === "Supabase/gte-small"
-                ? " · Model lokal gte-small (terutama bahasa Inggris)."
+                ? " · Saat ini hanya gte-small lokal (terutama bahasa Inggris). Hugging Face belum terhubung ke Supabase; sambungan plugin ChatGPT tidak otomatis memasang HF_TOKEN."
                 : vectorStatus?.model === "intfloat/multilingual-e5-small"
-                  ? " · Model Hugging Face multilingual-e5-small."
+                  ? " · Hugging Face multilingual-e5-small terkonfigurasi; cek jumlah vektor di atas untuk memastikan indeks benar-benar membantu AI."
                   : ""}
             </small>
             <button type="button" className="ghost" onClick={runVectorBackfill}>
