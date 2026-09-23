@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
-import pdfParse from "pdf-parse";
 import JSZip from "jszip";
-import { extractPdfPageBatch, packPdfPages } from "@/lib/pdfIndex";
 import { createServerSupabase } from "@/lib/supabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
@@ -28,39 +26,6 @@ function isTextMime(mime: string) {
 
 function isMediaMime(mime: string) {
   return mime.startsWith("audio/") || mime.startsWith("video/");
-}
-
-function splitKnowledgeChunks(value: string, maxChars = 14000, overlap = 900) {
-  const text = String(value || "").replace(/\r\n/g, "\n").trim();
-  if (!text) return [];
-  if (text.length <= maxChars) return [text];
-
-  const chunks: string[] = [];
-  let start = 0;
-
-  while (start < text.length) {
-    let end = Math.min(text.length, start + maxChars);
-    if (end < text.length) {
-      const paragraphBreak = text.lastIndexOf("\n\n", end);
-      const lineBreak = text.lastIndexOf("\n", end);
-      const sentenceBreak = Math.max(
-        text.lastIndexOf(". ", end),
-        text.lastIndexOf("? ", end),
-        text.lastIndexOf("! ", end)
-      );
-      const bestBreak = Math.max(paragraphBreak, lineBreak, sentenceBreak);
-      if (bestBreak > start + Math.floor(maxChars * 0.6)) {
-        end = bestBreak + (bestBreak === sentenceBreak ? 2 : 1);
-      }
-    }
-
-    const chunk = text.slice(start, end).trim();
-    if (chunk) chunks.push(chunk);
-    if (end >= text.length) break;
-    start = Math.max(end - overlap, start + 1);
-  }
-
-  return chunks;
 }
 
 function decodeXml(value: string) {
@@ -100,6 +65,77 @@ async function extractPptxText(buffer: Buffer) {
   return slides.join("\n\n");
 }
 
+type VisionPart = { label: string; mimeType: string; data: string };
+
+function imageMime(name: string) {
+  const ext = name.toLowerCase().split(".").pop() || "";
+  const map: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    bmp: "image/bmp",
+    tif: "image/tiff",
+    tiff: "image/tiff",
+  };
+  return map[ext] || "";
+}
+
+async function extractOfficeImages(buffer: Buffer, kind: "pptx" | "docx") {
+  const zip = await JSZip.loadAsync(buffer);
+  const prefix = kind === "pptx" ? "ppt/media/" : "word/media/";
+  const names = Object.keys(zip.files)
+    .filter((name) => name.toLowerCase().startsWith(prefix) && imageMime(name))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const parts: VisionPart[] = [];
+  for (const name of names.slice(0, 40)) {
+    const file = zip.file(name);
+    if (!file) continue;
+    const data = await file.async("base64");
+    parts.push({
+      label: kind === "pptx" ? `Slide image ${parts.length + 1}` : `Document image ${parts.length + 1}`,
+      mimeType: imageMime(name),
+      data,
+    });
+  }
+  return parts;
+}
+
+async function readVisionImages(
+  parts: VisionPart[],
+  selection: ReturnType<typeof selectionFromHeaders>,
+  aiMode: ReturnType<typeof normalizeAiMode>,
+  auth: ReturnType<typeof geminiUserAuthFromHeaders>,
+  prompt: string
+) {
+  const chunks: string[] = [];
+  let usage = { inputTokens: 0, outputTokens: 0, thoughtsTokens: 0, totalTokens: 0 };
+  let model = "";
+  for (const part of parts) {
+    const result = await geminiGenerateDetailed(
+      [{ text: `${prompt}\n\nSumber: ${part.label}` }, { inlineData: { mimeType: part.mimeType, data: part.data } }],
+      "Baca gambar secara teliti. Jangan mengarang teks yang tidak terlihat.",
+      {
+        models: modelPlanForSelection(selection.model, aiMode, "standard"),
+        effort: selection.effort,
+        apiKey: auth.apiKey,
+        accessToken: auth.accessToken,
+        projectId: auth.projectId,
+      }
+    );
+    chunks.push(`${part.label}:\n${result.text.trim()}`);
+    model = result.model;
+    usage = {
+      inputTokens: usage.inputTokens + result.usage.inputTokens,
+      outputTokens: usage.outputTokens + result.usage.outputTokens,
+      thoughtsTokens: usage.thoughtsTokens + result.usage.thoughtsTokens,
+      totalTokens: usage.totalTokens + result.usage.totalTokens,
+    };
+  }
+  return { text: chunks.filter(Boolean).join("\n\n"), usage, model };
+}
+
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
@@ -136,13 +172,17 @@ export async function POST(req: NextRequest) {
       ? Boolean(aiInfo?.sharedGemini)
       : !geminiAuth.ownGemini;
 
+    if (aiMode === "simple") {
+      return NextResponse.json({ error: "Local diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
+    }
+
     if (!sourceFileId || !filePath || !nodeId) {
       return NextResponse.json({ error: "Data file tidak lengkap." }, { status: 400 });
     }
 
     const { data: row, error: rowError } = await supabase
       .from("source_files")
-      .select("id,node_id,file_path,file_name,mime_type,raw_text,processing_status,processing_page,processing_total_pages,processing_chunks,processing_chars,processing_strategy,processing_started_at,processing_updated_at")
+      .select("id,node_id,file_path,file_name,mime_type,raw_text")
       .eq("id", sourceFileId)
       .single();
     if (rowError || !row || row.file_path !== filePath || row.node_id !== nodeId) {
@@ -165,247 +205,12 @@ export async function POST(req: NextRequest) {
       buffer = Buffer.from(await blob.arrayBuffer());
     }
 
-    if (operation === "raw" && mimeType === "application/pdf") {
-      const resetRequested = Boolean(body.reset);
-      const priorPage = Number(row.processing_page || 0);
-      const priorChunks = Number(row.processing_chunks || 0);
-      const priorChars = Number(row.processing_chars || 0);
-
-      if (!buffer) {
-        throw new Error("Buffer PDF tidak tersedia.");
-      }
-
-      if (resetRequested) {
-        const { error: deleteError } = await supabase
-          .from("knowledge_entries")
-          .delete()
-          .eq("source_file_id", sourceFileId);
-        if (deleteError) throw deleteError;
-
-        const { error: resetError } = await supabase
-          .from("source_files")
-          .update({
-            processing_status: "processing",
-            processing_page: 0,
-            processing_total_pages: 0,
-            processing_chunks: 0,
-            processing_chars: 0,
-            processing_strategy: "pdfjs-page-batch",
-            processing_started_at: new Date().toISOString(),
-            processing_updated_at: new Date().toISOString(),
-            raw_text: null,
-            structured_text: null,
-            error_message: null,
-          })
-          .eq("id", sourceFileId);
-        if (resetError) throw resetError;
-      } else if (row.processing_status === "ready" && Number(row.processing_total_pages || 0) > 0 && priorPage >= Number(row.processing_total_pages || 0)) {
-        return NextResponse.json({
-          operation: "raw",
-          processingComplete: true,
-          currentPage: priorPage,
-          totalPages: Number(row.processing_total_pages || 0),
-          indexedChunks: priorChunks,
-          extractedChars: priorChars,
-          extraction: String(row.processing_strategy || "pdfjs-page-batch"),
-        });
-      }
-
-      const startPage = resetRequested ? 1 : Math.max(1, priorPage + 1);
-      let batch: Awaited<ReturnType<typeof extractPdfPageBatch>> | null = null;
-      let usedFallbackParser = false;
-
-      try {
-        batch = await extractPdfPageBatch(buffer, startPage, {
-          maxPages: Number(body.maxPages || 72),
-          maxMs: Number(body.maxMs || 36000),
-        });
-      } catch (pdfJsError) {
-        console.warn("[PDFJS_BATCH_FAILED]", {
-          fileName,
-          startPage,
-          message: pdfJsError instanceof Error ? pdfJsError.message : String(pdfJsError),
-        });
-      }
-
-      if (!batch) {
-        // Last-resort parser. Still stays entirely server-side and never sends the whole PDF to an AI model.
-        const extracted = await pdfParse(buffer);
-        const fallbackText = String(extracted.text || "").trim();
-        if (!fallbackText) {
-          throw new Error("PDF tidak memiliki text layer yang dapat dibaca. File kemungkinan hasil scan dan membutuhkan OCR per halaman.");
-        }
-
-        usedFallbackParser = true;
-        const chunks = splitKnowledgeChunks(fallbackText, 12000, 600);
-        const { error: deleteError } = await supabase
-          .from("knowledge_entries")
-          .delete()
-          .eq("source_file_id", sourceFileId);
-        if (deleteError) throw deleteError;
-
-        const rows = chunks.map((chunk, index) => ({
-          user_id: userData.user.id,
-          node_id: nodeId,
-          title: `${fileName} · Bagian ${index + 1}/${chunks.length}`,
-          category: `File terindeks · Bagian ${index + 1}/${chunks.length}`,
-          content: chunk,
-          raw_content: chunk,
-          source_type: "file",
-          source_file_id: sourceFileId,
-          source_chunk_index: index,
-          source_page_start: null,
-          source_page_end: null,
-        }));
-
-        for (let offset = 0; offset < rows.length; offset += 40) {
-          const { error: insertError } = await supabase
-            .from("knowledge_entries")
-            .insert(rows.slice(offset, offset + 40));
-          if (insertError) throw insertError;
-        }
-
-        const { error: updateError } = await supabase
-          .from("source_files")
-          .update({
-            processing_status: "ready",
-            raw_text: null,
-            structured_text: null,
-            corrections: [],
-            error_message: null,
-            processing_page: 1,
-            processing_total_pages: 1,
-            processing_chunks: chunks.length,
-            processing_chars: fallbackText.length,
-            processing_strategy: "pdf-parse-full-fallback",
-            processing_started_at: row.processing_started_at || new Date().toISOString(),
-            processing_updated_at: new Date().toISOString(),
-          })
-          .eq("id", sourceFileId);
-        if (updateError) throw updateError;
-
-        return NextResponse.json({
-          operation: "raw",
-          processingComplete: true,
-          currentPage: 1,
-          totalPages: 1,
-          indexedChunks: chunks.length,
-          extractedChars: fallbackText.length,
-          extraction: "pdf-parse-full-fallback",
-        });
-      }
-
-      if (!batch.totalPages) {
-        throw new Error("PDF tidak memiliki halaman yang dapat dibaca.");
-      }
-
-      if ((resetRequested || priorPage === 0) && startPage === 1) {
-        const { error: deleteError } = await supabase
-          .from("knowledge_entries")
-          .delete()
-          .eq("source_file_id", sourceFileId);
-        if (deleteError) throw deleteError;
-      }
-
-      const packed = packPdfPages(batch.pages, 12000);
-      const rows = packed.map((chunk) => ({
-        user_id: userData.user.id,
-        node_id: nodeId,
-        title:
-          chunk.pageStart === chunk.pageEnd
-            ? `${fileName} · Halaman ${chunk.pageStart}`
-            : `${fileName} · Halaman ${chunk.pageStart}-${chunk.pageEnd}`,
-        category:
-          chunk.pageStart === chunk.pageEnd
-            ? `PDF terindeks · Halaman ${chunk.pageStart}`
-            : `PDF terindeks · Halaman ${chunk.pageStart}-${chunk.pageEnd}`,
-        content: chunk.text,
-        raw_content: chunk.text,
-        source_type: "file",
-        source_file_id: sourceFileId,
-        source_chunk_index: chunk.chunkIndex,
-        source_page_start: chunk.pageStart,
-        source_page_end: chunk.pageEnd,
-      }));
-
-      for (let offset = 0; offset < rows.length; offset += 30) {
-        const { error: upsertError } = await supabase
-          .from("knowledge_entries")
-          .upsert(rows.slice(offset, offset + 30), {
-            onConflict: "source_file_id,source_chunk_index",
-          });
-        if (upsertError) throw upsertError;
-      }
-
-      const { count: indexedCount, error: countError } = await supabase
-        .from("knowledge_entries")
-        .select("id", { count: "exact", head: true })
-        .eq("source_file_id", sourceFileId);
-      if (countError) throw countError;
-
-      const batchChars = packed.reduce((sum, chunk) => sum + chunk.text.length, 0);
-      const nextPage = Math.max(priorPage, batch.endPage);
-      const complete = nextPage >= batch.totalPages;
-
-      if (complete && Number(indexedCount || 0) === 0) {
-        throw new Error("PDF selesai dibaca tetapi tidak ditemukan text layer. File kemungkinan hasil scan dan membutuhkan OCR per halaman.");
-      }
-
-      const { error: progressError } = await supabase
-        .from("source_files")
-        .update({
-          processing_status: complete ? "ready" : "processing",
-          raw_text: null,
-          structured_text: null,
-          corrections: [],
-          error_message: null,
-          processing_page: nextPage,
-          processing_total_pages: batch.totalPages,
-          processing_chunks: Number(indexedCount || 0),
-          processing_chars: resetRequested ? batchChars : priorChars + batchChars,
-          processing_strategy: usedFallbackParser ? "pdf-parse-full-fallback" : "pdfjs-page-batch",
-          processing_started_at: row.processing_started_at || new Date().toISOString(),
-          processing_updated_at: new Date().toISOString(),
-        })
-        .eq("id", sourceFileId);
-      if (progressError) throw progressError;
-
-      return NextResponse.json({
-        operation: "raw",
-        processingComplete: complete,
-        currentPage: nextPage,
-        totalPages: batch.totalPages,
-        indexedChunks: Number(indexedCount || 0),
-        extractedChars: resetRequested ? batchChars : priorChars + batchChars,
-        extraction: "pdfjs-page-batch",
-        batchStartPage: batch.startPage,
-        batchEndPage: batch.endPage,
-      });
-    }
-
-    const rawNeedsAi =
-      isMediaMime(mimeType) ||
-      mimeType.startsWith("image/") ||
-      (!isTextMime(mimeType) &&
-        mimeType !== "application/pdf" &&
-        mimeType !== "application/vnd.openxmlformats-officedocument.wordprocessingml.document" &&
-        mimeType !== "application/vnd.openxmlformats-officedocument.presentationml.presentation" &&
-        !fileName.toLowerCase().endsWith(".docx") &&
-        !fileName.toLowerCase().endsWith(".pptx"));
-    const aiRequired = operation === "ai-copy" || rawNeedsAi;
-    if (aiRequired && aiMode === "simple") {
-      return NextResponse.json(
-        { error: "Format/operasi ini membutuhkan model cloud. PDF, DOCX, PPTX, TXT, CSV, JSON, dan XML dapat diproses tanpa AI." },
-        { status: 400 }
-      );
-    }
-
     const heavyFile =
       isMediaMime(mimeType) ||
       mimeType === "application/pdf" ||
       mimeType.startsWith("image/");
     const guardAction = heavyFile ? "file_heavy" : "file_light";
-    const preflight = sharedGemini && aiRequired ? await checkAiCredits(supabase, guardAction, aiMode) : null;
+    const preflight = sharedGemini ? await checkAiCredits(supabase, guardAction, aiMode) : null;
     if (preflight && !preflight.allowed) {
       await supabase
         .from("source_files")
@@ -420,28 +225,34 @@ export async function POST(req: NextRequest) {
     if (!rawText && (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.toLowerCase().endsWith(".docx"))) {
       const extracted = await mammoth.extractRawText({ buffer: buffer! });
       rawText = extracted.value.trim();
-    } else if (!rawText && mimeType === "application/pdf") {
-      const { data: pdfEntries, error: pdfEntriesError } = await supabase
-        .from("knowledge_entries")
-        .select("content,source_chunk_index")
-        .eq("source_file_id", sourceFileId)
-        .order("source_chunk_index", { ascending: true })
-        .limit(120);
-      if (pdfEntriesError) throw pdfEntriesError;
-      rawText = (pdfEntries || []).map((item: any) => String(item.content || "")).join("\n\n").trim();
-      if (!rawText) {
-        throw new Error("PDF belum selesai diindeks. Selesaikan proses file terlebih dahulu.");
-      }
     } else if (!rawText && (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || fileName.toLowerCase().endsWith(".pptx"))) {
       rawText = (await extractPptxText(buffer!)).trim();
     } else if (!rawText && isTextMime(mimeType)) {
       rawText = buffer!.toString("utf8").trim();
-    } else if (!rawText) {
+    }
+
+    if (!rawText && (fileName.toLowerCase().endsWith(".pptx") || mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || fileName.toLowerCase().endsWith(".docx") || mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) {
+      const officeKind = fileName.toLowerCase().endsWith(".pptx") || mimeType.includes("presentation") ? "pptx" : "docx";
+      const images = await extractOfficeImages(buffer!, officeKind);
+      if (images.length) {
+        const vision = await readVisionImages(
+          images,
+          aiSelection,
+          aiMode,
+          geminiAuth,
+          "OCR seluruh tulisan yang terlihat pada gambar ini secara literal. Pertahankan urutan, judul, nomor, tabel, rumus, dan daftar. Jangan meringkas atau menebak. Jika bagian tidak terbaca, tandai [tidak terbaca]."
+        );
+        await recordAiTokenUsage(supabase, vision.usage, vision.model, geminiAuth.provider);
+        rawText = vision.text;
+      }
+    }
+
+    if (!rawText) {
       const base64 = buffer!.toString("base64");
       const prompt = isMediaMime(mimeType)
         ? "Transkripsikan seluruh ucapan dari file ini secara VERBATIM, sedekat mungkin kata demi kata. Jangan merangkum, jangan mengoreksi istilah, jangan menambah isi. Gunakan paragraf dan tanda baca secukupnya."
         : mimeType === "application/pdf"
-          ? "Ekstrak isi dokumen PDF ini selengkap mungkin. Pertahankan judul, subjudul, daftar, angka, istilah, dan isi penting. Jangan meringkas dan jangan menambahkan pengetahuan luar."
+          ? "Baca PDF ini sebagai dokumen visual, termasuk halaman yang merupakan hasil scan/foto. OCR seluruh tulisan yang terlihat secara literal dan selengkap mungkin. Pertahankan judul, subjudul, daftar, tabel, angka, istilah, dan urutan halaman. Jangan meringkas, jangan menambahkan pengetahuan luar. Jika bagian tidak terbaca, tandai [tidak terbaca]."
           : "Ekstrak semua informasi tekstual yang dapat dibaca dari file/gambar ini. Jangan menambahkan informasi yang tidak ada pada sumber.";
       const extractionResult = await geminiGenerateDetailed(
         [
@@ -452,7 +263,6 @@ export async function POST(req: NextRequest) {
         {
           models: modelPlanForSelection(aiSelection.model, aiMode, isMediaMime(mimeType) ? "audio" : "standard"),
           effort: aiSelection.effort,
-      responseLength: aiSelection.length,
           apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
@@ -467,32 +277,37 @@ export async function POST(req: NextRequest) {
     const media = isMediaMime(mimeType);
 
     if (operation === "raw") {
-      const chunks = splitKnowledgeChunks(rawText);
-      const { error: deleteEntryError } = await supabase
+      const { data: existingEntry } = await supabase
         .from("knowledge_entries")
-        .delete()
-        .eq("source_file_id", sourceFileId);
-      if (deleteEntryError) throw deleteEntryError;
+        .select("id")
+        .eq("source_file_id", sourceFileId)
+        .maybeSingle();
 
-      const rows = chunks.map((chunk, index) => ({
-        user_id: userData.user.id,
-        node_id: nodeId,
-        title: chunks.length > 1 ? `${fileName} · Bagian ${index + 1}/${chunks.length}` : fileName,
-        category: media
-          ? "Transkrip file"
-          : chunks.length > 1
-            ? `File terindeks · Bagian ${index + 1}/${chunks.length}`
-            : "File",
-        content: chunk,
-        raw_content: chunk,
-        source_type: "file",
-        source_file_id: sourceFileId,
-      }));
-
-      for (let offset = 0; offset < rows.length; offset += 50) {
+      if (existingEntry?.id) {
+        const { error: entryUpdateError } = await supabase
+          .from("knowledge_entries")
+          .update({
+            title: fileName,
+            category: media ? "Transkrip file" : "File",
+            content: rawText,
+            raw_content: rawText,
+            source_type: "file",
+          })
+          .eq("id", existingEntry.id);
+        if (entryUpdateError) throw entryUpdateError;
+      } else {
         const { error: entryInsertError } = await supabase
           .from("knowledge_entries")
-          .insert(rows.slice(offset, offset + 50));
+          .insert({
+            user_id: userData.user.id,
+            node_id: nodeId,
+            title: fileName,
+            category: media ? "Transkrip file" : "File",
+            content: rawText,
+            raw_content: rawText,
+            source_type: "file",
+            source_file_id: sourceFileId,
+          });
         if (entryInsertError) throw entryInsertError;
       }
 
@@ -512,16 +327,8 @@ export async function POST(req: NextRequest) {
         .eq("id", sourceFileId);
       if (rawUpdateError) throw rawUpdateError;
 
-      const aiUsage = sharedGemini && aiRequired ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
-      return NextResponse.json({
-        rawText: rawText.length <= 120000 ? rawText : "",
-        aiUsage,
-        operation: "raw",
-        processingComplete: true,
-        indexedChunks: chunks.length,
-        extractedChars: rawText.length,
-        extraction: "native",
-      });
+      const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
+      return NextResponse.json({ rawText, aiUsage, operation: "raw" });
     }
 
     const knowledge = await getScopeKnowledge(supabase, nodeId, 40);
@@ -616,7 +423,7 @@ Aturan:
       .eq("id", sourceFileId);
     if (updateError) throw updateError;
 
-    const aiUsage = sharedGemini && aiRequired ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
+    const aiUsage = sharedGemini ? await finalizeAiCredits(supabase, guardAction, aiMode) : null;
 
     return NextResponse.json({
       entryId,
