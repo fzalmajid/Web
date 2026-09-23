@@ -929,7 +929,7 @@ export async function POST(req: NextRequest) {
         answer: data.length
           ? formatDatabaseLookup(question, data)
           : "Tidak ditemukan kecocokan dalam isi materi yang sudah berhasil diindeks pada folder dan subfolder terpilih. Periksa apakah OCR/RAW seluruh halaman berstatus siap.",
-        sources: Array.from(new Map(data.map((row) => [
+        sources: Array.from(new Map<string, any>(data.map((row): [string, any] => [
           String(row.bibliographic_work_id || row.source_file_id || row.id),
           {
             id: row.id,
