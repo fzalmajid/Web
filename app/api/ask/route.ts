@@ -690,6 +690,16 @@ function buildPrompt({
  * The SQL RPC has already searched every eligible descendant folder, indexed
  * individual OCR/page chunks, and ranked by body content rather than filename.
  */
+function expandPharmacyQuery(question: string) {
+  // "PCT" is contextual: in a paracetamol monograph query, expand it to
+  // medicine synonyms before FTS; do not assume it always means paracetamol.
+  if (!/\\bpct\\b/i.test(question) ||
+      !/\\b(monografi|monograph|parasetamol|paracetamol|acetaminophen|analgesik|obat)\\b/i.test(question)) {
+    return question;
+  }
+  return question.replace(/\\bpct\\b/gi, "paracetamol parasetamol acetaminophen");
+}
+
 function databaseLookupTerms(question: string) {
   const ignored = new Set([
     "yang","dan","atau","dari","untuk","dengan","tentang","secara","detail",
@@ -701,6 +711,7 @@ function databaseLookupTerms(question: string) {
   const words = (question.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi) || [])
     .filter((word) => !ignored.has(word));
   const synonym: Record<string, string[]> = {
+    pct: ["paracetamol","parasetamol","acetaminophen","acetaminofen"],
     paracetamol: ["parasetamol","acetaminophen","acetaminofen"],
     parasetamol: ["paracetamol","acetaminophen","acetaminofen"],
     acetaminophen: ["paracetamol","parasetamol"],
@@ -807,6 +818,7 @@ export async function POST(req: NextRequest) {
 
     // Cheap database retrieval runs BEFORE the LLM. Search broadly across the selected
     // folder and every descendant, then send only the strongest content/page chunks.
+    const databaseSearchQuery = expandPharmacyQuery(question.trim());
     const searchLimit = 80; // Gather a broad candidate pool before source-level reranking.
     const contextSourceLimit = aiMode === "high" ? 48 : aiMode === "medium" ? 40 : 32;
     const fallbackLimit = aiMode === "high" ? 80 : aiMode === "medium" ? 60 : 40;
@@ -816,12 +828,12 @@ export async function POST(req: NextRequest) {
       data = hasExplicitDatabaseSources
         ? await searchSelectedKnowledge(
             supabase,
-            question.trim(),
+            databaseSearchQuery,
             sourceNodeIds,
             sourceFileIds,
             searchLimit
           )
-        : await searchScopeKnowledge(supabase, question.trim(), scopeNodeId, searchLimit);
+        : await searchScopeKnowledge(supabase, databaseSearchQuery, scopeNodeId, searchLimit);
 
       const broadDatabaseQuestion =
         /\b(ringkas|rangkum|overview|gambaran|jelaskan materi|apa isi|pelajari semua|seluruh materi)\b/i.test(
