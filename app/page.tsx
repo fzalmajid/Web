@@ -9939,6 +9939,44 @@ function BottomAskBar({
     setWebSources([]);
     setWarning("");
 
+    // This preflight also covers Browser Local and local LLM, which bypass
+    // /api/ask. Do not answer from a partial vector index or consume any
+    // cloud credits while the selected source tree is still being indexed.
+    const needsGroundedDatabase = selectedSources.includes("database") &&
+      !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(question.trim());
+    if (needsGroundedDatabase) {
+      try {
+        const scopedIndex = await supabase.rpc("count_pending_knowledge_embeddings_scoped", {
+          p_model: "intfloat/multilingual-e5-small",
+          p_scope_node_id: scopeNodeId,
+          p_source_node_ids: selectedSourceNodeIds,
+          p_source_file_ids: selectedSourceFileIds,
+          p_use_selected: selectedSourceNodeIds.length > 0 || selectedSourceFileIds.length > 0,
+        });
+        if (scopedIndex.error) throw scopedIndex.error;
+        const pending = Number(scopedIndex.data || 0);
+        if (pending > 0) {
+          setAnswer("Belum membuat jawaban. Masih ada " + pending +
+            " entri di sumber terpilih yang belum selesai diindeks oleh Hugging Face. " +
+            "Buka Pilih sumber untuk melihat progres dan membiarkan pengindeksan berjalan; " +
+            "kirim ulang pertanyaan setelah selesai. Tidak ada kredit GPT/Gemini yang dipakai.");
+          setAnswerModel("Menunggu indeks Database · tanpa kredit AI");
+          setWarning("Referensi belum lengkap. Jawaban dari indeks sebagian berisiko mengabaikan buku atau halaman relevan.");
+          setBusy(false);
+          return;
+        }
+        // Refresh the shared browser index cache after a previously pending
+        // job completes; query vectors must match the stored E5 passages.
+        await getHfIndexStatus(supabase);
+      } catch (error: any) {
+        setAnswer("Status indeks Database belum dapat diperiksa. Jawaban dibatalkan agar tidak membuat sitasi yang keliru atau menghabiskan kredit AI. " +
+          String(error?.message || "").slice(0, 180));
+        setAnswerModel("Database belum siap · tanpa kredit AI");
+        setBusy(false);
+        return;
+      }
+    }
+
     if (aiSelection.model === "local") {
       if (pendingAttachment?.rawText || pendingLink?.rawText) {
         const raw = [
@@ -9978,9 +10016,19 @@ function BottomAskBar({
       pendingLink?.rawText || "",
     ].filter(Boolean).join("\n\n---\n\n");
 
-    const semanticEmbedding = selectedSources.includes("database")
-      ? await maybeMultilingualQuery(supabase, question.trim(), (message) => setAnswerModel(message))
-      : null;
+    let semanticEmbedding: { model: string; vector: number[] } | null = null;
+    if (needsGroundedDatabase) {
+      try {
+        semanticEmbedding = await maybeMultilingualQuery(supabase, question.trim(),
+          (message) => setAnswerModel(message));
+      } catch (error: any) {
+        setAnswer("Model Hugging Face belum dapat memproses pertanyaan. Jawaban tidak dikirim ke AI agar tidak menghabiskan kredit tanpa pencarian semantik: " +
+          String(error?.message || "periksa koneksi/model browser").slice(0, 200));
+        setAnswerModel("Embedding belum siap · tanpa kredit AI");
+        setBusy(false);
+        return;
+      }
+    }
 
     const response = await fetch("/api/ask", {
       method: "POST",
