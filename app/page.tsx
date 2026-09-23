@@ -11075,42 +11075,6 @@ function ApiProviderConnection({
     );
   }
 
-  async function testSmallOpenAI() {
-    if (provider !== "openai") return;
-    const key = String(window.sessionStorage.getItem(config.storageKey) || "").trim();
-    const models = getStoredModelIds(config.modelsKey);
-    const model = ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5.6-luna", "gpt-5.5", "gpt-5.6-terra"]
-      .find((name) => models.includes(name)) ||
-      models.find((name) => /^gpt-/i.test(name) && !/audio|realtime|transcribe|tts|image|embedding/i.test(name));
-    if (!key || !model) {
-      setMessage("Hubungkan API key terlebih dahulu agar model GPT yang tersedia bisa diuji.");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch("/api/test-openai-key", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + session.access_token,
-          "X-RB-OpenAI-Key": key,
-        },
-        body: JSON.stringify({ model }),
-      });
-      const outcome = await response.json().catch(() => ({}));
-      setMessage(outcome.ok
-        ? "✓ GPT " + model + " berhasil menjawab tes API kecil. Koneksi dan izin model uji aktif."
-        : "GPT " + model + " ditolak: " + String(outcome.error || "Tes API gagal.") +
-          (outcome.providerCode ? " Kode: " + outcome.providerCode + "." : "") +
-          (outcome.requestId ? " Request ID: " + outcome.requestId + "." : ""));
-    } catch {
-      setMessage("Tes koneksi GPT gagal. Tidak ada kesimpulan tentang saldo API.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function disconnect() {
     window.sessionStorage.removeItem(config.storageKey);
     window.sessionStorage.removeItem(config.modelsKey);
@@ -11166,15 +11130,7 @@ function ApiProviderConnection({
               </a>
             </div>
 
-            {provider === "openai" && connected && (
-              <div className="geminiConnectActions">
-                <button type="button" className="ghost" disabled={busy} onClick={testSmallOpenAI}>
-                  {busy ? "Menguji API GPT..." : "Uji GPT dengan permintaan kecil"}
-                </button>
-                <small className="muted">Tes ini menggunakan sedikit kredit API dan menunjukkan kode asli jika ditolak.</small>
-              </div>
-            )}
-            {connected && <button className="ghost" onClick={disconnect}>Putuskan plugin</button>
+            {connected && <button className="ghost" onClick={disconnect}>Putuskan plugin</button>}
             {message && <div className="notice">{message}</div>}
           </section>
         </div>
