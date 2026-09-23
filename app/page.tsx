@@ -4660,6 +4660,9 @@ function DatabaseFileCard({
   );
 
   async function createAiCopy() {
+    if (isChunkedPdfPath(file.file_path)) {
+      return alert("PDF besar berisi banyak bagian RAW. Untuk mempelajari seluruh isinya, gunakan Study atau Tanya AI dengan Database, bukan Copy by AI dari preview yang terbatas.");
+    }
     if (file.processing_status !== "ready" || !file.raw_text?.trim()) {
       return alert("RAW belum lengkap. Tunggu semua halaman selesai dibaca sebelum membuat Copy by AI.");
     }
