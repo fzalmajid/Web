@@ -4221,7 +4221,23 @@ function DatabasePage({
 
     const mimeType = inferMime(selectedFile);
     if (!mimeType) return alert("Jenis file belum didukung.");
-    if (selectedFile.size > 50 * 1024 * 1024) return alert("File maksimal 50 MB.");
+    if (selectedFile.size > STORAGE_OBJECT_LIMIT) {
+      setFileBusy(true);
+      setFileStatus("Menyiapkan upload PDF besar...");
+      try {
+        await saveOversizedPdf(session, user, node.id, selectedFile, aiSelection, setFileStatus, onChange);
+        setSelectedFile(null);
+        setFileStatus("Selesai. PDF hingga 200 MB tersimpan utuh, seluruh halaman sudah masuk Database.");
+        onChange();
+      } catch (error: any) {
+        setFileStatus("Upload PDF besar belum selesai: " + (error?.message || "Gagal memproses."));
+        onChange();
+        alert(error?.message || "Gagal menyimpan PDF besar.");
+      } finally {
+        setFileBusy(false);
+      }
+      return;
+    }
 
     setFileBusy(true);
     setFileStatus("Mengupload...");
@@ -5403,7 +5419,7 @@ function StudyPage({
 
     const mimeType = inferMime(quickDbFile);
     if (!mimeType) return alert("Jenis file belum didukung.");
-    if (quickDbFile.size > 50 * 1024 * 1024) return alert("File maksimal 50 MB.");
+    if (quickDbFile.size > STORAGE_OBJECT_LIMIT && !isLargePdf(quickDbFile)) return alert("Pada Supabase Free, file selain PDF maksimal 50 MB. PDF hingga 200 MB dapat diproses otomatis.");
 
     setQuickFileBusy(true);
     setQuickDbStatus("Mengupload...");
@@ -5412,6 +5428,23 @@ function StudyPage({
     if (!database) {
       setQuickFileBusy(false);
       setQuickDbStatus("");
+      return;
+    }
+
+    if (quickDbFile.size > STORAGE_OBJECT_LIMIT) {
+      try {
+        await saveOversizedPdf(session, user, database.id, quickDbFile,
+          quickDbAiSelection, setQuickDbStatus, onChange);
+        setQuickDbFile(null);
+        setQuickDbStatus("PDF besar sudah disimpan utuh dan siap menjadi sumber Study.");
+        onChange();
+      } catch (error: any) {
+        setQuickDbStatus("Pembacaan PDF besar belum selesai: " + (error?.message || "Gagal."));
+        onChange();
+        alert(error?.message || "Gagal memproses PDF besar.");
+      } finally {
+        setQuickFileBusy(false);
+      }
       return;
     }
 
