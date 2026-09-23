@@ -722,38 +722,48 @@ function databaseLookupTerms(question: string) {
 
 function formatDatabaseLookup(question: string, rows: any[]) {
   const terms = databaseLookupTerms(question);
-  const seen = new Set<string>();
-  const chosen: any[] = [];
+  const grouped = new Map<string, any[]>();
   for (const row of rows) {
-    if (chosen.length >= 24) break;
-    const key = String(row.source_file_id || row.id) + ":" +
-      String(row.source_page_start || row.category || row.id);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    chosen.push(row);
-  }
-  const parts = ["Berikut " + rows.length + " bagian relevan hasil pencarian isi Database dan subfolder terpilih. Sumber berbeda ditampilkan sebelum cuplikan berulang dari sumber yang sama (bukan rangkuman AI):"];
-  for (const row of chosen) {
-    const raw = String(row.raw_content || row.content || "").replace(/\s+/g, " ").trim();
-    const lowered = raw.toLowerCase();
-    let firstIndex = -1;
-    for (const word of terms) {
-      const i = lowered.indexOf(word);
-      if (i >= 0 && (firstIndex < 0 || i < firstIndex)) firstIndex = i;
-    }
-    const start = Math.max(0, (firstIndex >= 0 ? firstIndex : 0) - 135);
-    const snippet = raw.slice(start, Math.min(raw.length, start + 430)).trim();
-    const pageLabel = row.source_page_start
-      ? " · halaman PDF " + row.source_page_start +
-        (row.source_page_end && row.source_page_end !== row.source_page_start ? "–" + row.source_page_end : "")
-      : "";
-    parts.push(
-      "- **" + row.title + "**" + pageLabel +
-      (row.category ? " · " + row.category : "") +
-      (snippet ? "\n  Cuplikan: " + (start ? "…" : "") + snippet + (start + 430 < raw.length ? "…" : "") : "")
+    const key = String(row.bibliographic_work_id || row.source_file_id || row.id);
+    const group = grouped.get(key) || [];
+    const repeatedPage = group.some((item) =>
+      item.source_page_start === row.source_page_start &&
+      String(item.raw_content || item.content || "").slice(0, 180) ===
+      String(row.raw_content || row.content || "").slice(0, 180)
     );
+    if (!repeatedPage && group.length < 3) group.push(row);
+    grouped.set(key, group);
   }
-  parts.push("Pilih file atau halaman yang disebut di atas untuk membaca konteks lengkap. Nomor halaman PDF bisa berbeda dari nomor halaman cetak.");
+  const parts = [
+    "Ditemukan " + rows.length + " bagian isi dari " + grouped.size +
+    " karya/referensi relevan di Database dan subfolder terpilih. " +
+    "Bagian atau salinan PDF dari buku yang sama digabung menurut judul dan edisi; tiap halaman tetap memiliki lokasi tersendiri (pencarian ini tidak memakai kredit Gemini/GPT)."
+  ];
+  for (const group of Array.from(grouped.values()).slice(0, 24)) {
+    const first = group[0];
+    if (!first) continue;
+    parts.push("**" + (first.bibliographic_work_title || first.title) + "**");
+    for (const row of group) {
+      const raw = String(row.raw_content || row.content || "").replace(/\s+/g, " ").trim();
+      const lowered = raw.toLowerCase();
+      let at = -1;
+      for (const word of terms) {
+        const index = lowered.indexOf(word);
+        if (index >= 0 && (at < 0 || index < at)) at = index;
+      }
+      const startAt = Math.max(0, (at >= 0 ? at : 0) - 135);
+      const snippet = raw.slice(startAt, Math.min(raw.length, startAt + 380)).trim();
+      const pageLabel = row.source_page_start
+        ? "Halaman PDF " + row.source_page_start +
+          (row.source_page_end && row.source_page_end !== row.source_page_start
+            ? "–" + row.source_page_end : "")
+        : "Bagian isi";
+      parts.push("- " + pageLabel +
+        (snippet ? " — " + (startAt ? "…" : "") + snippet +
+          (startAt + 380 < raw.length ? "…" : "") : ""));
+    }
+  }
+  parts.push("Nomor halaman PDF bisa berbeda dari halaman cetak. Edisi berbeda tetap dianggap referensi berbeda; jangan membuat entri daftar pustaka baru hanya karena sumber sama berada di file/halaman berbeda.");
   return parts.join("\n\n");
 }
 
