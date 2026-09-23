@@ -9033,7 +9033,54 @@ function BottomAskBar({
     return score;
   }
 
-  function answerLocally(query: string) {
+  async function semanticLocalDatabaseContext(query: string) {
+    if (!selectedSources.includes("database")) {
+      return { context: "", refs: [] as Array<{ id: string; title: string; category: string }> };
+    }
+    const embedding = await maybeMultilingualQuery(supabase, query, (message) => setAnswerModel(message));
+    if (!embedding) {
+      return { context: "", refs: [] as Array<{ id: string; title: string; category: string }> };
+    }
+    const explicit = selectedSourceNodeIds.length > 0 || selectedSourceFileIds.length > 0;
+    const { data, error } = await supabase.rpc("match_knowledge_vectors", {
+      p_vector: embedding.vector,
+      p_model: embedding.model,
+      p_scope_node_id: scopeNodeId,
+      p_source_node_ids: selectedSourceNodeIds,
+      p_source_file_ids: selectedSourceFileIds,
+      p_use_selected: explicit,
+      p_min_similarity: 0.82,
+      p_limit: 24,
+    });
+    if (error || !Array.isArray(data)) {
+      return { context: "", refs: [] as Array<{ id: string; title: string; category: string }> };
+    }
+    const seen = new Set<string>();
+    const chunks: string[] = [];
+    const refs: Array<{ id: string; title: string; category: string }> = [];
+    let used = 0;
+    for (const row of data as any[]) {
+      const key = String(row.source_file_id || row.id) + ":" + String(row.source_page_start || row.id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const raw = String(row.raw_content || row.content || "").trim();
+      if (raw.length < 60) continue;
+      const page = row.source_page_start
+        ? " · halaman PDF " + row.source_page_start +
+          (row.source_page_end && row.source_page_end !== row.source_page_start ? "–" + row.source_page_end : "")
+        : "";
+      const chunk = "[" + String(row.title || "Sumber Database") + page + " · HASIL SEMANTIK MULTILINGUAL]\n" + raw;
+      const remaining = 18000 - used;
+      if (remaining <= 0) break;
+      chunks.push(chunk.slice(0, remaining));
+      refs.push({ id: String(row.id), title: String(row.title || "Sumber Database"), category: String(row.category || "") });
+      used += Math.min(chunk.length, remaining);
+      if (refs.length >= 12) break;
+    }
+    return { context: chunks.join("\n\n---\n\n"), refs };
+  }
+
+  async function answerLocally(query: string) {
     const words = databaseQueryTerms(query);
     const ranked = scopedLocalEntries()
       .map((entry) => ({ entry, score: contentSearchScore(entry, query, words) }))
@@ -9041,10 +9088,18 @@ function BottomAskBar({
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
 
-    if (!ranked.length) {
+    const semantic = await semanticLocalDatabaseContext(query);
+    if (!ranked.length && !semantic.context) {
       return {
         text: "Materi ini belum tersedia di database.",
         refs: [] as Array<{ id: string; title: string; category: string }>,
+      };
+    }
+
+    if (semantic.context) {
+      return {
+        text: semantic.context,
+        refs: semantic.refs,
       };
     }
 
@@ -9072,7 +9127,7 @@ function BottomAskBar({
   }
 
 
-  function localAiDatabaseContext(query: string) {
+  async function localAiDatabaseContext(query: string) {
     const words = databaseQueryTerms(query);
     const ranked = scopedLocalEntries()
       .map((entry) => ({ entry, score: contentSearchScore(entry, query, words) }))
@@ -9103,6 +9158,16 @@ function BottomAskBar({
       used += clipped.length;
     }
 
+    const semantic = await semanticLocalDatabaseContext(query);
+    if (semantic.context) {
+      const semanticIds = new Set(semantic.refs.map((ref) => ref.id));
+      const semanticPrefix = semantic.context.slice(0, 12000);
+      const lexicalTail = chunks.join("\n\n---\n\n").slice(0, Math.max(0, 18000 - semanticPrefix.length));
+      return {
+        context: [semanticPrefix, lexicalTail].filter(Boolean).join("\n\n---\n\n"),
+        refs: [...semantic.refs, ...refs.filter((ref) => !semanticIds.has(ref.id))].slice(0, 16),
+      };
+    }
     return { context: chunks.join("\n\n---\n\n"), refs };
   }
 
@@ -9117,7 +9182,7 @@ function BottomAskBar({
 
     const useAi = selectedSources.includes("ai");
     const useDatabase = selectedSources.includes("database");
-    const database = useDatabase ? localAiDatabaseContext(query) : { context: "", refs: [] as Array<{ id: string; title: string; category: string }> };
+    const database = useDatabase ? await localAiDatabaseContext(query) : { context: "", refs: [] as Array<{ id: string; title: string; category: string }> };
 
     if (useDatabase && !useAi && !database.context) {
       return {
@@ -9879,7 +9944,7 @@ function BottomAskBar({
         setBusy(false);
         return;
       }
-      const local = answerLocally(question.trim());
+      const local = await answerLocally(question.trim());
       setAnswer(local.text);
       setAnswerModel("Browser / Local");
       setSources(local.refs);
@@ -9906,6 +9971,10 @@ function BottomAskBar({
       pendingLink?.rawText || "",
     ].filter(Boolean).join("\n\n---\n\n");
 
+    const semanticEmbedding = selectedSources.includes("database")
+      ? await maybeMultilingualQuery(supabase, question.trim(), (message) => setAnswerModel(message))
+      : null;
+
     const response = await fetch("/api/ask", {
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
@@ -9924,6 +9993,7 @@ function BottomAskBar({
         attachmentPath: pendingAttachment?.filePath || "",
         attachmentMimeType: pendingAttachment?.mimeType || "",
         attachmentUrl: effectiveUrl,
+        semanticEmbedding,
         ...citationRequestFields(),
       }),
     });
