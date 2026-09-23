@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery } from "@/lib/hfIndexing";
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
 import { assertPdfFile } from "@/lib/pdfValidation";
@@ -7713,8 +7714,11 @@ function AiDatabaseSourcePicker({
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [vectorRunning, setVectorRunning] = useState(false);
-  const [vectorStatus, setVectorStatus] = useState<{ model: string; pendingEntries: number; indexedVectors: number; provider?: string } | null>(null);
+  const [vectorStatus, setVectorStatus] = useState<{
+    model: string; pendingEntries: number; indexedVectors: number; indexedEntries: number
+  } | null>(null);
   const [vectorError, setVectorError] = useState("");
+  const [vectorProgress, setVectorProgress] = useState("");
   const stopVectorRef = useRef(false);
 
   useEffect(() => {
@@ -7726,51 +7730,64 @@ function AiDatabaseSourcePicker({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    supabase.functions.invoke("semantic-index", { body: { action: "status" } })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) { setVectorError("Status indeks belum dapat dibaca."); return; }
-        setVectorStatus({
-          model: String(data?.model || ""),
-          pendingEntries: Number(data?.pendingEntries || 0),
-          indexedVectors: Number(data?.indexedVectors || 0),
-          provider: String(data?.provider || "")
-        });
+    getHfIndexStatus(supabase)
+      .then((status) => {
+        if (!cancelled) {
+          setVectorStatus(status);
+          setVectorError("");
+        }
       })
-      .catch(() => { if (!cancelled) setVectorError("Status indeks belum dapat dibaca."); });
+      .catch((error: any) => {
+        if (!cancelled) setVectorError(
+          "Status embedding belum tersedia: " + String(error?.message || "Login kembali.").slice(0, 140)
+        );
+      });
     return () => { cancelled = true; };
   }, [open]);
 
   async function runVectorBackfill() {
-    if (vectorRunning) { stopVectorRef.current = true; return; }
+    if (vectorRunning) {
+      stopVectorRef.current = true;
+      setVectorProgress("Menghentikan setelah bagian yang sedang diproses disimpan...");
+      return;
+    }
     stopVectorRef.current = false;
     setVectorRunning(true);
     setVectorError("");
+    setVectorProgress("Memeriksa teks RAW/OCR sebelum membuat embedding...");
     try {
-      // Every request is authenticated and bounded; progress persists in Supabase.
-      for (let batch = 0; batch < 1500 && !stopVectorRef.current; batch++) {
-        const { data, error } = await supabase.functions.invoke("semantic-index", {
-          body: { action: "backfill", maxVectors: 16, maxEntries: 6 }
+      // The public quantized Hugging Face model runs in a browser Web Worker.
+      // Only the resulting per-page vectors go to this user's RLS-protected
+      // Supabase tables. There are no GPT/Gemini API calls or HF API keys.
+      for (let batch = 0; batch < 100000 && !stopVectorRef.current; batch++) {
+        const status = await indexHfBatch(supabase, {
+          maxVectors: 6,
+          maxEntries: 2,
+          shouldStop: () => stopVectorRef.current,
+          onProgress: setVectorProgress
         });
-        if (error || !data || data.error) {
-          const message = String(data?.error || error?.message || "Pengindeksan terganggu.");
-          throw new Error(message + " Progres yang sudah tersimpan tidak hilang.");
+        setVectorStatus({
+          model: status.model,
+          pendingEntries: status.pendingEntries,
+          indexedVectors: status.indexedVectors,
+          indexedEntries: status.indexedEntries
+        });
+        if (status.pendingEntries === 0) {
+          setVectorProgress("Selesai: semua entri RAW yang memenuhi syarat telah diindeks.");
+          break;
         }
-        setVectorStatus((previous) => ({
-          model: String(data.model || previous?.model || ""),
-          pendingEntries: Number(data.pendingEntries || 0),
-          indexedVectors: Number(previous?.indexedVectors || 0) + Number(data.vectorsCreated || 0),
-          provider: previous?.provider
-        }));
-        if (Number(data.pendingEntries || 0) === 0) break;
-        if (!Number(data.vectorsCreated || 0) && !Number(data.entriesCompleted || 0)) {
-          throw new Error("Tidak ada halaman yang dapat diproses. Periksa status RAW/OCR.");
+        if (!status.createdThisBatch && !status.completedThisBatch &&
+            !stopVectorRef.current) {
+          throw new Error("Tidak ada bagian yang bisa diindeks. Periksa file RAW/OCR yang belum siap.");
         }
-        // Yield rendering and allow the user to stop between batches.
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 60));
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 30));
       }
-    } catch (error) {
-      setVectorError(error instanceof Error ? error.message : "Gagal membuat embedding.");
+      if (stopVectorRef.current) setVectorProgress("Dihentikan. Progres tersimpan; klik Lanjutkan untuk meneruskan.");
+    } catch (error: any) {
+      setVectorError(
+        "Indeks multilingual tertunda: " + String(error?.message || "Proses gagal.").slice(0, 260) +
+        " Progres yang berhasil disimpan bisa dilanjutkan."
+      );
     } finally {
       setVectorRunning(false);
     }
@@ -7988,25 +8005,27 @@ function AiDatabaseSourcePicker({
           </div>
 
           <div className="aiDatabaseSourceTools" style={{ flexWrap: "wrap", gap: 8 }}>
-            <strong>🧠 Pencarian embedding</strong>
+            <strong>🧠 Hugging Face · Machine Learning Ruang Belajar</strong>
+            <small className="muted">
+              Embedding multilingual E5 berjalan di browser secara lokal. Indeks hasilnya
+              dipakai bersama untuk pencarian Local, Gemini, GPT, dan Claude.
+              Model publik ~118 MB diunduh sekali lalu di-cache; tanpa kredit LLM
+              dan tanpa HF_TOKEN.
+            </small>
             <small className="muted">
               {vectorStatus
-                ? (vectorStatus.indexedVectors === 0
-                    ? "Belum aktif untuk pencarian: 0 vektor tersimpan. "
-                    : vectorStatus.indexedVectors + " vektor terindeks. ") +
+                ? vectorStatus.indexedVectors + " vektor / " +
+                  vectorStatus.indexedEntries + " entri selesai. " +
                   (vectorStatus.pendingEntries === 0
-                    ? "Semua dokumen RAW yang memenuhi syarat sudah diproses."
-                    : vectorStatus.pendingEntries + " entri masih perlu diindeks.")
-                : "Indeks berdasarkan isi RAW/OCR. Periksa status setelah login."}
-              {vectorStatus?.model === "Supabase/gte-small"
-                ? " · Saat ini hanya gte-small lokal (terutama bahasa Inggris). Hugging Face belum terhubung ke Supabase; sambungan plugin ChatGPT tidak otomatis memasang HF_TOKEN."
-                : vectorStatus?.model === "intfloat/multilingual-e5-small"
-                  ? " · Hugging Face multilingual-e5-small terkonfigurasi; cek jumlah vektor di atas untuk memastikan indeks benar-benar membantu AI."
-                  : ""}
+                    ? "Semua entri RAW/OCR yang memenuhi syarat sudah diindeks."
+                    : vectorStatus.pendingEntries + " entri belum selesai.")
+                : "Memeriksa jumlah vektor yang benar-benar tersimpan..."}
             </small>
             <button type="button" className="ghost" onClick={runVectorBackfill}>
-              {vectorRunning ? "Hentikan" : "Indeks seluruh Database"}
+              {vectorRunning ? "Hentikan sementara" :
+                vectorStatus && vectorStatus.indexedVectors > 0 ? "Lanjutkan indeks" : "Indeks seluruh Database"}
             </button>
+            {vectorProgress && <small className="muted" role="status">{vectorProgress}</small>}
             {vectorError && <small role="alert">{vectorError}</small>}
           </div>
 
