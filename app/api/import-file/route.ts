@@ -8,6 +8,8 @@ import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
+import { packPdfPages } from "@/lib/pdfIndex";
+import { readOfficeDocument, readPdfNativeBatch, readPdfBatchWithOcr, pdfPageNeedsOcr } from "@/lib/visualOcr";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -205,6 +207,108 @@ export async function POST(req: NextRequest) {
       buffer = Buffer.from(await blob.arrayBuffer());
     }
 
+    // A PDF is indexed in small page batches. This avoids large single OCR responses,
+    // allows long scanned PDFs to resume, and stores searchable page-labelled RAW entries.
+    if (operation === "raw" && (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf"))) {
+      const requestedStart = Math.floor(Number(body.pdfStartPage || 1));
+      const startPage = Number.isFinite(requestedStart) && requestedStart >= 1 ? requestedStart : 1;
+      const batch = await readPdfNativeBatch(buffer!, startPage);
+      if (!batch.pages.length || batch.endPage < startPage) {
+        throw new Error("Tidak ada halaman PDF yang dapat dibaca pada batch ini.");
+      }
+
+      const ocrNeeded = batch.pages.some(pdfPageNeedsOcr);
+      const quota = ocrNeeded && sharedGemini
+        ? await checkAiCredits(supabase, "file_heavy", aiMode)
+        : null;
+      if (quota && !quota.allowed) {
+        await supabase.from("source_files").update({
+          processing_status: "error",
+          error_message: aiQuotaError(quota).error,
+        }).eq("id", sourceFileId);
+        return NextResponse.json(aiQuotaError(quota), { status: 429 });
+      }
+
+      const pages = await readPdfBatchWithOcr(buffer!, batch.pages, {
+        selection: aiSelection,
+        aiMode,
+        auth: geminiAuth,
+        onUsage: async (usage, model) => {
+          await recordAiTokenUsage(supabase, usage, model, geminiAuth.provider);
+        },
+      });
+      const chunks = packPdfPages(
+        pages.map((page) => ({
+          page: page.page,
+          text: page.text.trim() || "[tidak ada teks terbaca]",
+        })),
+        12000
+      );
+      if (!chunks.length) throw new Error("Tidak ada teks halaman PDF yang berhasil diproses.");
+
+      const { data: previous, error: existingError } = await supabase
+        .from("knowledge_entries")
+        .select("id,category")
+        .eq("source_file_id", sourceFileId);
+      if (existingError) throw existingError;
+
+      for (const chunk of chunks) {
+        const category =
+          "PDF · Halaman " + chunk.pageStart + "-" + chunk.pageEnd +
+          " · Bagian " + chunk.chunkIndex;
+        const payload = {
+          title: fileName + " · Halaman " + chunk.pageStart + "-" + chunk.pageEnd,
+          category,
+          content: chunk.text,
+          raw_content: chunk.text,
+          source_type: "file" as const,
+        };
+        const existing = (previous || []).find((entry: any) => entry.category === category);
+        if (existing) {
+          const { error } = await supabase.from("knowledge_entries")
+            .update(payload).eq("id", existing.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from("knowledge_entries").insert({
+            ...payload,
+            user_id: userData.user.id,
+            node_id: nodeId,
+            source_file_id: sourceFileId,
+          });
+          if (error) throw error;
+        }
+      }
+
+      const nextStartPage = batch.endPage < batch.totalPages ? batch.endPage + 1 : null;
+      const currentPreview = startPage === 1 ? "" : String(row.raw_text || "");
+      const batchText = chunks.map((chunk) => chunk.text).join("\n\n");
+      // RAW is fully indexed in knowledge_entries; source_files.raw_text is a bounded preview.
+      const previewText = (currentPreview + (currentPreview ? "\n\n" : "") + batchText).slice(0, 120000);
+      const { error: pdfUpdateError } = await supabase.from("source_files").update({
+        raw_text: previewText,
+        processing_status: nextStartPage ? "processing" : "ready",
+        structured_text: null,
+        corrections: [],
+        error_message: null,
+      }).eq("id", sourceFileId);
+      if (pdfUpdateError) throw pdfUpdateError;
+
+      const aiUsage = quota
+        ? await finalizeAiCredits(supabase, "file_heavy", aiMode)
+        : null;
+      return NextResponse.json({
+        rawText: batchText,
+        aiUsage,
+        operation: "raw",
+        pdfProgress: {
+          startPage,
+          processedThroughPage: batch.endPage,
+          totalPages: batch.totalPages,
+          nextStartPage,
+        },
+      });
+    }
+
     const heavyFile =
       isMediaMime(mimeType) ||
       mimeType === "application/pdf" ||
@@ -231,20 +335,22 @@ export async function POST(req: NextRequest) {
       rawText = buffer!.toString("utf8").trim();
     }
 
-    if (!rawText && (fileName.toLowerCase().endsWith(".pptx") || mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || fileName.toLowerCase().endsWith(".docx") || mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) {
+    // Scan embedded images even when other slides/paragraphs contain ordinary text.
+    if (buffer && (
+      fileName.toLowerCase().endsWith(".pptx") ||
+      mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+      fileName.toLowerCase().endsWith(".docx") ||
+      mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )) {
       const officeKind = fileName.toLowerCase().endsWith(".pptx") || mimeType.includes("presentation") ? "pptx" : "docx";
-      const images = await extractOfficeImages(buffer!, officeKind);
-      if (images.length) {
-        const vision = await readVisionImages(
-          images,
-          aiSelection,
-          aiMode,
-          geminiAuth,
-          "OCR seluruh tulisan yang terlihat pada gambar ini secara literal. Pertahankan urutan, judul, nomor, tabel, rumus, dan daftar. Jangan meringkas atau menebak. Jika bagian tidak terbaca, tandai [tidak terbaca]."
-        );
-        await recordAiTokenUsage(supabase, vision.usage, vision.model, geminiAuth.provider);
-        rawText = vision.text;
-      }
+      rawText = await readOfficeDocument(buffer, officeKind, rawText, {
+        selection: aiSelection,
+        aiMode,
+        auth: geminiAuth,
+        onUsage: async (usage, model) => {
+          await recordAiTokenUsage(supabase, usage, model, geminiAuth.provider);
+        },
+      });
     }
 
     if (!rawText) {
