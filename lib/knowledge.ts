@@ -136,7 +136,7 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000)
           : ` | HALAMAN PDF ${row.source_page_start}-${row.source_page_end}`
         : "";
     const part =
-      `[${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | RAW/ORIGINAL]\n${body}`;
+      `[${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | CONTENT MATCH · RAW/ORIGINAL]\n${body}`;
 
     parts.push(part);
     used += part.length;

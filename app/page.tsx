@@ -7743,6 +7743,26 @@ function AiDatabaseSourcePicker({
     return map;
   }, [files]);
 
+  function subtreeNodeIds(id: string) {
+    const result = [id];
+    let cursor = 0;
+    while (cursor < result.length) {
+      const parentId = result[cursor++];
+      for (const child of childrenByParent.get(parentId) || []) {
+        if (!result.includes(child.id)) result.push(child.id);
+      }
+    }
+    return result;
+  }
+
+  function folderCoveredBySelection(id: string) {
+    return nodeIds.some((selectedId) => subtreeNodeIds(selectedId).includes(id));
+  }
+
+  function fileCoveredBySelection(file: SourceFile) {
+    return fileIds.includes(file.id) || folderCoveredBySelection(file.node_id);
+  }
+
   useEffect(() => {
     if (!currentNodeId) return;
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -7756,11 +7776,39 @@ function AiDatabaseSourcePicker({
   }, [currentNodeId, nodes]);
 
   function toggleFolder(id: string) {
-    const next = nodeIds.includes(id) ? nodeIds.filter((item) => item !== id) : [...nodeIds, id];
-    onChange({ nodeIds: next, fileIds });
+    const subtree = new Set(subtreeNodeIds(id));
+    const coveredByAncestor = nodeIds.some(
+      (selectedId) => selectedId !== id && subtreeNodeIds(selectedId).includes(id)
+    );
+
+    // A child selected through its parent is intentionally locked to that parent.
+    // Uncheck the parent to remove the complete subtree, avoiding hidden exclusions.
+    if (coveredByAncestor && !nodeIds.includes(id)) return;
+
+    if (nodeIds.includes(id)) {
+      const nextNodes = nodeIds.filter((item) => !subtree.has(item));
+      const nextFiles = fileIds.filter((fileId) => {
+        const file = files.find((item) => item.id === fileId);
+        return !file || !subtree.has(file.node_id);
+      });
+      onChange({ nodeIds: nextNodes, fileIds: nextFiles });
+      return;
+    }
+
+    // Store only the selected parent root. Backend retrieval expands it recursively,
+    // so hundreds of child folders/files do not bloat the request.
+    const nextNodes = [...nodeIds.filter((item) => !subtree.has(item)), id];
+    const nextFiles = fileIds.filter((fileId) => {
+      const file = files.find((item) => item.id === fileId);
+      return !file || !subtree.has(file.node_id);
+    });
+    onChange({ nodeIds: nextNodes, fileIds: nextFiles });
   }
 
   function toggleFile(id: string) {
+    const file = files.find((item) => item.id === id);
+    if (!file) return;
+    if (folderCoveredBySelection(file.node_id)) return;
     const next = fileIds.includes(id) ? fileIds.filter((item) => item !== id) : [...fileIds, id];
     onChange({ nodeIds, fileIds: next });
   }
@@ -7791,7 +7839,8 @@ function AiDatabaseSourcePicker({
       const localFiles = filesByNode.get(node.id) || [];
       const hasChildren = children.length > 0 || localFiles.length > 0;
       const isExpanded = expanded.has(node.id);
-      const selected = nodeIds.includes(node.id);
+      const selected = folderCoveredBySelection(node.id);
+      const inherited = selected && !nodeIds.includes(node.id);
       return (
         <div className="aiSourceTreeBranch" key={node.id}>
           <div className={selected ? "aiSourceTreeRow selected" : currentNodeId === node.id && !selectedCount ? "aiSourceTreeRow current" : "aiSourceTreeRow"} style={{ paddingLeft: 8 + depth * 16 }}>
@@ -7804,7 +7853,12 @@ function AiDatabaseSourcePicker({
             >
               {hasChildren ? (isExpanded ? "⌄" : ">") : "·"}
             </button>
-            <button type="button" className="aiSourceTreeChoice" onClick={() => toggleFolder(node.id)}>
+            <button
+              type="button"
+              className="aiSourceTreeChoice"
+              onClick={() => toggleFolder(node.id)}
+              title={inherited ? "Dipilih melalui folder induk. Uncheck folder induk untuk menghapus seluruh anakannya." : undefined}
+            >
               <span className={selected ? "sourceCheck checked" : "sourceCheck"}>{selected ? "✓" : ""}</span>
               <span>{node.emoji || "📁"}</span>
               <strong>{node.title}</strong>
@@ -7815,7 +7869,8 @@ function AiDatabaseSourcePicker({
           {isExpanded && (
             <>
               {localFiles.map((file) => {
-                const fileSelected = fileIds.includes(file.id);
+                const fileSelected = fileCoveredBySelection(file);
+                const inheritedFile = fileSelected && !fileIds.includes(file.id);
                 return (
                   <button
                     type="button"
@@ -7823,6 +7878,8 @@ function AiDatabaseSourcePicker({
                     className={fileSelected ? "aiSourceFileRow selected" : "aiSourceFileRow"}
                     style={{ paddingLeft: 36 + depth * 16 }}
                     onClick={() => toggleFile(file.id)}
+                    title={inheritedFile ? "Dipilih otomatis melalui folder induk." : undefined}
+                    aria-disabled={inheritedFile}
                   >
                     <span className={fileSelected ? "sourceCheck checked" : "sourceCheck"}>{fileSelected ? "✓" : ""}</span>
                     <span>{file.mime_type === "application/pdf" ? "📕" : file.source_kind === "link" ? "🔗" : "📄"}</span>
@@ -8836,19 +8893,51 @@ function BottomAskBar({
     return entries.filter((item) => ids.includes(item.node_id));
   }
 
-  function answerLocally(query: string) {
-    const words = Array.from(new Set(
+  function databaseQueryTerms(query: string) {
+    const stop = new Set([
+      "yang","dan","atau","dari","untuk","dengan","tentang","secara","detail","apa","ada","nya",
+      "berapa","halaman","sebutin","sebutkan","carikan","cari","temukan","tolong","mau","ingin",
+      "monografi","materi","database","folder","file","ini","itu","pada","dalam","the","and","for",
+      "with","from","about","find","show","search"
+    ]);
+    const synonym: Record<string,string[]> = {
+      paracetamol:["parasetamol","acetaminophen","acetaminofen"],
+      parasetamol:["paracetamol","acetaminophen","acetaminofen"],
+      acetaminophen:["paracetamol","parasetamol"],
+      eksipien:["excipient","excipients"],
+      excipient:["eksipien","excipients"],
+    };
+    const seeds = Array.from(new Set(
       query.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi)?.map((word) => word.toLowerCase()) || []
-    ));
+    )).filter((word) => !stop.has(word));
+    return Array.from(new Set(seeds.flatMap((word) => [word, ...(synonym[word] || [])])));
+  }
+
+  function contentSearchScore(entry: KnowledgeEntry, query: string, words: string[]) {
+    const raw = String(entry.raw_content || entry.content || "").toLowerCase();
+    if (!raw) return 0;
+    const normalized = query.toLowerCase().replace(/[^a-z0-9À-ÿ]+/gi, " ").trim();
+    let score = 0;
+    for (const word of words) {
+      const matches = raw.split(word).length - 1;
+      if (matches > 0) score += 8 + Math.min(matches, 12) * 2;
+    }
+    if (normalized.length >= 4 && raw.includes(normalized)) score += 50;
+    // Metadata is only a tie-breaker. It can never create a hit without content evidence.
+    if (score > 0) {
+      const meta = (entry.title + " " + entry.category).toLowerCase();
+      score += words.reduce((sum, word) => sum + (meta.includes(word) ? 0.25 : 0), 0);
+    }
+    return score;
+  }
+
+  function answerLocally(query: string) {
+    const words = databaseQueryTerms(query);
     const ranked = scopedLocalEntries()
-      .map((entry) => {
-        const haystack = (entry.title + " " + entry.category + " " + (entry.raw_content || entry.content)).toLowerCase();
-        const score = words.reduce((total, word) => total + (haystack.includes(word) ? 1 : 0), 0);
-        return { entry, score };
-      })
+      .map((entry) => ({ entry, score: contentSearchScore(entry, query, words) }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
+      .slice(0, 6);
 
     if (!ranked.length) {
       return {
@@ -8882,18 +8971,12 @@ function BottomAskBar({
 
 
   function localAiDatabaseContext(query: string) {
-    const words = Array.from(new Set(
-      query.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi)?.map((word) => word.toLowerCase()) || []
-    ));
+    const words = databaseQueryTerms(query);
     const ranked = scopedLocalEntries()
-      .map((entry) => {
-        const haystack = (entry.title + " " + entry.category + " " + (entry.raw_content || entry.content)).toLowerCase();
-        const score = words.reduce((total, word) => total + (haystack.includes(word) ? 1 : 0), 0);
-        return { entry, score };
-      })
+      .map((entry) => ({ entry, score: contentSearchScore(entry, query, words) }))
+      .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
-      .filter((item, index) => item.score > 0 || index < 4)
-      .slice(0, 10);
+      .slice(0, 16);
 
     let used = 0;
     const chunks: string[] = [];

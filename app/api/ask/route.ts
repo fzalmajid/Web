@@ -741,9 +741,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
     }
 
-    // 1.5× retrieval breadth: give more relevant files/chunks a chance to enter context.
-    const searchLimit = aiMode === "high" ? 24 : aiMode === "medium" ? 18 : 12;
-    const fallbackLimit = aiMode === "high" ? 60 : aiMode === "medium" ? 42 : 30;
+    // Cheap database retrieval runs BEFORE the LLM. Search broadly across the selected
+    // folder and every descendant, then send only the strongest content/page chunks.
+    const searchLimit = aiMode === "high" ? 36 : aiMode === "medium" ? 28 : 20;
+    const fallbackLimit = aiMode === "high" ? 80 : aiMode === "medium" ? 60 : 40;
     let data: any[] = [];
 
     if (useDatabase) {
@@ -776,7 +777,9 @@ export async function POST(req: NextRequest) {
 
     const currentRawAssets = await loadCurrentRawAttachment(supabase, userData.user.id, body);
     const databaseRawAssets = useDatabase
-      ? sourceFileIds.length
+      ? data.length
+        ? []
+        : sourceFileIds.length
         ? await loadExplicitRawFiles(supabase, userData.user.id, sourceFileIds)
         : sourceNodeIds.length === 1
           ? await loadDatabaseRawAssets(
