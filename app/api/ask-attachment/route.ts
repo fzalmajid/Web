@@ -51,6 +51,71 @@ async function extractPptxText(buffer: Buffer) {
   return slides.join("\n\n");
 }
 
+type VisionPart = { label: string; mimeType: string; data: string };
+
+function imageMime(name: string) {
+  const ext = name.toLowerCase().split(".").pop() || "";
+  const map: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    bmp: "image/bmp",
+    tif: "image/tiff",
+    tiff: "image/tiff",
+  };
+  return map[ext] || "";
+}
+
+async function extractOfficeImages(buffer: Buffer, kind: "pptx" | "docx") {
+  const zip = await JSZip.loadAsync(buffer);
+  const prefix = kind === "pptx" ? "ppt/media/" : "word/media/";
+  const names = Object.keys(zip.files)
+    .filter((name) => name.toLowerCase().startsWith(prefix) && imageMime(name))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const parts: VisionPart[] = [];
+  for (const name of names.slice(0, 40)) {
+    const file = zip.file(name);
+    if (!file) continue;
+    parts.push({
+      label: kind === "pptx" ? `Slide image ${parts.length + 1}` : `Document image ${parts.length + 1}`,
+      mimeType: imageMime(name),
+      data: await file.async("base64"),
+    });
+  }
+  return parts;
+}
+
+async function readVisionImages(
+  parts: VisionPart[],
+  selection: ReturnType<typeof selectionFromHeaders>,
+  aiMode: ReturnType<typeof normalizeAiMode>,
+  auth: ReturnType<typeof geminiUserAuthFromHeaders>
+) {
+  const chunks: string[] = [];
+  for (const part of parts) {
+    const result = await geminiGenerateDetailed(
+      [
+        {
+          text: `OCR seluruh tulisan yang terlihat pada gambar ini secara literal. Pertahankan urutan, judul, nomor, tabel, rumus, dan daftar. Jangan meringkas atau menebak. Jika bagian tidak terbaca, tandai [tidak terbaca].\n\nSumber: ${part.label}`,
+        },
+        { inlineData: { mimeType: part.mimeType, data: part.data } },
+      ],
+      "Baca gambar secara teliti. Jangan mengarang teks yang tidak terlihat.",
+      {
+        models: modelPlanForSelection(selection.model, aiMode, "standard"),
+        effort: selection.effort,
+        apiKey: auth.apiKey,
+        accessToken: auth.accessToken,
+        projectId: auth.projectId,
+      }
+    );
+    chunks.push(`${part.label}:\n${result.text.trim()}`);
+  }
+  return chunks.filter(Boolean).join("\n\n");
+}
+
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
@@ -79,7 +144,16 @@ export async function POST(req: NextRequest) {
       rawText = (await extractPptxText(buffer)).trim();
     } else if (isTextMime(mimeType)) {
       rawText = buffer.toString("utf8").trim();
-    } else {
+    }
+
+    if (!rawText && (fileName.toLowerCase().endsWith(".pptx") || mimeType.includes("presentation") || fileName.toLowerCase().endsWith(".docx") || mimeType.includes("wordprocessingml"))) {
+      const selection = selectionFromHeaders(req.headers, "general", normalizeAiMode(String(form.get("aiMode") || "instant")));
+      const auth = geminiUserAuthFromHeaders(req.headers);
+      const images = await extractOfficeImages(buffer, fileName.toLowerCase().endsWith(".pptx") || mimeType.includes("presentation") ? "pptx" : "docx");
+      if (images.length) rawText = await readVisionImages(images, selection, normalizeAiMode(String(form.get("aiMode") || "instant")), auth);
+    }
+
+    if (!rawText) {
       const aiMode = normalizeAiMode(String(form.get("aiMode") || "instant"));
       const selection = selectionFromHeaders(req.headers, "general", aiMode);
       const auth = geminiUserAuthFromHeaders(req.headers);
@@ -90,7 +164,7 @@ export async function POST(req: NextRequest) {
         : mimeType.startsWith("image/")
           ? "Ekstrak semua teks yang benar-benar terlihat pada gambar ini secara literal. Jangan menebak, jangan merangkum, jangan menambah isi."
           : mimeType === "application/pdf"
-            ? "Ekstrak teks dokumen PDF ini selengkap dan seliteral mungkin. Jangan meringkas, jangan memperbaiki, jangan menambah pengetahuan."
+            ? "Baca PDF ini sebagai dokumen visual, termasuk halaman yang merupakan hasil scan/foto. OCR seluruh tulisan yang terlihat secara literal dan selengkap mungkin. Pertahankan urutan halaman, judul, tabel, angka, dan daftar. Jangan meringkas, jangan memperbaiki, jangan menambah pengetahuan. Jika bagian tidak terbaca, tandai [tidak terbaca]."
             : "Ekstrak isi tekstual file ini secara literal dan selengkap mungkin. Jangan meringkas atau menambahkan isi.";
 
       const result = await geminiGenerateDetailed(
@@ -99,7 +173,6 @@ export async function POST(req: NextRequest) {
         {
           models: modelPlanForSelection(selection.model, aiMode, isMedia ? "audio" : "standard"),
           effort: selection.effort,
-          responseLength: selection.length,
           apiKey: auth.apiKey,
           accessToken: auth.accessToken,
           projectId: auth.projectId,
@@ -120,3 +193,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error?.message || "Gagal membaca lampiran." }, { status: 500 });
   }
 }
+
