@@ -43,7 +43,7 @@ export async function extractPdfPageBatch(
   startPage: number,
   options?: { maxPages?: number; maxMs?: number }
 ): Promise<PdfIndexBatch> {
-  const data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  // PDF.js/unpdf may transfer (detach) the supplied ArrayBuffer. Copy the bytes\n  // before handing them to the parser so pdf-lib can still read the original\n  // Buffer for page splitting and OCR fallback, including large/scanned PDFs.\n  const data = new Uint8Array(buffer);
   const doc: any = await getDocumentProxy(data, {
     useSystemFonts: true,
     disableFontFace: true,
