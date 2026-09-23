@@ -1467,8 +1467,12 @@ async function pasteExplorerItem(
       const parts = file.file_path.split("/");
       const originalName = parts.pop() || file.file_name;
       nextPath = [user.id, targetNodeId, crypto.randomUUID() + "-" + originalName].join("/");
-      const copied = await supabase.storage.from("study-files").copy(file.file_path, nextPath);
-      if (copied.error) throw copied.error;
+      if (isChunkedPdfPath(file.file_path)) {
+        nextPath = await copyChunkedPdf(file.file_path, targetNodeId, user.id);
+      } else {
+        const copied = await supabase.storage.from("study-files").copy(file.file_path, nextPath);
+        if (copied.error) throw copied.error;
+      }
     }
     const { data: inserted, error } = await supabase
       .from("source_files")
@@ -1490,7 +1494,33 @@ async function pasteExplorerItem(
       .select("*")
       .single();
     if (error) throw error;
-    if (file.raw_text?.trim()) {
+    if (isChunkedPdfPath(file.file_path)) {
+      // Preserve every page-labelled knowledge chunk; the bounded file preview is not enough.
+      let offset = 0;
+      for (;;) {
+        const { data: chunks, error: chunksError } = await supabase
+          .from("knowledge_entries")
+          .select("title,category,content,raw_content,source_type")
+          .eq("source_file_id", file.id)
+          .range(offset, offset + 199);
+        if (chunksError) throw chunksError;
+        if (!chunks?.length) break;
+        for (let start = 0; start < chunks.length; start += 40) {
+          const { error: insertError } = await supabase.from("knowledge_entries").insert(
+            chunks.slice(start, start + 40).map((chunk: any) => ({
+              ...chunk,
+              user_id: user.id,
+              node_id: targetNodeId,
+              source_file_id: inserted.id,
+              title: String(chunk.title || file.file_name).slice(0, 240),
+            }))
+          );
+          if (insertError) throw insertError;
+        }
+        offset += chunks.length;
+        if (chunks.length < 200) break;
+      }
+    } else if (file.raw_text?.trim()) {
       const { error: entryError } = await supabase.from("knowledge_entries").insert({
         user_id: user.id,
         node_id: targetNodeId,
@@ -1867,7 +1897,8 @@ function FolderPage({
     if (!confirm("Hapus file ini dari folder?")) return;
     await supabase.from("knowledge_entries").delete().eq("source_file_id", file.id);
     if (file.source_kind !== "link") {
-      await supabase.storage.from("study-files").remove([file.file_path]);
+      try { await removeStoredStudyFile(file.file_path); }
+      catch (error: any) { return alert(error?.message || "Gagal menghapus file asli."); }
     }
     const { error } = await supabase.from("source_files").delete().eq("id", file.id);
     if (error) alert(error.message);
@@ -4395,7 +4426,8 @@ function DatabasePage({
     if (!confirm("Hapus file dan hasil olahannya?")) return;
     await supabase.from("knowledge_entries").delete().eq("source_file_id", file.id);
     if (file.source_kind !== "link") {
-      await supabase.storage.from("study-files").remove([file.file_path]);
+      try { await removeStoredStudyFile(file.file_path); }
+      catch (error: any) { return alert(error?.message || "Gagal menghapus file asli."); }
     }
     const { error } = await supabase.from("source_files").delete().eq("id", file.id);
     if (error) alert(error.message);
@@ -4549,8 +4581,16 @@ function DatabasePage({
 
 
 async function downloadStorageObject(bucket: string, path: string, fileName: string) {
-  const { data, error } = await supabase.storage.from(bucket).download(path);
-  if (error || !data) {
+  let data: Blob;
+  try {
+    if (bucket === "study-files" && isChunkedPdfPath(path)) {
+      data = await downloadChunkedPdf(path);
+    } else {
+      const result = await supabase.storage.from(bucket).download(path);
+      if (result.error || !result.data) throw result.error || new Error("File tidak dapat didownload.");
+      data = result.data;
+    }
+  } catch (error: any) {
     alert(error?.message || "File tidak dapat didownload.");
     return;
   }
@@ -4562,7 +4602,7 @@ async function downloadStorageObject(bucket: string, path: string, fileName: str
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  window.setTimeout(() => URL.revokeObjectURL(url), data.size > STORAGE_OBJECT_LIMIT ? 60000 : 1000);
 }
 
 function DatabaseFileCard({
