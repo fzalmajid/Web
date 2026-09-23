@@ -1800,6 +1800,23 @@ function FolderPage({
     else onChange();
   }
 
+  async function renameEntry(entry: KnowledgeEntry) {
+    const nextTitle = window.prompt("Nama catatan baru", entry.title);
+    if (nextTitle === null) return;
+
+    const trimmedTitle = nextTitle.trim();
+    if (!trimmedTitle || trimmedTitle === entry.title) return;
+
+    const { error } = await supabase
+      .from("knowledge_entries")
+      .update({ title: trimmedTitle })
+      .eq("id", entry.id)
+      .eq("node_id", entry.node_id);
+
+    if (error) alert(error.message);
+    else onChange();
+  }
+
   async function removeRecording(item: Recording) {
     if (!confirm("Hapus rekaman ini dari folder?")) return;
     await supabase.storage.from("recordings").remove([item.file_path]);
@@ -2015,6 +2032,10 @@ function FolderPage({
               const file = files.find((row) => row.id === item.id);
               if (file) void renameFile(file);
             }
+            if (item.kind === "entry") {
+              const entry = entries.find((row) => row.id === item.id);
+              if (entry) void renameEntry(entry);
+            }
           }}
           onCopy={() => copyItem(contextMenu.item)}
           onPaste={pasteIntoCurrent}
@@ -2076,6 +2097,7 @@ function ExplorerActionMenu({
   onDelete: () => void;
 }) {
   const file = menu.item.kind === "file" ? files.find((row) => row.id === menu.item.id) : null;
+  const entry = menu.item.kind === "entry" ? menu.item.id : null;
   const recording = menu.item.kind === "recording" ? recordings.find((row) => row.id === menu.item.id) : null;
   const canDownload = Boolean((file && file.source_kind !== "link") || recording);
 
@@ -2087,7 +2109,7 @@ function ExplorerActionMenu({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <button type="button" onClick={onPreview}>Preview</button>
-        {file && <button type="button" onClick={onRename}>Ubah nama</button>}
+        {(file || entry) && <button type="button" onClick={onRename}>Ubah nama</button>}
         <button type="button" onClick={onCopy}>Copy</button>
         {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
         {canDownload && <button type="button" onClick={onDownload}>Download</button>}
