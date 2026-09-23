@@ -1043,7 +1043,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                   <div className="pluginLogo">GPT</div>
                   <div className="pluginCopy">
                     <strong>OpenAI</strong>
-                    <small>Gunakan OpenAI API account user untuk GPT dan Web Search.</small>
+                    <small>Hubungkan API key khusus di situs ini; koneksi plugin ChatGPT tidak otomatis berpindah ke Ruang Belajar.</small>
+                    <a className="textBtn" href="/gpt-diagnostic">Hubungkan & uji GPT di halaman khusus</a>
                   </div>
                   <ApiProviderConnection session={session} provider="openai" />
                 </article>
