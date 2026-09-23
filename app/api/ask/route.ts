@@ -1041,8 +1041,9 @@ export async function POST(req: NextRequest) {
           model: selectedProviderModel,
           prompt: targetPrompt,
           system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
-          effort: aiSelection.effort,
+          effort: casualAiQuestion && aiSelection.effort !== "none" ? "low" : aiSelection.effort,
           responseLength: aiSelection.length,
+          maxOutputTokens: casualAiQuestion ? 512 : undefined,
           web: withWeb,
           attachments: externalRawAttachments(rawAssets),
         });
