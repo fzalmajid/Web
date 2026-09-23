@@ -1487,6 +1487,16 @@ function FolderPage({
   const [clipboardItem, setClipboardItem] = useState<ExplorerClipboardItem>(null);
   const [contextMenu, setContextMenu] = useState<ExplorerContextMenu>(null);
   const [previewItem, setPreviewItem] = useState<ExplorerPreviewItem | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{
+    kind: "entry" | "file";
+    id: string;
+    nodeId: string;
+    name: string;
+    extension: string;
+  } | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState("");
 
   useEffect(() => {
     const query = window.matchMedia("(hover: hover) and (pointer: fine)");
@@ -1777,47 +1787,71 @@ function FolderPage({
     else onChange();
   }
 
-  async function renameFile(file: SourceFile) {
-    const nextName = window.prompt("Nama file baru", file.file_name);
-    if (nextName === null) return;
-
-    const trimmedName = nextName.trim();
-    if (!trimmedName) return;
-
-    const extension = file.file_name.includes(".")
-      ? file.file_name.slice(file.file_name.lastIndexOf("."))
-      : "";
-    const normalizedName = extension && !trimmedName.toLowerCase().endsWith(extension.toLowerCase())
-      ? `${trimmedName}${extension}`
-      : trimmedName;
-
-    if (normalizedName === file.file_name) return;
-
-    const { error } = await supabase
-      .from("source_files")
-      .update({ file_name: normalizedName })
-      .eq("id", file.id)
-      .eq("node_id", file.node_id);
-
-    if (error) alert(error.message);
-    else onChange();
+  function renameFile(file: SourceFile) {
+    setRenameTarget({
+      kind: "file",
+      id: file.id,
+      nodeId: file.node_id,
+      name: file.file_name,
+      extension: file.file_name.includes(".")
+        ? file.file_name.slice(file.file_name.lastIndexOf("."))
+        : "",
+    });
+    setRenameDraft(file.file_name);
+    setRenameError("");
   }
 
-  async function renameEntry(entry: KnowledgeEntry) {
-    const nextTitle = window.prompt("Nama catatan baru", entry.title);
-    if (nextTitle === null) return;
+  function renameEntry(entry: KnowledgeEntry) {
+    setRenameTarget({
+      kind: "entry",
+      id: entry.id,
+      nodeId: entry.node_id,
+      name: entry.title,
+      extension: "",
+    });
+    setRenameDraft(entry.title);
+    setRenameError("");
+  }
 
-    const trimmedTitle = nextTitle.trim();
-    if (!trimmedTitle || trimmedTitle === entry.title) return;
+  async function saveRename(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!renameTarget || renameBusy) return;
+    const trimmed = renameDraft.trim();
+    if (!trimmed) {
+      setRenameError("Nama tidak boleh kosong.");
+      return;
+    }
+    const name =
+      renameTarget.kind === "file" &&
+      renameTarget.extension &&
+      !trimmed.toLowerCase().endsWith(renameTarget.extension.toLowerCase())
+        ? trimmed + renameTarget.extension
+        : trimmed;
+    if (name === renameTarget.name) {
+      setRenameTarget(null);
+      return;
+    }
 
-    const { error } = await supabase
-      .from("knowledge_entries")
-      .update({ title: trimmedTitle })
-      .eq("id", entry.id)
-      .eq("node_id", entry.node_id);
-
-    if (error) alert(error.message);
-    else onChange();
+    setRenameBusy(true);
+    setRenameError("");
+    const { error } = renameTarget.kind === "file"
+      ? await supabase
+          .from("source_files")
+          .update({ file_name: name })
+          .eq("id", renameTarget.id)
+          .eq("node_id", renameTarget.nodeId)
+      : await supabase
+          .from("knowledge_entries")
+          .update({ title: name })
+          .eq("id", renameTarget.id)
+          .eq("node_id", renameTarget.nodeId);
+    setRenameBusy(false);
+    if (error) {
+      setRenameError(error.message);
+      return;
+    }
+    setRenameTarget(null);
+    onChange();
   }
 
   async function removeRecording(item: Recording) {
@@ -2065,6 +2099,74 @@ function FolderPage({
 
       {previewItem && (
         <ExplorerPreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />
+      )}
+
+      {renameTarget && (
+        <div
+          className="sheetBackdrop explorerRenameBackdrop"
+          onMouseDown={() => { if (!renameBusy) setRenameTarget(null); }}
+        >
+          <section
+            className="addSheet explorerRenameSheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="explorerRenameTitle"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="sheetHead">
+              <div>
+                <p className="eyebrow">UBAH NAMA</p>
+                <h2 id="explorerRenameTitle">
+                  {renameTarget.kind === "file" ? "Ubah nama file" : "Ubah nama catatan"}
+                </h2>
+              </div>
+              <button
+                type="button"
+                className="closeBtn"
+                aria-label="Tutup"
+                disabled={renameBusy}
+                onClick={() => setRenameTarget(null)}
+              >×</button>
+            </div>
+            <form className="stack explorerRenameForm" onSubmit={saveRename}>
+              <label htmlFor="explorerRenameInput">
+                {renameTarget.kind === "file" ? "Nama file" : "Nama catatan"}
+                <input
+                  id="explorerRenameInput"
+                  autoFocus
+                  value={renameDraft}
+                  maxLength={240}
+                  onChange={(event) => {
+                    setRenameDraft(event.target.value);
+                    if (renameError) setRenameError("");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && !renameBusy) setRenameTarget(null);
+                  }}
+                  disabled={renameBusy}
+                  required
+                />
+              </label>
+              {renameTarget.kind === "file" && renameTarget.extension && (
+                <small className="muted">Ekstensi {renameTarget.extension} tetap dipertahankan.</small>
+              )}
+              {renameError && <p className="explorerRenameError" role="alert">{renameError}</p>}
+              <div className="explorerRenameActions">
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={renameBusy}
+                  onClick={() => setRenameTarget(null)}
+                >Batal</button>
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={renameBusy || !renameDraft.trim()}
+                >{renameBusy ? "Menyimpan..." : "Simpan nama"}</button>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
 
       <button className="bigPlus" onClick={onAdd} aria-label="Tambah">+</button>
