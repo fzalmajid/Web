@@ -112,6 +112,97 @@ export async function getSelectedKnowledge(
   return hydrateRawContent(supabase, (data || []) as KnowledgeSource[]);
 }
 
+
+export type SemanticRetrieval = {
+  rows: KnowledgeSource[];
+  model: string | null;
+  status: "ready" | "index-pending" | "fallback";
+};
+
+/**
+ * One low-cost query embedding; all book/page embeddings are cached in pgvector.
+ * The user's JWT is forwarded to the Edge Function and the SQL RPC uses RLS.
+ * Search remains fully functional through FTS when indexing/inference is down.
+ */
+export async function searchSemanticKnowledge(
+  supabase: SupabaseClient,
+  question: string,
+  scopeNodeId: string | null,
+  sourceNodeIds: string[],
+  sourceFileIds: string[],
+  explicitlySelected: boolean,
+  limit = 80
+): Promise<SemanticRetrieval> {
+  const empty: SemanticRetrieval = { rows: [], model: null, status: "fallback" };
+  try {
+    const { data: available, error: availabilityError } = await supabase
+      .from("knowledge_vector_chunks").select("id").limit(1);
+    if (availabilityError || !available?.length) {
+      return { ...empty, status: "index-pending" };
+    }
+    const { data: embedded, error: embeddingError } = await supabase.functions.invoke(
+      "semantic-index", { body: { action: "query", text: question } }
+    );
+    if (embeddingError || !embedded || !Array.isArray(embedded.vector) ||
+        embedded.vector.length !== 384 || !embedded.model) return empty;
+    const model = String(embedded.model);
+    const { data, error } = await supabase.rpc("match_knowledge_vectors", {
+      p_vector: JSON.stringify(embedded.vector),
+      p_model: model,
+      p_scope_node_id: scopeNodeId,
+      p_source_node_ids: sourceNodeIds,
+      p_source_file_ids: sourceFileIds,
+      p_use_selected: explicitlySelected,
+      p_min_similarity: model === "intfloat/multilingual-e5-small" ? 0.82 : 0.75,
+      p_limit: Math.min(120, Math.max(1, limit))
+    });
+    if (error) return empty;
+    return { rows: (data || []) as KnowledgeSource[], model, status: "ready" };
+  } catch {
+    return empty;
+  }
+}
+
+/**
+ * Weighted reciprocal-rank fusion. An exact page match gets extra evidence when
+ * semantic and lexical search independently agree on the same entry. Semantic
+ * hits with weak absolute similarity or essentially empty text are excluded.
+ */
+export function fuseHybridKnowledge(
+  lexical: KnowledgeSource[],
+  semantic: KnowledgeSource[],
+  limit = 80
+): KnowledgeSource[] {
+  const merged = new Map<string, { row: KnowledgeSource; weight: number }>();
+  for (let index = 0; index < lexical.length; index++) {
+    const row = lexical[index];
+    if (!String(row.raw_content || row.content || "").trim()) continue;
+    const prior = merged.get(row.id);
+    const weight = 1.2 / (60 + index + 1);
+    merged.set(row.id, {
+      row: prior?.row || row,
+      weight: (prior?.weight || 0) + weight
+    });
+  }
+  for (let index = 0; index < semantic.length; index++) {
+    const row = semantic[index];
+    const raw = String(row.raw_content || row.content || "").trim();
+    if (raw.length < 70) continue;
+    const prior = merged.get(row.id);
+    const weight = 1.0 / (60 + index + 1);
+    merged.set(row.id, {
+      // The vector chunk is the precise semantic evidence; preserve it instead
+      // of hydrating the entire document, especially for multi-megabyte RAW.
+      row: prior ? { ...prior.row, raw_content: raw } : row,
+      weight: (prior?.weight || 0) + weight
+    });
+  }
+  return [...merged.values()]
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, limit)
+    .map(({ row, weight }) => ({ ...row, score: Math.round(weight * 1_000_000) }));
+}
+
 /**
  * Independent-source coverage comes before multiple excerpts from one book.
  * A file's per-page chunks are one bibliographic source, not separate citations.
