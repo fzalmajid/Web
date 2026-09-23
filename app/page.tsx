@@ -1774,6 +1774,32 @@ function FolderPage({
     else onChange();
   }
 
+  async function renameFile(file: SourceFile) {
+    const nextName = window.prompt("Nama file baru", file.file_name);
+    if (nextName === null) return;
+
+    const trimmedName = nextName.trim();
+    if (!trimmedName) return;
+
+    const extension = file.file_name.includes(".")
+      ? file.file_name.slice(file.file_name.lastIndexOf("."))
+      : "";
+    const normalizedName = extension && !trimmedName.toLowerCase().endsWith(extension.toLowerCase())
+      ? `${trimmedName}${extension}`
+      : trimmedName;
+
+    if (normalizedName === file.file_name) return;
+
+    const { error } = await supabase
+      .from("source_files")
+      .update({ file_name: normalizedName })
+      .eq("id", file.id)
+      .eq("node_id", file.node_id);
+
+    if (error) alert(error.message);
+    else onChange();
+  }
+
   async function removeRecording(item: Recording) {
     if (!confirm("Hapus rekaman ini dari folder?")) return;
     await supabase.storage.from("recordings").remove([item.file_path]);
@@ -1983,6 +2009,14 @@ function FolderPage({
           recordings={recordings}
           onClose={closeContextMenu}
           onPreview={() => previewContextItem(contextMenu.item)}
+          onRename={() => {
+            const item = contextMenu.item;
+            closeContextMenu();
+            if (item.kind === "file") {
+              const file = files.find((row) => row.id === item.id);
+              if (file) void renameFile(file);
+            }
+          }}
           onCopy={() => copyItem(contextMenu.item)}
           onPaste={pasteIntoCurrent}
           onDownload={() => void downloadContextItem(contextMenu.item)}
@@ -2023,6 +2057,7 @@ function ExplorerActionMenu({
   recordings,
   onClose,
   onPreview,
+  onRename,
   onCopy,
   onPaste,
   onDownload,
@@ -2035,6 +2070,7 @@ function ExplorerActionMenu({
   recordings: Recording[];
   onClose: () => void;
   onPreview: () => void;
+  onRename: () => void;
   onCopy: () => void;
   onPaste: () => void;
   onDownload: () => void;
@@ -2052,6 +2088,7 @@ function ExplorerActionMenu({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <button type="button" onClick={onPreview}>Preview</button>
+        {file && <button type="button" onClick={onRename}>Ubah nama</button>}
         <button type="button" onClick={onCopy}>Copy</button>
         {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
         {canDownload && <button type="button" onClick={onDownload}>Download</button>}
