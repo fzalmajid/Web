@@ -9332,6 +9332,57 @@ function BottomAskBar({
 
   async function processAskAttachment(file: File) {
     try { await assertPdfFile(file); } catch (error: any) { return alert(error?.message || "PDF tidak valid."); }
+    // Vercel Functions reject file request bodies above 4.5 MB. Upload directly to
+    // Supabase and use its authenticated JSON import route instead of sending a
+    // 4–50 MB PDF/PPTX/image through /api/ask-attachment as multipart data.
+    if (file.size > 4 * 1024 * 1024 && file.size <= STORAGE_OBJECT_LIMIT) {
+      const target = askVoiceDatabases.find((item) => item.id === attachmentDbId) || askVoiceDatabases[0];
+      if (!target) {
+        alert("File di atas 4 MB perlu disimpan ke Database agar bisa dibaca. Buat atau pilih folder Database terlebih dahulu.");
+        return;
+      }
+      if (aiSelection.model === "local" && !clientReadableTextFile(file)) {
+        alert("PDF/gambar/PPTX di atas 4 MB membutuhkan model Gemini untuk proses OCR. Pilih model Gemini, lalu unggah lagi.");
+        return;
+      }
+      setAttachmentBusy(true);
+      setAttachmentStatus("Mengunggah file langsung ke Database tanpa melewati batas lampiran Vercel...");
+      try {
+        const row = await saveRawFileToFolder(session.user, target.id, file);
+        onChange();
+        if (!row.raw_text?.trim()) {
+          await importStoredRawFile(session, row, aiSelection, (progress) => {
+            setAttachmentStatus(
+              "PDF: selesai halaman " + progress.processedThroughPage + "/" +
+              progress.totalPages +
+              (progress.nextStartPage ? " · melanjutkan OCR..." : " · semua halaman siap.")
+            );
+          });
+        }
+        if (pendingAttachment?.filePath) {
+          await supabase.storage.from("study-files").remove([pendingAttachment.filePath]);
+        }
+        setPendingAttachment(null);
+        setSelectedSourceFileIds([row.id]);
+        setSelectedSourceNodeIds([]);
+        setSelectedSources((current) => current.includes("database") ? current : [...current, "database"]);
+        setAttachmentStatus("File sudah diproses dan dipilih sebagai sumber Database: " + file.name);
+        setAttachMenuOpen(false);
+        if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
+        onChange();
+      } catch (error: any) {
+        setAttachmentStatus(
+          "File mungkin tersimpan, tetapi pemrosesan belum lengkap: " +
+          (error?.message || "Gagal memproses.")
+        );
+        onChange();
+        alert(error?.message || "Gagal mengunggah file.");
+      } finally {
+        setAttachmentBusy(false);
+      }
+      return;
+    }
+
     if (file.size > STORAGE_OBJECT_LIMIT) {
       if (!isLargePdf(file)) {
         alert("Pada Supabase Free, lampiran selain PDF maksimal 50 MB. PDF hingga 200 MB dapat langsung disimpan dan dibaca lewat Database.");

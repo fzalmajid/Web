@@ -177,7 +177,7 @@ export function citationStructuralWarnings(
 ): string[] {
   if (style === "none" || !selectedOutputs.includes("bibliography")) return [];
   const heading = style === "mla" ? "Works Cited" : "(?:References|Daftar Pustaka)";
-  const headingRegex = new RegExp("^(?:#{1,6}\\\\s*)?" + heading + "\\\\s*:?\\\\s*$", "im");
+  const headingRegex = new RegExp("^(?:#{1,6}\\s*)?" + heading + "\\s*:?\\s*$", "im");
   const match = headingRegex.exec(answer);
   if (!match) {
     return ["Bagian " + (style === "mla" ? "Works Cited" : "References") + " tidak ditemukan; periksa keluaran sitasi."];

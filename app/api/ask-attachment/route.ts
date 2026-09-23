@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return NextResponse.json({ error: "File tidak ditemukan." }, { status: 400 });
-    if (file.size > 50 * 1024 * 1024) return NextResponse.json({ error: "File maksimal 50 MB." }, { status: 400 });
+    if (file.size > 4 * 1024 * 1024) return NextResponse.json({ error: "Lampiran langsung maksimal 4 MB. Untuk file lebih besar, simpan ke Database melalui upload langsung; PDF hingga 200 MB diproses bertahap." }, { status: 413 });
 
     const mimeType = normalizeMime(file.type);
     const fileName = file.name || "Lampiran";
