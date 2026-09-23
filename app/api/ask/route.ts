@@ -857,7 +857,8 @@ export async function POST(req: NextRequest) {
       // Folder and file filters are rechecked by RLS-protected database SQL.
       const semantic = await searchSemanticKnowledge(
         supabase, databaseSearchQuery, scopeNodeId,
-        sourceNodeIds, sourceFileIds, hasExplicitDatabaseSources, searchLimit
+        sourceNodeIds, sourceFileIds, hasExplicitDatabaseSources, searchLimit,
+        body.semanticEmbedding
       );
       semanticStatus = semantic.status;
       semanticModel = semantic.model;
@@ -914,8 +915,10 @@ export async function POST(req: NextRequest) {
     const lookupOnly =
       useDatabase &&
       !useWeb &&
-      /\b(carikan|cari|temukan|lokasi|dimana|di mana|halaman berapa|find|locate|search for|show me)\b/i.test(question) &&
-      !/\b(jelaskan|ringkas|rangkum|uraikan|analisis|bandingkan|hitung|buat|tuliskan|explain|summarize|compare|analyze)\b/i.test(question) &&
+      (selectedProvider === "local" ||
+        /\b(carikan|cari|temukan|lokasi|dimana|di mana|halaman berapa|find|locate|search for|show me)\b/i.test(question)) &&
+      (selectedProvider === "local" ||
+        !/\b(jelaskan|ringkas|rangkum|uraikan|analisis|bandingkan|hitung|buat|tuliskan|explain|summarize|compare|analyze)\b/i.test(question)) &&
       !attachmentRaw &&
       !attachmentUrl &&
       !body.attachmentPath;
