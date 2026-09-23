@@ -195,7 +195,10 @@ export function fuseHybridKnowledge(
     // For explicitly named paracetamol/PCT, require evidence in the cited chunk.
     const namedPct = /\b(pct|paracetamol|parasetamol|acetaminophen|acetaminofen)\b/i.test(question);
     const chunkHasPct = /\b(pct|paracetamol|parasetamol|acetaminophen|acetaminofen)\b/i.test(raw);
-    if (!prior && namedPct && !chunkHasPct) continue;
+    // "Eksipien potensial dalam tablet PCT" is a formulation question:
+    // a relevant excipient monograph need not mention the active ingredient.
+    const excipientIntent = /\b(eksipien|excipients?|binder|diluent|pengikat|pengisi|penghancur|pelicin)\b/i.test(question);
+    if (!prior && namedPct && !chunkHasPct && !excipientIntent) continue;
     const minimumOnlySemantic = semanticModel === "intfloat/multilingual-e5-small" ? 0.85 : 0.82;
     if (!prior && (Number(row.score) || 0) < minimumOnlySemantic * 100000) continue;
     const weight = 1.0 / (60 + index + 1);
@@ -210,6 +213,40 @@ export function fuseHybridKnowledge(
     .sort((a, b) => b.weight - a.weight)
     .slice(0, limit)
     .map(({ row, weight }) => ({ ...row, score: Math.round(weight * 1_000_000) }));
+}
+
+/**
+ * Rank by the user's *information need*, not the drug name alone. For tablet
+ * excipient questions, HOPE and other substantive excipient monographs are
+ * primary evidence; pharmacopoeial API pages provide complementary facts.
+ * Never fabricate a source or boost a page whose body has no relevant text.
+ */
+export function prioritizeQuestionRelevantSources(
+  rows: KnowledgeSource[],
+  question: string
+): KnowledgeSource[] {
+  const needsExcipients =
+    /\b(eksipien|excipients?|bahan tambahan|pengikat|pengisi|penghancur|pelicin)\b/i.test(question);
+  if (!needsExcipients) return rows;
+
+  const excipientEvidence =
+    /\b(excipients?|pengisi|pengikat|penghancur|pelicin|diluent|binder|disintegrant|lubricant|glidant|filler|microcrystalline cellulose|lactose|povidone|starch|magnesium stearate|croscarmellose|crospovidone)\b/i;
+  const apiEvidence = /\b(paracetamol|parasetamol|acetaminophen|acetaminofen|pct)\b/i;
+  const scored = rows.map((row) => {
+    const title = String(row.title || "").toLowerCase();
+    const raw = String(row.raw_content || row.content || "");
+    const excipientBook =
+      /handbook of pharmaceutical excipients|\bexcipients?\b|\beksipien\b/i.test(title);
+    const substantiveExcipient = excipientEvidence.test(raw);
+    const apiPage = apiEvidence.test(raw);
+    let relevance = Number(row.score) || 0;
+    if (excipientBook && substantiveExcipient) relevance += 36000;
+    else if (substantiveExcipient) relevance += 9500;
+    if (apiPage && !substantiveExcipient) relevance -= 6000;
+    return { ...row, score: relevance };
+  });
+  scored.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  return scored;
 }
 
 /**
@@ -252,6 +289,9 @@ function rawRelevantExcerpt(raw: string, question: string, maxChars = 1900) {
     paracetamol: ["parasetamol", "acetaminophen", "pct"],
     parasetamol: ["paracetamol", "acetaminophen", "pct"],
     acetaminophen: ["paracetamol", "parasetamol", "pct"],
+    eksipien: ["excipient", "excipients", "binder", "diluent", "disintegrant", "lubricant"],
+    excipient: ["eksipien", "excipients", "binder", "diluent", "disintegrant", "lubricant"],
+    tablet: ["tablets", "tabletting", "tablet formulation"],
   };
   const ignored = new Set([
     "carikan", "cari", "temukan", "tolong", "saya", "aku", "ingin", "yang", "dan",
