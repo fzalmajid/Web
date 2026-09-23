@@ -125,9 +125,18 @@ export async function openaiGenerateDetailed(options: {
     options.system,
     options.responseLength ? responseLengthInstruction(options.responseLength) : "",
   ].filter(Boolean).join("\n\n");
+  // Respect per-model TPM even for a one-word question. Previously every
+  // request reserved 12,288 output tokens, enough to 429 on a fresh/low-tier
+  // project before the model generated a single token.
+  const simpleRequest =
+    !options.web && !options.attachments?.length &&
+    options.prompt.length < 2800;
+  const defaultBudget =
+    options.responseLength === "short" ? 768 :
+    options.responseLength === "long" ? 6144 :
+    simpleRequest ? 1024 : 2048;
   const maxOutputTokens = Math.min(
-    32768,
-    Math.max(1536, Math.ceil(Number(options.maxOutputTokens || 8192) * 1.5))
+    16384, Math.max(256, Math.floor(Number(options.maxOutputTokens ?? defaultBudget)))
   );
 
   const effort =
@@ -176,7 +185,26 @@ export async function openaiGenerateDetailed(options: {
   });
 
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw normalizeExternalError("OpenAI", response.status, data);
+  if (!response.ok) {
+    const diagnosed = normalizeExternalError("OpenAI", response.status, data);
+    const providerCode = String(data?.error?.code || "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80);
+    const providerType = String(data?.error?.type || "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80);
+    const requestId = String(response.headers.get("x-request-id") || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100);
+    // Metadata-only trace, without the user API key, prompt, or response body.
+    console.warn("[OPENAI_PROVIDER_DIAGNOSTIC]", {
+      httpStatus: response.status,
+      classified: diagnosed.code,
+      providerCode: providerCode || null,
+      providerType: providerType || null,
+      model: options.model,
+      requestId: requestId || null,
+      maxOutputTokens
+    });
+    const detail = [providerCode ? "Kode OpenAI: " + providerCode : "",
+      requestId ? "Request ID: " + requestId : ""].filter(Boolean).join(" · ");
+    if (detail) diagnosed.message += " (" + detail + ")";
+    throw diagnosed;
+  }
 
   const texts: string[] = [];
   const webSources: GeminiWebSource[] = [];
