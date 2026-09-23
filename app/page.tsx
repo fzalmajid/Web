@@ -1802,8 +1802,13 @@ function FolderPage({
     setDropBusy(true);
     try {
       for (const file of incoming) {
-        const row = await saveRawFileToFolder(user, targetNodeId, file);
-        if (!row.raw_text) await ensureRawFileText(session, row);
+        if (file.size > STORAGE_OBJECT_LIMIT) {
+          await saveOversizedPdf(session, user, targetNodeId, file,
+            defaultSelection("gemini-2.5-flash"), undefined, onChange);
+        } else {
+          const row = await saveRawFileToFolder(user, targetNodeId, file);
+          if (!row.raw_text) await ensureRawFileText(session, row);
+        }
       }
       onChange();
     } catch (error: any) {
@@ -3043,10 +3048,15 @@ function AddSheet({
     setBusy(true);
     setStatus("Menyimpan file asli...");
     try {
-      const row = await saveRawFileToFolder(user, parent.id, selectedFile);
-      if (!row.raw_text) {
-        setStatus("File asli tersimpan. Membaca RAW...");
-        await ensureRawFileText(session, row);
+      if (selectedFile.size > STORAGE_OBJECT_LIMIT) {
+        await saveOversizedPdf(session, user, parent.id, selectedFile,
+          defaultSelection("gemini-2.5-flash"), setStatus);
+      } else {
+        const row = await saveRawFileToFolder(user, parent.id, selectedFile);
+        if (!row.raw_text) {
+          setStatus("File asli tersimpan. Membaca RAW...");
+          await ensureRawFileText(session, row);
+        }
       }
       setStatus("File asli sudah masuk folder. Versi AI belum dibuat.");
       onAdded();
