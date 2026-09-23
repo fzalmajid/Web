@@ -9239,8 +9239,44 @@ function BottomAskBar({
   }
 
   async function processAskAttachment(file: File) {
-    if (file.size > 50 * 1024 * 1024) {
-      alert("File maksimal 50 MB.");
+    if (file.size > STORAGE_OBJECT_LIMIT) {
+      if (!isLargePdf(file)) {
+        alert("Pada Supabase Free, lampiran selain PDF maksimal 50 MB. PDF hingga 200 MB dapat langsung disimpan dan dibaca lewat Database.");
+        return;
+      }
+      const target = askVoiceDatabases.find((item) => item.id === attachmentDbId) || askVoiceDatabases[0];
+      if (!target) {
+        alert("Buat atau pilih folder Database terlebih dahulu agar PDF besar bisa diproses.");
+        return;
+      }
+      setAttachmentBusy(true);
+      setAttachmentStatus("PDF besar: menyimpan file asli secara bertahap ke Database...");
+      try {
+        const row = await saveOversizedPdf(
+          session, session.user, target.id, file, aiSelection, setAttachmentStatus, onChange
+        );
+        if (pendingAttachment?.filePath) {
+          await supabase.storage.from("study-files").remove([pendingAttachment.filePath]);
+        }
+        setPendingAttachment(null);
+        setSelectedSourceFileIds([row.id]);
+        setSelectedSourceNodeIds([]);
+        setSelectedSources((current) =>
+          current.includes("database") ? current : [...current, "database"]
+        );
+        setAttachmentStatus(
+          "PDF besar selesai diproses dan terpilih sebagai sumber Database: " + file.name
+        );
+        setAttachMenuOpen(false);
+        if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
+        onChange();
+      } catch (error: any) {
+        setAttachmentStatus("Upload PDF besar belum lengkap: " + (error?.message || "Gagal."));
+        onChange();
+        alert(error?.message || "Gagal memproses PDF besar.");
+      } finally {
+        setAttachmentBusy(false);
+      }
       return;
     }
 
