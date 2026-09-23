@@ -74,7 +74,9 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model,
         input: "Balas dengan satu kata: OK.",
-        max_output_tokens: 64,
+        // A one-word answer should be cheap, but reasoning models need room
+        // for internal tokens before their short user-visible output.
+        max_output_tokens: /^gpt-[56]/i.test(model) ? 256 : 96,
         store: false,
       }),
       cache: "no-store",
@@ -101,12 +103,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const outputText = [
+      String(data?.output_text || ""),
+      ...(Array.isArray(data?.output) ? data.output.flatMap((item: any) =>
+        item?.type === "message" && Array.isArray(item.content)
+          ? item.content.filter((part: any) => part?.type === "output_text")
+              .map((part: any) => String(part.text || ""))
+          : []
+      ) : [])
+    ].join(" ").trim();
+    const completionStatus = String(data?.status || "");
+    if (!outputText || completionStatus === "incomplete") {
+      return NextResponse.json({
+        ok: false,
+        model,
+        httpStatus: 200,
+        classification: "PROVIDER_INCOMPLETE",
+        requestId: requestId || null,
+        error: "OpenAI menerima request, tetapi belum memberikan jawaban teks. Status: " +
+          (completionStatus || "unknown") + ". Coba GPT non-reasoning yang tersedia atau kurangi reasoning.",
+      });
+    }
     return NextResponse.json({
       ok: true,
       model,
-      status: String(data?.status || "accepted"),
+      status: completionStatus,
       requestId: requestId || null,
-      message: "Permintaan generasi GPT diterima OpenAI. Koneksi dan billing model ini dapat memproses request.",
+      message: "GPT berhasil menghasilkan teks lewat Responses API. Koneksi dan akses inferensi model ini aktif.",
     });
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") {
