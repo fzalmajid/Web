@@ -1925,7 +1925,7 @@ function FolderPage({
           <div className="explorerItems">
               {localEntries.map((entry) => (
                 <article
-                  className="explorerTextItem explorerUnifiedCard"
+                  className="dataCard mediaDataCard explorerTextItem explorerUnifiedCard compactExplorerDataCard"
                   key={entry.id}
                   draggable={nativeDragEnabled}
                   onDragStart={(event) => setExplorerDragData(event, "entry", entry.id)}
@@ -1937,22 +1937,21 @@ function FolderPage({
                     text: entry.raw_content || entry.content,
                   })}
                 >
-                  <div className="explorerItemMain">
-                    <span className="explorerFileIcon">📝</span>
+                  <div className="dataHead">
                     <div>
                       <small>{entry.category || "Catatan RAW"}</small>
-                      <strong>{entry.title}</strong>
+                      <h3>{entry.title}</h3>
                     </div>
-                  </div>
-                  <div className="cardOverflowActions">
-                    <button
-                      type="button"
-                      className="iconDots"
-                      onClick={(event) => openDotsMenu(event, { kind: "entry", id: entry.id })}
-                      aria-label="Opsi teks"
-                    >
-                      ...
-                    </button>
+                    <div className="mediaCardActions">
+                      <button
+                        type="button"
+                        className="ghost iconDots"
+                        onClick={(event) => openDotsMenu(event, { kind: "entry", id: entry.id })}
+                        aria-label="Opsi teks"
+                      >
+                        ...
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -4313,31 +4312,33 @@ function DatabaseFileCard({
             ...
           </button>
           {!compact && (
-            <button className="ghost" type="button" disabled={previewBusy} onClick={(event) => { event.stopPropagation(); preview(); }}>
-              {isLink
-                ? "Buka sumber"
-                : previewBusy
-                  ? "Membuka..."
-                  : previewUrl
-                    ? "Tutup"
-                    : "Buka"}
-            </button>
+            <>
+              <button className="ghost" type="button" disabled={previewBusy} onClick={(event) => { event.stopPropagation(); preview(); }}>
+                {isLink
+                  ? "Buka sumber"
+                  : previewBusy
+                    ? "Membuka..."
+                    : previewUrl
+                      ? "Tutup"
+                      : "Buka"}
+              </button>
+              {!isLink && (
+                <button
+                  className="ghost"
+                  type="button"
+                  onClick={(event) => { event.stopPropagation(); downloadStorageObject("study-files", file.file_path, file.file_name); }}
+                >
+                  Download
+                </button>
+              )}
+              {file.raw_text && (
+                <button className="ghost" type="button" onClick={(event) => { event.stopPropagation(); setCopyOpen((current) => !current); }}>
+                  Buat versi AI
+                </button>
+              )}
+              <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
+            </>
           )}
-          {!isLink && (
-            <button
-              className="ghost"
-              type="button"
-              onClick={(event) => { event.stopPropagation(); downloadStorageObject("study-files", file.file_path, file.file_name); }}
-            >
-              Download
-            </button>
-          )}
-          {file.raw_text && (
-            <button className="ghost" type="button" onClick={(event) => { event.stopPropagation(); setCopyOpen((current) => !current); }}>
-              Buat versi AI
-            </button>
-          )}
-          <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
         </div>
       </div>
 
@@ -4483,14 +4484,18 @@ function DatabaseStoredRecording({
               {busy ? "Membuka..." : audioUrl ? "Tutup audio" : "Buka"}
             </button>
           )}
-          <button
-            className="ghost"
-            type="button"
-            onClick={(event) => { event.stopPropagation(); downloadStorageObject("recordings", item.file_path, fileName); }}
-          >
-            Download
-          </button>
-          <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
+          {!compact && (
+            <>
+              <button
+                className="ghost"
+                type="button"
+                onClick={(event) => { event.stopPropagation(); downloadStorageObject("recordings", item.file_path, fileName); }}
+              >
+                Download
+              </button>
+              <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
+            </>
+          )}
         </div>
       </div>
 
