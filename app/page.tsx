@@ -8,7 +8,6 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import {
   AI_MODEL_CATALOG,
-  AI_RESPONSE_LENGTHS,
   defaultSelection,
   legacyModeForSelection,
   modelCapability,
@@ -17,7 +16,6 @@ import {
   selectionFromLegacyMode,
   type AiEffort,
   type AiModelId,
-  type AiResponseLength,
   type AiSelection,
 } from "@/lib/aiModels";
 
@@ -69,13 +67,6 @@ type SourceFile = {
   ai_copy_ratio?: number | null;
   ai_copy_model?: string | null;
   ai_copy_updated_at?: string | null;
-  processing_page?: number;
-  processing_total_pages?: number;
-  processing_chunks?: number;
-  processing_chars?: number;
-  processing_strategy?: string | null;
-  processing_started_at?: string | null;
-  processing_updated_at?: string | null;
   created_at: string;
 };
 type Recording = {
@@ -132,7 +123,6 @@ type StudyPath = {
   user_id: string;
   node_id: string;
   source_node_ids: string[];
-  source_file_ids?: string[];
   ai_mode: "instant" | "medium" | "high";
   ai_model?: AiModelId | null;
   ai_effort?: AiEffort | null;
@@ -178,48 +168,14 @@ type CitationStyle = "none" | "apa" | "mla" | "harvard" | "vancouver" | "ieee" |
 type CitationOutput = "in-text" | "bibliography";
 type CitationPrefs = { style: CitationStyle; outputs: CitationOutput[] };
 
-type AskArtifactFormat = "docx" | "pdf" | "pptx" | "txt" | "md" | "csv" | "json";
-
-function requestedArtifactFormat(value: string): AskArtifactFormat | null {
-  const text = String(value || "").toLowerCase();
-  const createIntent =
-    /\b(buat(?:kan)?|bikin(?:kan)?|jadikan|hasilkan|generate|create|export|konversi|convert|ubah(?:kan)?|simpan\s+sebagai|save\s+as|downloadkan)\b/i.test(text);
-  if (!createIntent) return null;
-  if (/\b(powerpoint|pptx?|slide\s*deck|presentasi)\b/i.test(text)) return "pptx";
-  if (/\b(word|docx?)\b/i.test(text)) return "docx";
-  if (/\b(pdf)\b/i.test(text)) return "pdf";
-  if (/\b(csv)\b/i.test(text)) return "csv";
-  if (/\b(json)\b/i.test(text)) return "json";
-  if (/\b(markdown|\.md\b|\bmd\b)\b/i.test(text)) return "md";
-  if (/\b(txt|text\s*file|file\s*teks)\b/i.test(text)) return "txt";
-  return null;
-}
-
-function artifactClientInstruction(format: AskArtifactFormat | null) {
-  if (!format) return "";
-  if (format === "pptx") {
-    return "User meminta file PPTX jadi. Susun isi dengan heading per slide memakai pola ## Slide 1 — Judul lalu bullet singkat.";
-  }
-  if (format === "docx" || format === "pdf") {
-    return "User meminta file " + format.toUpperCase() + " jadi. Susun isi final dengan judul, heading, paragraf, dan bullet yang rapi.";
-  }
-  if (format === "csv") {
-    return "User meminta file CSV jadi. Utamakan data berbentuk tabel konsisten.";
-  }
-  if (format === "json") {
-    return "User meminta file JSON jadi. Utamakan struktur JSON valid bila sesuai.";
-  }
-  return "User meminta file " + format.toUpperCase() + " jadi. Tulis isi final siap file.";
-}
-
 const citationStyleOptions: Array<{ value: CitationStyle; label: string; preview: string }> = [
   { value: "none", label: "Tanpa sitasi", preview: "Tidak ada marker" },
-  { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · p./pp. untuk kutipan langsung" },
-  { value: "mla", label: "MLA 9", preview: "(Nama Halaman) · tanpa author-year" },
-  { value: "harvard", label: "Harvard · Leeds", preview: "(Nama, Tahun) · p./pp. bila perlu" },
-  { value: "vancouver", label: "Vancouver · ICMJE/NLM", preview: "(1) · urutan kemunculan" },
-  { value: "ieee", label: "IEEE", preview: "[1] · [2] · urutan kemunculan" },
-  { value: "chicago", label: "Chicago Author-Date", preview: "(Nama Tahun, Halaman)" },
+  { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · (Nama, TahunAsli/TahunVersi)" },
+  { value: "mla", label: "MLA 9", preview: "(Nama Halaman) · (Halaman)" },
+  { value: "harvard", label: "Harvard", preview: "(Nama, Tahun) · (Nama, TahunAsli/TahunVersi)" },
+  { value: "vancouver", label: "Vancouver", preview: "(1) · (2)" },
+  { value: "ieee", label: "IEEE", preview: "[1] · [2]" },
+  { value: "chicago", label: "Chicago Author-Date", preview: "(Nama Tahun) · (Nama TahunAsli/TahunVersi)" },
 ];
 
 function readCitationPrefs(): CitationPrefs {
@@ -258,35 +214,24 @@ function citationRequestFields() {
 function citationClientInstruction() {
   const prefs = readCitationPrefs();
   if (prefs.style === "none") return "Tidak ada format sitasi khusus.";
-
-  const output =
+  const preview = citationStyleOptions.find((item) => item.value === prefs.style)?.preview || "";
+  const styleRule =
+    prefs.style === "mla"
+      ? "Gunakan author-page (Nama Halaman), bukan author-year; jika nama sudah ada di kalimat, gunakan hanya (Halaman)."
+      : prefs.style === "vancouver"
+        ? "Gunakan nomor urut (1), (2) yang dipakai ulang untuk sumber yang sama."
+        : prefs.style === "ieee"
+          ? "Gunakan nomor urut dalam kurung siku [1], [2] yang dipakai ulang untuk sumber yang sama."
+          : "Gunakan aturan author-date gaya yang dipilih dan tambahkan locator hanya bila metadata tersedia.";
+  const outputText =
     prefs.outputs.includes("in-text") && prefs.outputs.includes("bibliography")
-      ? "Gunakan marker in-text dan daftar referensi di akhir."
+      ? "Gunakan sitasi dalam teks dan Daftar Pustaka."
       : prefs.outputs.includes("bibliography")
-        ? "Tanpa marker in-text; tambahkan daftar referensi di akhir."
-        : "Gunakan marker in-text tanpa daftar referensi terpisah.";
-
-  const rules: Record<Exclude<CitationStyle, "none">, string> = {
-    apa:
-      "APA 7: author-date; dua author memakai & di parenthetical, 3+ memakai et al.; direct quote memakai p./pp. bila locator tersedia; References alfabetis.",
-    mla:
-      "MLA 9: author-page, bukan author-year; tanpa koma antara author dan page; jika unpaginated jangan mengarang locator; bagian akhir bernama Works Cited.",
-    harvard:
-      "Leeds Harvard: (Author, Year), 3+ author memakai et al., page memakai p./pp.; reference list alfabetis; jangan memakai ibid.",
-    vancouver:
-      "Vancouver/ICMJE-NLM: nomor Arab dalam tanda kurung berdasarkan urutan pertama kali sumber muncul; nomor sumber yang sama harus tetap sama; References mengikuti urutan kemunculan.",
-    ieee:
-      "IEEE: nomor dalam square brackets [1]; beberapa sumber ditulis [1], [2], bukan rentang otomatis; References mengikuti urutan kemunculan.",
-    chicago:
-      "Chicago Author-Date: (Author Year, locator), tanpa koma antara author dan year; reference list alfabetis dengan year setelah author.",
-  };
-
-  return [
-    rules[prefs.style as Exclude<CitationStyle, "none">],
-    output,
-    "Jangan mengarang author, year, publisher, DOI, URL, page, atau metadata lain. Jika metadata tidak ada, gunakan fallback sah style tersebut dan hanya elemen yang benar-benar tersedia.",
-  ].join("\n");
+        ? "Gunakan Daftar Pustaka saja, tanpa marker sitasi dalam teks."
+        : "Gunakan sitasi dalam teks saja, tanpa Daftar Pustaka.";
+  return "Format sitasi " + prefs.style.toUpperCase() + " (" + preview + "). " + styleRule + " " + outputText + " Jangan mengarang metadata sumber. TahunAsli/TahunVersi hanya dipakai bila sumber benar-benar terjemahan, cetak ulang, terbitan ulang, atau terbitan kembali dan kedua tahun tersedia; bukan otomatis untuk edisi baru.";
 }
+
 const GOOGLE_OAUTH_CLIENT_ID =
   process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID ||
   "42957287889-qgsdslbqcipbuatleep800hjb8na9s25.apps.googleusercontent.com";
@@ -521,84 +466,8 @@ function aiRequestHeaders(session: Session, selection?: AiSelection) {
         : {}),
     ...(openAIKey ? { "X-RB-OpenAI-Key": openAIKey } : {}),
     ...(anthropicKey ? { "X-RB-Anthropic-Key": anthropicKey } : {}),
-    ...(selection ? {
-      "X-RB-AI-Model": selection.model,
-      "X-RB-AI-Effort": selection.effort,
-      "X-RB-AI-Length": selection.length || "medium",
-    } : {}),
+    ...(selection ? { "X-RB-AI-Model": selection.model, "X-RB-AI-Effort": selection.effort } : {}),
   };
-}
-
-async function getFreshApiSession(forceRefresh = false) {
-  if (forceRefresh) {
-    const refreshed = await supabase.auth.refreshSession();
-    if (refreshed.data.session) return refreshed.data.session;
-    if (refreshed.error) throw refreshed.error;
-  }
-
-  const current = await supabase.auth.getSession();
-  let active = current.data.session;
-
-  const expiresAtMs = Number(active?.expires_at || 0) * 1000;
-  const expiresSoon = Boolean(active && expiresAtMs && expiresAtMs <= Date.now() + 90_000);
-
-  if (!active || expiresSoon) {
-    const refreshed = await supabase.auth.refreshSession();
-    if (refreshed.data.session) active = refreshed.data.session;
-    else if (refreshed.error) throw refreshed.error;
-  }
-
-  if (!active) {
-    throw new Error("Sesi login sudah berakhir. Silakan login ulang.");
-  }
-  return active;
-}
-
-function looksLikeSupabaseSessionError(value: unknown) {
-  const text = String(value || "");
-  return /sesi tidak valid|belum login|jwt|token.*expired|expired.*token|invalid.*token/i.test(text);
-}
-
-async function authenticatedAiFetch(
-  url: string,
-  fallbackSession: Session,
-  selection: AiSelection | undefined,
-  init: RequestInit
-) {
-  const requestWith = async (activeSession: Session) => {
-    const headers = new Headers(aiRequestHeaders(activeSession, selection));
-    const extraHeaders = new Headers(init.headers || {});
-    extraHeaders.forEach((value, key) => headers.set(key, value));
-    if (init.body instanceof FormData) headers.delete("Content-Type");
-
-    return fetch(url, {
-      ...init,
-      headers,
-    });
-  };
-
-  let activeSession: Session;
-  try {
-    activeSession = await getFreshApiSession(false);
-  } catch {
-    activeSession = fallbackSession;
-  }
-
-  let response = await requestWith(activeSession);
-  if (response.status !== 401) return response;
-
-  const payload = await response.clone().json().catch(() => ({}));
-  const authMessage = String(payload?.error || payload?.message || "");
-  if (!looksLikeSupabaseSessionError(authMessage)) return response;
-
-  try {
-    const refreshed = await getFreshApiSession(true);
-    response = await requestWith(refreshed);
-  } catch {
-    // Keep the original 401 so the caller can surface the server message.
-  }
-
-  return response;
 }
 
 function loadGoogleIdentityScript() {
@@ -673,29 +542,13 @@ export default function Home() {
   useEffect(() => {
     const savedTheme = (window.localStorage.getItem("rb-theme") || "system") as "light" | "dark" | "system";
     setTheme(savedTheme);
-    void (async () => {
-      try {
-        const active = await getFreshApiSession(false);
-        setSession(active);
-      } catch {
-        const { data } = await supabase.auth.getSession();
-        setSession(data.session);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setLoading(false);
+    });
 
     const result = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     const subscription = result.data.subscription;
-
-    const refreshOnReturn = () => {
-      if (document.visibilityState === "hidden") return;
-      void getFreshApiSession(false)
-        .then((active) => setSession(active))
-        .catch(() => {});
-    };
-    window.addEventListener("focus", refreshOnReturn);
-    document.addEventListener("visibilitychange", refreshOnReturn);
 
     if ("caches" in window) {
       caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).catch(() => {});
@@ -704,11 +557,7 @@ export default function Home() {
       navigator.serviceWorker.register("/sw.js?v=5", { updateViaCache: "none" }).then((reg) => reg.update()).catch(() => {});
     }
 
-    return () => {
-      subscription.unsubscribe();
-      window.removeEventListener("focus", refreshOnReturn);
-      document.removeEventListener("visibilitychange", refreshOnReturn);
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -893,11 +742,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   async function loadAll() {
     const result = await Promise.all([
       supabase.from("study_nodes").select("*").order("position").order("created_at"),
-      supabase
-        .from("knowledge_entries")
-        .select("*")
-        .is("source_chunk_index", null)
-        .order("created_at", { ascending: false }),
+      supabase.from("knowledge_entries").select("*").order("created_at", { ascending: false }),
       supabase.from("source_files").select("*").order("created_at", { ascending: false }),
       supabase.from("recordings").select("*").order("created_at", { ascending: false }),
       supabase.from("flashcards").select("*").order("created_at", { ascending: false }),
@@ -1124,7 +969,6 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             node={current}
             nodes={nodes}
             entries={entries}
-            files={files}
             onOpen={setCurrentId}
             onChange={refresh}
           />
@@ -1146,7 +990,6 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             cards={cards}
             quizzes={quizzes}
             entries={entries}
-            files={files}
             nodes={nodes}
             onChange={refresh}
           />
@@ -1158,7 +1001,6 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         scopeNodeId={aiScopeId}
         scopeName={aiScopeName}
         entries={entries}
-        files={files}
         nodes={nodes}
         onChange={refresh}
       />
@@ -1253,7 +1095,6 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           user={user}
           parent={current}
           nodes={nodes}
-          files={files}
           onClose={() => setAddOpen(false)}
           onAdded={() => {
             setAddOpen(false);
@@ -1346,73 +1187,24 @@ async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
   return row as SourceFile;
 }
 
-async function processRawFileUntilReady(
-  session: Session,
-  row: SourceFile,
-  options?: {
-    reset?: boolean;
-    onProgress?: (currentPage: number, totalPages: number, chunks: number) => void;
-  }
-) {
-  const extractionSelection = defaultSelection("gemini-2.5-flash");
-  let reset = Boolean(options?.reset);
-  let transientRetries = 0;
-
-  for (let iteration = 0; iteration < 120; iteration++) {
-    let response: Response;
-    try {
-      response = await fetch("/api/import-file", {
-        method: "POST",
-        headers: aiRequestHeaders(session, extractionSelection),
-        body: JSON.stringify({
-          sourceFileId: row.id,
-          filePath: row.file_path,
-          fileName: row.file_name,
-          mimeType: row.mime_type,
-          nodeId: row.node_id,
-          aiMode: legacyModeForSelection(extractionSelection),
-          operation: "raw",
-          reset,
-        }),
-      });
-    } catch (error) {
-      if (transientRetries >= 4) throw error;
-      transientRetries++;
-      await new Promise((resolve) => window.setTimeout(resolve, 700 * transientRetries));
-      continue;
-    }
-
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      if (response.status >= 500 && transientRetries < 4) {
-        transientRetries++;
-        await new Promise((resolve) => window.setTimeout(resolve, 700 * transientRetries));
-        reset = false;
-        continue;
-      }
-      throw new Error(result.error || "Gagal membaca file.");
-    }
-
-    transientRetries = 0;
-    reset = false;
-
-    const currentPage = Number(result.currentPage || 0);
-    const totalPages = Number(result.totalPages || 0);
-    const chunks = Number(result.indexedChunks || 0);
-    options?.onProgress?.(currentPage, totalPages, chunks);
-
-    if (result.processingComplete !== false) return result;
-
-    // Yield between resumable batches so long PDFs do not create one giant request chain.
-    await new Promise((resolve) => window.setTimeout(resolve, 120));
-  }
-
-  throw new Error("Proses file belum selesai setelah terlalu banyak batch. Gunakan menu ... > Proses ulang file untuk melanjutkan.");
-}
-
 async function ensureRawFileText(session: Session, row: SourceFile) {
-  if (row.processing_status === "ready" || row.raw_text?.trim()) return row;
-  await processRawFileUntilReady(session, row);
+  if (row.raw_text?.trim()) return row;
+  const extractionSelection = defaultSelection("gemini-2.5-flash");
+  const response = await fetch("/api/import-file", {
+    method: "POST",
+    headers: aiRequestHeaders(session, extractionSelection),
+    body: JSON.stringify({
+      sourceFileId: row.id,
+      filePath: row.file_path,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      nodeId: row.node_id,
+      aiMode: legacyModeForSelection(extractionSelection),
+      operation: "raw",
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "Gagal membaca RAW file.");
   return row;
 }
 
@@ -1533,7 +1325,7 @@ function setExplorerDragData(
   kind: "file" | "recording" | "entry" | "node",
   id: string
 ) {
-  event.dataTransfer.effectAllowed = "copyMove";
+  event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData("application/x-rb-explorer-item", JSON.stringify({ kind, id }));
 }
 
@@ -1993,18 +1785,6 @@ function FolderPage({
     else onChange();
   }
 
-  if (previewItem) {
-    return (
-      <ExplorerPreviewPage
-        item={previewItem}
-        onBack={() => {
-          setPreviewItem(null);
-          window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-        }}
-      />
-    );
-  }
-
   return (
     <section
       className={dropActive ? "folderPage explorerDropActive" : "folderPage"}
@@ -2131,21 +1911,22 @@ function FolderPage({
                     text: entry.raw_content || entry.content,
                   })}
                 >
-                  <div className="dataHead">
+                  <div className="explorerItemMain">
+                    <span className="explorerFileIcon">📝</span>
                     <div>
                       <small>{entry.category || "Catatan RAW"}</small>
-                      <h3>{entry.title}</h3>
+                      <strong>{entry.title}</strong>
                     </div>
-                    <div className="mediaCardActions">
-                      <button
-                        type="button"
-                        className="ghost iconDots"
-                        onClick={(event) => openDotsMenu(event, { kind: "entry", id: entry.id })}
-                        aria-label="Opsi teks"
-                      >
-                        ...
-                      </button>
-                    </div>
+                  </div>
+                  <div className="cardOverflowActions">
+                    <button
+                      type="button"
+                      className="iconDots"
+                      onClick={(event) => openDotsMenu(event, { kind: "entry", id: entry.id })}
+                      aria-label="Opsi teks"
+                    >
+                      ...
+                    </button>
                   </div>
                 </article>
               ))}
@@ -2205,20 +1986,6 @@ function FolderPage({
           onCopy={() => copyItem(contextMenu.item)}
           onPaste={pasteIntoCurrent}
           onDownload={() => void downloadContextItem(contextMenu.item)}
-          onAiCopy={() => {
-            const item = contextMenu.item;
-            closeContextMenu();
-            if (item.kind === "file") {
-              window.dispatchEvent(new CustomEvent("rb-open-ai-copy", { detail: { fileId: item.id } }));
-            }
-          }}
-          onRetryRaw={() => {
-            const item = contextMenu.item;
-            closeContextMenu();
-            if (item.kind === "file") {
-              window.dispatchEvent(new CustomEvent("rb-retry-raw-file", { detail: { fileId: item.id } }));
-            }
-          }}
           onDelete={() => {
             const item = contextMenu.item;
             closeContextMenu();
@@ -2239,6 +2006,10 @@ function FolderPage({
         />
       )}
 
+      {previewItem && (
+        <ExplorerPreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />
+      )}
+
       <button className="bigPlus" onClick={onAdd} aria-label="Tambah">+</button>
     </section>
   );
@@ -2255,8 +2026,6 @@ function ExplorerActionMenu({
   onCopy,
   onPaste,
   onDownload,
-  onAiCopy,
-  onRetryRaw,
   onDelete,
 }: {
   menu: NonNullable<ExplorerContextMenu>;
@@ -2269,8 +2038,6 @@ function ExplorerActionMenu({
   onCopy: () => void;
   onPaste: () => void;
   onDownload: () => void;
-  onAiCopy: () => void;
-  onRetryRaw: () => void;
   onDelete: () => void;
 }) {
   const file = menu.item.kind === "file" ? files.find((row) => row.id === menu.item.id) : null;
@@ -2281,81 +2048,53 @@ function ExplorerActionMenu({
     <div className="contextDismissLayer" onMouseDown={onClose}>
       <div
         className="explorerContextMenu"
-        style={{
-          left: Math.max(8, Math.min(menu.x, window.innerWidth - 216)),
-          top: Math.max(8, Math.min(menu.y, window.innerHeight - 268)),
-        }}
+        style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 260) }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button type="button" onClick={onPreview}>Buka</button>
+        <button type="button" onClick={onPreview}>Preview</button>
         <button type="button" onClick={onCopy}>Copy</button>
         {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
         {canDownload && <button type="button" onClick={onDownload}>Download</button>}
-        {file && (file.processing_status === "error" || file.processing_status === "processing") && (
-          <button type="button" onClick={onRetryRaw}>
-            {file.processing_status === "processing" ? "Lanjutkan proses file" : "Proses ulang file"}
-          </button>
-        )}
-        {file && (Boolean(file.raw_text) || (file.mime_type === "application/pdf" && file.processing_status === "ready")) && (
-          <button type="button" onClick={onAiCopy}>Buat versi AI</button>
-        )}
         <button type="button" className="dangerMenuItem" onClick={onDelete}>Hapus</button>
       </div>
     </div>
   );
 }
 
-function ExplorerPreviewPage({
+function ExplorerPreviewModal({
   item,
-  onBack,
+  onClose,
 }: {
   item: ExplorerPreviewItem;
-  onBack: () => void;
+  onClose: () => void;
 }) {
-  const title =
-    item.kind === "file"
-      ? item.file.file_name
-      : item.kind === "recording"
-        ? item.recording.title
-        : item.title;
-  const label =
-    item.kind === "file"
-      ? "FILE"
-      : item.kind === "recording"
-        ? "REKAMAN"
-        : item.label;
-
   return (
-    <section className="explorerPreviewPage">
-      <div className="explorerPreviewPageHead">
-        <button type="button" className="backBtn" onClick={onBack}>←</button>
-        <div>
-          <p className="eyebrow">{label}</p>
-          <h1>{title}</h1>
+    <div className="sheetBackdrop previewBackdrop" onMouseDown={onClose}>
+      <section className="addSheet explorerPreviewSheet" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="sheetHead">
+          <div>
+            <p className="eyebrow">
+              {item.kind === "file" ? "FILE" : item.kind === "recording" ? "REKAMAN" : item.label}
+            </p>
+            <h2>{item.kind === "file" ? item.file.file_name : item.kind === "recording" ? item.recording.title : item.title}</h2>
+          </div>
+          <button className="closeBtn" type="button" onClick={onClose}>×</button>
         </div>
-      </div>
-
-      <div className="explorerPreviewPageBody">
-        {item.kind === "file" && <FilePreviewBody file={item.file} />}
+        {item.kind === "file" && (
+          <FilePreviewBody file={item.file} />
+        )}
         {item.kind === "recording" && (
-          <div className="dataText raw explorerPreviewText">
-            <RichText
-              text={
-                item.recording.raw_transcript ||
-                item.recording.transcript ||
-                item.recording.structured_transcript ||
-                "Belum ada transkrip."
-              }
-            />
+          <div className="dataText raw">
+            <RichText text={item.recording.raw_transcript || item.recording.transcript || item.recording.structured_transcript || "Belum ada transkrip."} />
           </div>
         )}
         {item.kind === "entry" && (
-          <div className="dataText raw explorerPreviewText">
+          <div className="dataText raw">
             <RichText text={item.text || "Belum ada isi."} />
           </div>
         )}
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -2557,260 +2296,11 @@ function FolderTreePicker({
   );
 }
 
-
-function AiDatabaseSourcePicker({
-  nodes,
-  files,
-  nodeIds,
-  fileIds,
-  onChange,
-  currentNodeId,
-  disabled = false,
-  sources,
-  onSourcesChange,
-  selectionModel,
-}: {
-  nodes: StudyNode[];
-  files: SourceFile[];
-  nodeIds: string[];
-  fileIds: string[];
-  onChange: (next: { nodeIds: string[]; fileIds: string[] }) => void;
-  currentNodeId?: string | null;
-  disabled?: boolean;
-  sources?: AiSourceKind[];
-  onSourcesChange?: (sources: AiSourceKind[]) => void;
-  selectionModel?: AiModelId;
-}) {
-  const [open, setOpen] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (disabled) setOpen(false);
-  }, [disabled]);
-
-  const folderNodes = useMemo(() => nodes.filter(isFolderLikeNode), [nodes]);
-  const selectedCount = nodeIds.length + fileIds.length;
-
-  const childrenByParent = useMemo(() => {
-    const visible = new Set(folderNodes.map((node) => node.id));
-    const map = new Map<string | null, StudyNode[]>();
-    for (const node of folderNodes) {
-      const parent = node.parent_id && visible.has(node.parent_id) ? node.parent_id : null;
-      const list = map.get(parent) || [];
-      list.push(node);
-      map.set(parent, list);
-    }
-    for (const list of map.values()) list.sort((a, b) => a.title.localeCompare(b.title, "id"));
-    return map;
-  }, [folderNodes]);
-
-  const filesByNode = useMemo(() => {
-    const map = new Map<string, SourceFile[]>();
-    for (const file of files) {
-      const list = map.get(file.node_id) || [];
-      list.push(file);
-      map.set(file.node_id, list);
-    }
-    for (const list of map.values()) list.sort((a, b) => a.file_name.localeCompare(b.file_name, "id"));
-    return map;
-  }, [files]);
-
-  useEffect(() => {
-    if (!currentNodeId) return;
-    const byId = new Map(nodes.map((node) => [node.id, node]));
-    const next = new Set<string>();
-    let cursor = byId.get(currentNodeId);
-    while (cursor) {
-      next.add(cursor.id);
-      cursor = cursor.parent_id ? byId.get(cursor.parent_id) : undefined;
-    }
-    setExpanded((current) => new Set([...current, ...next]));
-  }, [currentNodeId, nodes]);
-
-  function toggleFolder(id: string) {
-    const next = nodeIds.includes(id) ? nodeIds.filter((item) => item !== id) : [...nodeIds, id];
-    onChange({ nodeIds: next, fileIds });
-  }
-
-  function toggleFile(id: string) {
-    const next = fileIds.includes(id) ? fileIds.filter((item) => item !== id) : [...fileIds, id];
-    onChange({ nodeIds, fileIds: next });
-  }
-
-  function toggleExpanded(id: string) {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleSourceKind(source: AiSourceKind) {
-    if (!sources || !onSourcesChange) return;
-    if (selectionModel === "local" && source !== "database") return;
-    const active = sources.includes(source);
-    const next = active ? sources.filter((item) => item !== source) : [...sources, source];
-    if (!next.length) return;
-    onSourcesChange(next);
-  }
-
-  const databaseEnabled = !sources || sources.includes("database");
-
-  function renderBranch(parentId: string | null, depth: number): any {
-    return (childrenByParent.get(parentId) || []).map((node) => {
-      const children = childrenByParent.get(node.id) || [];
-      const localFiles = filesByNode.get(node.id) || [];
-      const hasChildren = children.length > 0 || localFiles.length > 0;
-      const isExpanded = expanded.has(node.id);
-      const selected = nodeIds.includes(node.id);
-      return (
-        <div className="aiSourceTreeBranch" key={node.id}>
-          <div className={selected ? "aiSourceTreeRow selected" : "aiSourceTreeRow"} style={{ paddingLeft: 8 + depth * 16 }}>
-            <button
-              type="button"
-              className="aiSourceTreeExpand"
-              onClick={() => hasChildren && toggleExpanded(node.id)}
-              disabled={!hasChildren}
-              aria-label={hasChildren ? (isExpanded ? "Tutup" : "Buka") : "Kosong"}
-            >
-              {hasChildren ? (isExpanded ? "⌄" : ">") : "·"}
-            </button>
-            <button type="button" className="aiSourceTreeChoice" onClick={() => toggleFolder(node.id)}>
-              <span className={selected ? "sourceCheck checked" : "sourceCheck"}>{selected ? "✓" : ""}</span>
-              <span>{node.emoji || "📁"}</span>
-              <strong>{node.title}</strong>
-              <small>Folder</small>
-            </button>
-          </div>
-
-          {isExpanded && (
-            <>
-              {localFiles.map((file) => {
-                const fileSelected = fileIds.includes(file.id);
-                return (
-                  <button
-                    type="button"
-                    key={file.id}
-                    className={fileSelected ? "aiSourceFileRow selected" : "aiSourceFileRow"}
-                    style={{ paddingLeft: 36 + depth * 16 }}
-                    onClick={() => toggleFile(file.id)}
-                  >
-                    <span className={fileSelected ? "sourceCheck checked" : "sourceCheck"}>{fileSelected ? "✓" : ""}</span>
-                    <span>{file.mime_type === "application/pdf" ? "📕" : file.source_kind === "link" ? "🔗" : "📄"}</span>
-                    <strong>{file.file_name}</strong>
-                    <small>File</small>
-                  </button>
-                );
-              })}
-              {renderBranch(node.id, depth + 1)}
-            </>
-          )}
-        </div>
-      );
-    });
-  }
-
-  return (
-    <div className="aiDatabaseSourcePicker">
-      <button
-        type="button"
-        className={
-          (selectedCount ? "chooseSourcesTrigger active" : "chooseSourcesTrigger") +
-          (disabled ? " disabled" : "")
-        }
-        onClick={() => setOpen((current) => !current)}
-        disabled={disabled}
-        aria-disabled={disabled}
-        title={disabled ? "Aktifkan Database untuk memilih folder atau file sumber." : "Pilih folder atau file sumber"}
-      >
-        <span>☷</span>
-        <span>
-          <strong>Pilih sumber</strong>
-          <small>{selectedCount ? selectedCount + " dipilih" : "Folder / file"}</small>
-        </span>
-        <b>{open ? "⌄" : ">"}</b>
-      </button>
-
-      {open && (
-        <div className="aiDatabaseSourcePopover">
-          <div className="aiDatabaseSourceHead">
-            <div>
-              <strong>Pilih sumber</strong>
-              <small>Tentukan sumber jawaban AI, lalu pilih folder/file bila Database aktif.</small>
-            </div>
-            <button type="button" onClick={() => setOpen(false)}>×</button>
-          </div>
-
-          {sources && onSourcesChange && (
-            <div className="aiSourceKindsInPicker">
-              <small>SUMBER JAWABAN</small>
-              <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
-                {([
-                  { id: "ai" as const, label: "AI" },
-                  { id: "database" as const, label: "Database" },
-                  { id: "web" as const, label: "Web" },
-                ]).map((item) => {
-                  const itemDisabled = selectionModel === "local" && item.id !== "database";
-                  return (
-                    <button
-                      type="button"
-                      key={item.id}
-                      className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
-                      onClick={() => toggleSourceKind(item.id)}
-                      aria-pressed={sources.includes(item.id)}
-                      disabled={itemDisabled}
-                    >
-                      {item.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {!databaseEnabled && (
-            <div className="aiDatabaseDisabledHint">
-              Aktifkan <strong>Database</strong> untuk memilih folder atau file tertentu.
-            </div>
-          )}
-
-          <div className={databaseEnabled ? "aiDatabaseSourceContent" : "aiDatabaseSourceContent disabled"}>
-          <div className="aiDatabaseSourceTools">
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => onChange({ nodeIds: [], fileIds: [] })}
-            >
-              Otomatis dari halaman aktif
-            </button>
-            {selectedCount > 0 && (
-              <button type="button" className="ghost" onClick={() => onChange({ nodeIds: [], fileIds: [] })}>
-                Hapus pilihan
-              </button>
-            )}
-          </div>
-          <div className="aiDatabaseSourceTree">
-            {renderBranch(null, 0)}
-            {!folderNodes.length && <small className="muted">Belum ada folder sumber.</small>}
-          </div>
-          <div className="aiDatabaseSourceDone">
-            <span>{databaseEnabled ? (selectedCount ? selectedCount + " sumber dipilih" : "Mengikuti folder/halaman yang sedang aktif") : "Database tidak aktif"}</span>
-            <button type="button" className="primary" onClick={() => setOpen(false)}>Selesai</button>
-          </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function AddSheet({
   session,
   user,
   parent,
   nodes,
-  files,
   onClose,
   onCreated,
   onAdded,
@@ -2819,7 +2309,6 @@ function AddSheet({
   user: User;
   parent: StudyNode | null;
   nodes: StudyNode[];
-  files: SourceFile[];
   onClose: () => void;
   onCreated: (id: string) => void;
   onAdded: () => void;
@@ -2836,8 +2325,6 @@ function AddSheet({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [plannerSourceId, setPlannerSourceId] = useState("");
-  const [plannerSourceNodeIds, setPlannerSourceNodeIds] = useState<string[]>([]);
-  const [plannerSourceFileIds, setPlannerSourceFileIds] = useState<string[]>([]);
   const [plannerInstruction, setPlannerInstruction] = useState("");
   const [plannerCount, setPlannerCount] = useState(5);
   const [plannerQuizKinds, setPlannerQuizKinds] = useState<Array<"mcq-fixed" | "essay-fixed">>(["mcq-fixed"]);
@@ -2853,9 +2340,9 @@ function AddSheet({
   ]);
   const [answerAiQuestions, setAnswerAiQuestions] = useState<string[]>([""]);
   const [plannerSelection, setPlannerSelection] = useState<AiSelection>(
-    defaultSelection("gemini-3.8-flash")
+    defaultSelection("gemini-2.5-flash")
   );
-  const [plannerAnswerSources, setPlannerAnswerSources] = useState<AiSourceKind[]>(["ai", "database"]);
+  const [plannerAnswerSources, setPlannerAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const [plannerStudyDepth, setPlannerStudyDepth] = useState<"simple" | "medium" | "complex">("medium");
   const [plannerStudyQuizPerChapter, setPlannerStudyQuizPerChapter] = useState(true);
   const [plannerStudyChapterTitles, setPlannerStudyChapterTitles] = useState("");
@@ -2880,32 +2367,12 @@ function AddSheet({
   );
 
   useEffect(() => {
-    const selectedFileNodeId = files.find((item) => plannerSourceFileIds.includes(item.id))?.node_id || "";
-    const selectedFolderId = plannerSourceNodeIds.find((id) => plannerFolders.some((item) => item.id === id)) || "";
-    const derived = selectedFolderId || selectedFileNodeId;
-    if (derived) {
-      if (plannerSourceId !== derived) setPlannerSourceId(derived);
-      return;
-    }
-
+    if (plannerSourceId && plannerFolders.some((item) => item.id === plannerSourceId)) return;
     const preferred =
       (parent && plannerFolders.find((item) => item.id === parent.id)) ||
       plannerFolders[0];
-
-    if (preferred && !plannerSourceNodeIds.length && !plannerSourceFileIds.length) {
-      setPlannerSourceNodeIds([preferred.id]);
-      setPlannerSourceId(preferred.id);
-    } else if (!preferred) {
-      setPlannerSourceId("");
-    }
-  }, [
-    files,
-    parent,
-    plannerFolders,
-    plannerSourceId,
-    plannerSourceFileIds,
-    plannerSourceNodeIds,
-  ]);
+    setPlannerSourceId(preferred?.id || "");
+  }, [plannerFolders, plannerSourceId, parent]);
 
   const options = [
     { value: "folder", label: "Folder", hint: "Buat folder / subfolder materi" },
@@ -3034,14 +2501,8 @@ function AddSheet({
     const isManualQuiz = kind === "quiz" && quizCreationMode === "manual";
     const isAnswerAiQuiz = kind === "quiz" && quizCreationMode === "answer-ai";
 
-    const plannerHasDatabaseSource =
-      plannerSourceNodeIds.length > 0 || plannerSourceFileIds.length > 0;
-    if (
-      !isManualQuiz &&
-      plannerAnswerSources.includes("database") &&
-      !plannerHasDatabaseSource
-    ) {
-      setStatus("Pilih minimal satu folder atau file sumber.");
+    if (!isManualQuiz && !plannerSourceId) {
+      setStatus("Pilih folder sumber terlebih dahulu.");
       return;
     }
     if (kind === "quiz" && !plannerQuizKinds.length) {
@@ -3074,13 +2535,8 @@ function AddSheet({
     }
 
     const nodeType = kind as "study" | "flashcards" | "quiz";
-    const selectedFileParentId =
-      files.find((item) => plannerSourceFileIds.includes(item.id))?.node_id || null;
     const placementParentId =
-      parent?.id ||
-      (isManualQuiz
-        ? null
-        : plannerSourceNodeIds[0] || selectedFileParentId || plannerSourceId || null);
+      parent?.id || (isManualQuiz ? null : plannerSourceId);
 
     setBusy(true);
     setStatus(
@@ -3147,8 +2603,7 @@ function AddSheet({
               headers: aiRequestHeaders(session, plannerSelection),
               body: JSON.stringify({
                 studyNodeId: data.id,
-                sourceNodeIds: plannerSourceNodeIds,
-                sourceFileIds: plannerSourceFileIds,
+                sourceNodeIds: [plannerSourceId],
                 studyInstruction: plannerInstruction.trim(),
                 aiMode: plannerMode,
                 aiModel: plannerSelection.model,
@@ -3167,9 +2622,7 @@ function AddSheet({
               method: "POST",
               headers: aiRequestHeaders(session, plannerSelection),
               body: JSON.stringify({
-                sourceNodeId: plannerSourceNodeIds[0] || plannerSourceId,
-                sourceNodeIds: plannerSourceNodeIds,
-                sourceFileIds: plannerSourceFileIds,
+                sourceNodeId: plannerSourceId,
                 targetNodeId: data.id,
                 mode: nodeType,
                 aiMode: plannerMode,
@@ -3644,32 +3097,15 @@ function AddSheet({
             </label>
 
             <div className="plannerFolderField">
-              <span className="fieldLabel">Pilih sumber</span>
-              <AiDatabaseSourcePicker
+              <span className="fieldLabel">Sumber RAW / folder</span>
+              <FolderTreePicker
                 nodes={nodes}
-                files={files}
-                nodeIds={plannerSourceNodeIds}
-                fileIds={plannerSourceFileIds}
-                currentNodeId={parent?.id || null}
-                onChange={(next) => {
-                  setPlannerSourceNodeIds(next.nodeIds);
-                  setPlannerSourceFileIds(next.fileIds);
-                  const fileNodeId =
-                    files.find((item) => next.fileIds.includes(item.id))?.node_id || "";
-                  setPlannerSourceId(next.nodeIds[0] || fileNodeId || "");
-                  if (
-                    (next.nodeIds.length || next.fileIds.length) &&
-                    !plannerAnswerSources.includes("database")
-                  ) {
-                    setPlannerAnswerSources((current) =>
-                      current.includes("database") ? current : [...current, "database"]
-                    );
-                  }
-                }}
+                value={plannerSourceId}
+                onChange={setPlannerSourceId}
+                allowedIds={new Set(plannerFolders.map((folder) => folder.id))}
+                placeholder="Pilih folder sumber"
               />
-              <small className="muted">
-                Klik folder atau file langsung. Bisa memilih lebih dari satu sumber RAW/original.
-              </small>
+              <small className="muted">AI membaca RAW/original dari folder ini. Versi tertata hanya bantuan.</small>
             </div>
 
             <label>
@@ -3975,16 +3411,7 @@ function AddSheet({
 
             <button
               className="primary"
-              disabled={
-                busy ||
-                !title.trim() ||
-                (
-                  !(kind === "quiz" && quizCreationMode === "manual") &&
-                  plannerAnswerSources.includes("database") &&
-                  !plannerSourceNodeIds.length &&
-                  !plannerSourceFileIds.length
-                )
-              }
+              disabled={busy || !title.trim() || (!(kind === "quiz" && quizCreationMode === "manual") && !plannerSourceId)}
             >
               {busy
                 ? status || "Membuat..."
@@ -4440,15 +3867,26 @@ function DatabasePage({
     }
 
     onChange();
-    setFileStatus("Sedang membaca RAW...");
+    setFileStatus("Sedang membaca RAW dan mendeteksi scan/OCR...");
 
-    const localMime = inferMime(selectedFile);
-    const localSupported =
-      localMime.startsWith("text/") ||
-      localMime === "application/json" ||
-      localMime === "application/xml";
+    if (aiSelection.model === "local") {
+      const localMime = inferMime(selectedFile);
+      const localSupported =
+        localMime.startsWith("text/") ||
+        localMime === "application/json" ||
+        localMime === "application/xml";
 
-    if (aiSelection.model === "local" && localSupported) {
+      if (!localSupported) {
+        await supabase.from("source_files").update({
+          processing_status: "error",
+          error_message: "Format ini membutuhkan model Gemini.",
+        }).eq("id", row.id);
+        setFileBusy(false);
+        setFileStatus("Local belum mendukung format ini.");
+        onChange();
+        return alert("Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih model Gemini.");
+      }
+
       const rawText = (await selectedFile.text()).trim();
       if (!rawText) {
         setFileBusy(false);
@@ -4491,33 +3929,32 @@ function DatabasePage({
       return;
     }
 
-    try {
-      const result = await processRawFileUntilReady(session, row as SourceFile, {
-        onProgress: (currentPage, totalPages, chunks) => {
-          if (totalPages > 0) {
-            setFileStatus(
-              `Mengindeks PDF halaman ${currentPage}/${totalPages} · ${chunks} bagian siap dicari...`
-            );
-          } else {
-            setFileStatus("Sedang membaca isi file...");
-          }
-        },
-      });
+    const response = await fetch("/api/import-file", {
+      method: "POST",
+      headers: aiRequestHeaders(session, aiSelection),
+      body: JSON.stringify({
+        sourceFileId: row.id,
+        filePath: path,
+        fileName: selectedFile.name,
+        mimeType,
+        nodeId: node.id,
+        aiMode,
+        operation: "raw",
+      }),
+    });
 
-      setSelectedFile(null);
-      setFileBusy(false);
-      setFileStatus(
-        result.totalPages
-          ? `Selesai. PDF terindeks penuh: ${result.totalPages} halaman · ${result.indexedChunks || 0} bagian.`
-          : "Selesai. File sudah masuk Database dan siap dipakai AI."
-      );
+    const result = await response.json();
+    setFileBusy(false);
+
+    if (!response.ok) {
+      setFileStatus("File tersimpan, tetapi pemrosesan gagal.");
       onChange();
-    } catch (error: any) {
-      setFileBusy(false);
-      setFileStatus("File tersimpan. Proses dapat dilanjutkan dari menu ... > Proses ulang file.");
-      onChange();
-      alert(error?.message || "Gagal memproses file.");
+      return alert(result.error || "Gagal memproses file.");
     }
+
+    setSelectedFile(null);
+    setFileStatus("Selesai. RAW/original sudah masuk Database. Versi AI belum dibuat.");
+    onChange();
   }
 
   async function importLink(e: FormEvent) {
@@ -4746,67 +4183,9 @@ function DatabaseFileCard({
     defaultSelection("gemini-2.5-flash")
   );
 
-  useEffect(() => {
-    if (!compact) return;
-    const handleOpenAiCopy = (event: Event) => {
-      const detail = (event as CustomEvent<{ fileId?: string }>).detail;
-      if (detail?.fileId === file.id) setCopyOpen(true);
-    };
-    window.addEventListener("rb-open-ai-copy", handleOpenAiCopy);
-    return () => window.removeEventListener("rb-open-ai-copy", handleOpenAiCopy);
-  }, [compact, file.id]);
-
-  useEffect(() => {
-    if (!compact) return;
-    const handleRetryRaw = (event: Event) => {
-      const detail = (event as CustomEvent<{ fileId?: string }>).detail;
-      if (detail?.fileId === file.id) void retryRawProcessing();
-    };
-    window.addEventListener("rb-retry-raw-file", handleRetryRaw);
-    return () => window.removeEventListener("rb-retry-raw-file", handleRetryRaw);
-  }, [compact, file.id, file.file_path, file.file_name, file.mime_type, file.node_id]);
-
-  useEffect(() => {
-    if (
-      file.mime_type !== "application/pdf" ||
-      (file.processing_status !== "error" && file.processing_status !== "processing")
-    ) return;
-
-    const key = "rb-auto-retry-pdf-" + file.id;
-    if (window.sessionStorage.getItem(key)) return;
-    window.sessionStorage.setItem(key, "1");
-
-    const timer = window.setTimeout(() => {
-      void retryRawProcessing(false);
-    }, 700);
-    return () => window.clearTimeout(timer);
-  }, [compact, file.id, file.processing_status, file.mime_type, file.raw_text]);
-
-  async function retryRawProcessing(showSuccess = true) {
-    try {
-      const result = await processRawFileUntilReady(session, file, {
-        reset: file.processing_status === "error" && Number(file.processing_page || 0) === 0,
-      });
-      onChange();
-      if (showSuccess) {
-        alert(
-          result.totalPages
-            ? `File berhasil diproses penuh: ${result.totalPages} halaman · ${result.indexedChunks || 0} bagian terindeks.`
-            : result.indexedChunks
-              ? `File berhasil diproses dan diindeks menjadi ${result.indexedChunks} bagian.`
-              : "File berhasil diproses ulang."
-        );
-      }
-    } catch (error: any) {
-      onChange();
-      alert(error?.message || "Gagal memproses ulang file.");
-    }
-  }
-
   async function createAiCopy() {
-    const indexedPdfReady = file.mime_type === "application/pdf" && file.processing_status === "ready";
-    if (!file.raw_text?.trim() && !indexedPdfReady) {
-      return alert("File belum selesai diproses. Tunggu indexing selesai.");
+    if (!file.raw_text?.trim()) {
+      return alert("RAW belum siap. Tunggu proses pembacaan file selesai.");
     }
     if (copySelection.model === "local") {
       return alert("Versi AI membutuhkan model cloud.");
@@ -4907,7 +4286,7 @@ function DatabaseFileCard({
                     : "Buka"}
             </button>
           )}
-          {!compact && !isLink && (
+          {!isLink && (
             <button
               className="ghost"
               type="button"
@@ -4916,14 +4295,12 @@ function DatabaseFileCard({
               Download
             </button>
           )}
-          {!compact && file.raw_text && (
+          {file.raw_text && (
             <button className="ghost" type="button" onClick={(event) => { event.stopPropagation(); setCopyOpen((current) => !current); }}>
               Buat versi AI
             </button>
           )}
-          {!compact && (
-            <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
-          )}
+          <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
         </div>
       </div>
 
@@ -5069,18 +4446,14 @@ function DatabaseStoredRecording({
               {busy ? "Membuka..." : audioUrl ? "Tutup audio" : "Buka"}
             </button>
           )}
-          {!compact && (
-            <button
-              className="ghost"
-              type="button"
-              onClick={(event) => { event.stopPropagation(); downloadStorageObject("recordings", item.file_path, fileName); }}
-            >
-              Download
-            </button>
-          )}
-          {!compact && (
-            <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
-          )}
+          <button
+            className="ghost"
+            type="button"
+            onClick={(event) => { event.stopPropagation(); downloadStorageObject("recordings", item.file_path, fileName); }}
+          >
+            Download
+          </button>
+          <button className="dangerSmall" type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }}>Hapus</button>
         </div>
       </div>
 
@@ -5390,7 +4763,6 @@ function StudyPage({
   node,
   nodes,
   entries,
-  files,
   onOpen,
   onChange,
 }: {
@@ -5399,7 +4771,6 @@ function StudyPage({
   node: StudyNode;
   nodes: StudyNode[];
   entries: KnowledgeEntry[];
-  files: SourceFile[];
   onOpen: (id: string) => void;
   onChange: () => void;
 }) {
@@ -5409,13 +4780,12 @@ function StudyPage({
   const [building, setBuilding] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
-  const [selectedSourceFiles, setSelectedSourceFiles] = useState<string[]>([]);
   const [studyInstruction, setStudyInstruction] = useState("");
   const [studyDepth, setStudyDepth] = useState<"simple" | "medium" | "complex">("medium");
   const [quizPerChapter, setQuizPerChapter] = useState(true);
   const [chapterTitlesText, setChapterTitlesText] = useState("");
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash"));
-  const [studyAnswerSources, setStudyAnswerSources] = useState<AiSourceKind[]>(["ai", "database"]);
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-2.5-flash"));
+  const [studyAnswerSources, setStudyAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [recallAnswers, setRecallAnswers] = useState<Record<string, string>>({});
   const [recallFeedback, setRecallFeedback] = useState<Record<string, "correct" | "wrong">>({});
@@ -5438,8 +4808,6 @@ function StudyPage({
   const sourceDatabases = nodes.filter(
     (item) => branchIds.includes(item.id) && isFolderLikeNode(item)
   );
-  const branchNodes = nodes.filter((item) => branchIds.includes(item.id));
-  const sourceFiles = files.filter((item) => branchIds.includes(item.node_id));
 
   useEffect(() => {
     void loadStudy();
@@ -5468,7 +4836,6 @@ function StudyPage({
     if (!nextPath) {
       setUnits([]);
       setSelectedSources([]);
-      setSelectedSourceFiles([]);
       setStudyInstruction("");
       setStudyDepth("medium");
       setQuizPerChapter(true);
@@ -5479,7 +4846,6 @@ function StudyPage({
     }
 
     setSelectedSources(nextPath.source_node_ids || []);
-    setSelectedSourceFiles(nextPath.source_file_ids || []);
     setStudyInstruction(nextPath.focus_instruction || "");
     setStudyDepth(nextPath.teaching_depth || "medium");
     setQuizPerChapter(nextPath.quiz_per_chapter !== false);
@@ -5521,12 +4887,8 @@ function StudyPage({
   }
 
   async function buildStudy() {
-    if (
-      studyAnswerSources.includes("database") &&
-      !selectedSources.length &&
-      !selectedSourceFiles.length
-    ) {
-      return alert("Database aktif. Pilih minimal satu folder atau file sumber.");
+    if (studyAnswerSources.includes("database") && !selectedSources.length) {
+      return alert("Database aktif. Pilih minimal satu folder sumber.");
     }
     if (aiSelection.model === "local") return alert("Study terarah membutuhkan model cloud.");
 
@@ -5537,7 +4899,6 @@ function StudyPage({
       body: JSON.stringify({
         studyNodeId: node.id,
         sourceNodeIds: selectedSources,
-        sourceFileIds: selectedSourceFiles,
         studyInstruction: studyInstruction.trim(),
         aiMode,
         aiModel: aiSelection.model,
@@ -5685,12 +5046,24 @@ function StudyPage({
     onChange();
     setQuickDbStatus("Sedang membaca RAW...");
 
-    const quickLocalSupported =
-      mimeType.startsWith("text/") ||
-      mimeType === "application/json" ||
-      mimeType === "application/xml";
+    if (quickDbAiSelection.model === "local") {
+      const localSupported =
+        mimeType.startsWith("text/") ||
+        mimeType === "application/json" ||
+        mimeType === "application/xml";
 
-    if (quickDbAiSelection.model === "local" && quickLocalSupported) {
+      if (!localSupported) {
+        await supabase.from("source_files").update({
+          processing_status: "error",
+          error_message: "Format ini membutuhkan model Gemini.",
+        }).eq("id", row.id);
+
+        setQuickFileBusy(false);
+        setQuickDbStatus("Local belum mendukung format ini.");
+        onChange();
+        return alert("Local saat ini untuk TXT, MD, CSV, JSON, dan XML. Untuk PDF, DOCX, PPTX, gambar, audio, atau video pilih model Gemini.");
+      }
+
       const rawText = (await quickDbFile.text()).trim();
       if (!rawText) {
         setQuickFileBusy(false);
@@ -5731,32 +5104,32 @@ function StudyPage({
       return;
     }
 
-    try {
-      const result = await processRawFileUntilReady(session, row as SourceFile, {
-        onProgress: (currentPage, totalPages, chunks) => {
-          if (totalPages > 0) {
-            setQuickDbStatus(
-              `Mengindeks PDF halaman ${currentPage}/${totalPages} · ${chunks} bagian...`
-            );
-          } else {
-            setQuickDbStatus("Sedang membaca isi file...");
-          }
-        },
-      });
-      setQuickDbFile(null);
-      setQuickFileBusy(false);
-      setQuickDbStatus(
-        result.totalPages
-          ? `Selesai. PDF terindeks penuh: ${result.totalPages} halaman · ${result.indexedChunks || 0} bagian. Folder otomatis dipilih sebagai sumber Study.`
-          : "Selesai. File sudah masuk folder dan otomatis dipilih sebagai sumber Study."
-      );
+    const response = await fetch("/api/import-file", {
+      method: "POST",
+      headers: aiRequestHeaders(session, quickDbAiSelection),
+      body: JSON.stringify({
+        sourceFileId: row.id,
+        filePath: path,
+        fileName: quickDbFile.name,
+        mimeType,
+        nodeId: database.id,
+        aiMode: quickDbAiMode,
+        operation: "raw",
+      }),
+    });
+
+    const result = await response.json();
+    setQuickFileBusy(false);
+
+    if (!response.ok) {
+      setQuickDbStatus("File tersimpan, tetapi pemrosesan gagal.");
       onChange();
-    } catch (error: any) {
-      setQuickFileBusy(false);
-      setQuickDbStatus("File tersimpan. Proses dapat dilanjutkan dari menu ... > Proses ulang file.");
-      onChange();
-      alert(error?.message || "Gagal memproses file.");
+      return alert(result.error || "Gagal memproses file.");
     }
+
+    setQuickDbFile(null);
+    setQuickDbStatus("Selesai. RAW/original sudah masuk folder dan otomatis dipilih sebagai sumber Study.");
+    onChange();
   }
 
   function closeQuickDatabase() {
@@ -5810,13 +5183,6 @@ function StudyPage({
   }
 
   const completedCount = units.filter((unit) => unit.completed_at).length;
-  const wrongRecallCount = units.filter(
-    (unit) => !unit.completed_at && recallFeedback[unit.id] === "wrong"
-  ).length;
-  const studyGradedCount = completedCount + wrongRecallCount;
-  const studyScorePercent = studyGradedCount
-    ? Math.round((completedCount * 100) / studyGradedCount)
-    : 0;
   const visibleUnits = units.filter((unit) => unit.completed_at || unit.is_unlocked);
   const isFinished = units.length > 0 && completedCount === units.length;
   const sourceNameMap = new Map(nodes.map((item) => [item.id, item.title]));
@@ -5851,32 +5217,37 @@ function StudyPage({
           <div className="studySetupHead">
             <div>
               <p className="eyebrow">SUMBER STUDY</p>
-              <h2>Pilih sumber</h2>
-              <p className="muted">Bisa pilih folder atau file langsung, dan bisa lebih dari satu.</p>
+              <h2>Pilih folder</h2>
+              <p className="muted">Bisa pilih lebih dari satu folder dalam cabang materi ini.</p>
             </div>
             {path?.status === "ready" && (
               <button className="ghost" onClick={() => setSetupOpen(false)}>Batal</button>
             )}
           </div>
 
-          <div className="studySourcePickerWrap">
-            <AiDatabaseSourcePicker
-              nodes={branchNodes}
-              files={sourceFiles}
-              nodeIds={selectedSources}
-              fileIds={selectedSourceFiles}
-              currentNodeId={node.parent_id}
-              onChange={(next) => {
-                setSelectedSources(next.nodeIds);
-                setSelectedSourceFiles(next.fileIds);
-              }}
-            />
-            <div className="studySourceSelectionSummary">
-              <strong>{selectedSources.length + selectedSourceFiles.length} sumber dipilih</strong>
-              <span>
-                {selectedSources.length} folder · {selectedSourceFiles.length} file
-              </span>
-            </div>
+          <div className="studySourceGrid">
+            {sourceDatabases.map((database) => {
+              const count = entries.filter((entry) => entry.node_id === database.id).length;
+              const active = selectedSources.includes(database.id);
+              return (
+                <button
+                  type="button"
+                  key={database.id}
+                  className={active ? "studySource active" : "studySource"}
+                  onClick={() => toggleSource(database.id)}
+                >
+                  <span className="studySourceCheck">{active ? "✓" : ""}</span>
+                  <span className="studySourceIcon">{database.emoji || "🗂️"}</span>
+                  <span className="studySourceCopy">
+                    <strong>{database.title}</strong>
+                    <small>{count ? count + " item teks/transkrip" : "Belum ada isi"}</small>
+                  </span>
+                </button>
+              );
+            })}
+            {!sourceDatabases.length && (
+              <div className="emptyStudySource">Belum ada folder sumber di cabang ini.</div>
+            )}
           </div>
 
           <label className="studyInstructionField">
@@ -5955,12 +5326,7 @@ function StudyPage({
             </button>
             <button
               className="primary"
-              disabled={
-                building ||
-                (studyAnswerSources.includes("database") &&
-                  !selectedSources.length &&
-                  !selectedSourceFiles.length)
-              }
+              disabled={building || (studyAnswerSources.includes("database") && !selectedSources.length)}
               onClick={buildStudy}
             >
               {building ? "Sedang menyusun urutan belajar..." : path ? "Susun ulang Study" : "Mulai susun Study"}
@@ -6061,12 +5427,8 @@ function StudyPage({
               <small>SUMBER</small>
               <div className="studySourceChips">
                 {(path.source_node_ids || []).map((id) => (
-                  <span key={"node-" + id}>{sourceNameMap.get(id) || "Folder"}</span>
+                  <span key={id}>{sourceNameMap.get(id) || "Folder"}</span>
                 ))}
-                {(path.source_file_ids || []).map((id) => {
-                  const file = files.find((item) => item.id === id);
-                  return <span key={"file-" + id}>{file?.file_name || "File"}</span>;
-                })}
               </div>
             </div>
             {path.overview && (
@@ -6082,26 +5444,6 @@ function StudyPage({
               </div>
             )}
           </section>
-
-          {path?.quiz_per_chapter !== false && (
-            <section className="studyScoreSummary">
-              <div className="studyScoreNumber">
-                <strong>{studyGradedCount ? studyScorePercent : "—"}</strong>
-                <small>/100</small>
-              </div>
-              <div>
-                <small>{isFinished ? "NILAI AKHIR" : "NILAI SEMENTARA"}</small>
-                <strong>
-                  {studyGradedCount
-                    ? studyGradedCount + " recall sudah dinilai"
-                    : "Belum ada recall yang dinilai"}
-                </strong>
-                <span>
-                  Nilai keseluruhan dihitung dari nilai per soal yang sudah dinilai.
-                </span>
-              </div>
-            </section>
-          )}
 
           <div className="studyTimeline">
             {visibleUnits.map((unit) => {
@@ -6122,7 +5464,7 @@ function StudyPage({
                     <div className="studyUnitBody">
                       <div className="studyTeaching"><RichText text={unit.teaching_text} /></div>
                       {path?.quiz_per_chapter !== false && (
-                        <div className="recallPassed">Recall selesai · Nilai 100/100 · <RichText text={unit.recall_explanation} /></div>
+                        <div className="recallPassed">Recall selesai · <RichText text={unit.recall_explanation} /></div>
                       )}
                     </div>
                   </details>
@@ -6171,13 +5513,13 @@ function StudyPage({
 
                       {feedback === "wrong" && (
                         <div className="recallFeedback wrong">
-                          <strong>Belum tepat · 0/100.</strong> Baca lagi bagian di atas, lalu coba sekali lagi.
+                          Belum tepat. Baca lagi bagian di atas, lalu coba sekali lagi.
                         </div>
                       )}
 
                       {feedback === "correct" && (
                         <div className="recallFeedback correct">
-                          <strong>Benar · 100/100.</strong> <RichText text={unit.recall_explanation} />
+                          Benar. <RichText text={unit.recall_explanation} />
                         </div>
                       )}
 
@@ -6208,12 +5550,6 @@ function StudyPage({
             <section className="studyComplete">
               <div>🏆</div>
               <h2>Study selesai</h2>
-              {path?.quiz_per_chapter !== false && (
-                <div className="studyFinalScore">
-                  <strong>{studyScorePercent}/100</strong>
-                  <small>Nilai akhir Study</small>
-                </div>
-              )}
               <p>Kamu sudah melewati seluruh bab/subbab dan recall dari folder yang dipilih.</p>
               <button className="ghost" onClick={() => setSetupOpen(true)}>Pelajari sumber lain / susun ulang</button>
             </section>
@@ -7179,277 +6515,37 @@ function normalizeRichTextSource(text: string) {
     .replace(/\r\n/g, "\n")
     .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
     .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
-    // Normalize escaped scientific punctuation before interpreting math.
-    // AI frequently emits C\\_1 / t\\_2 / e\\^(-kt); those backslashes
-    // are transport/Markdown escapes and must never be visible to the user.
-    .replace(/\\\\_/g, "_")
-    .replace(/\\\\\^/g, "^")
-    .replace(/\\\\\*/g, "*")
-    .replace(/\\\\\$/g, "$")
-    // Accept common LaTeX wrappers from AI output, but never leak them to UI.
-    .replace(/\\\[([\s\S]*?)\\\]/g, "$1")
-    .replace(/\\\(([\s\S]*?)\\\)/g, "$1")
-    .replace(/\$\$([^$\n]+)\$\$/g, "$1")
-    .replace(/\$([^$\n]+)\$/g, "$1")
-    // Convert the small LaTeX subset that commonly appears in science answers.
-    .replace(/\\left\b/g, "")
-    .replace(/\\right\b/g, "")
-    .replace(/\\times\b/g, "×")
-    .replace(/\\cdot\b/g, "·")
-    .replace(/\\Delta\b/g, "Δ")
-    .replace(/\\delta\b/g, "δ")
-    .replace(/\\mu\b/g, "μ")
-    .replace(/\\sigma\b/g, "σ")
-    .replace(/\\lambda\b/g, "λ")
-    .replace(/\\alpha\b/g, "α")
-    .replace(/\\beta\b/g, "β")
-    .replace(/\\gamma\b/g, "γ")
-    .replace(/\\theta\b/g, "θ")
-    .replace(/\\ln\b/g, "ln")
-    .replace(/\\exp\b/g, "exp")
-    .replace(/\\mathrm\{([^{}]+)\}/g, "$1")
-    .replace(/\\text\{([^{}]+)\}/g, "$1")
-    .replace(/\\operatorname\{([^{}]+)\}/g, "$1")
-    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "$1/$2");
-}
-
-function isAlphaNumeric(value: string) {
-  return /[A-Za-zÀ-ÿ0-9]/.test(value || "");
-}
-
-function renderScientificPlainText(value: string, keyPrefix: string) {
-  const nodes: any[] = [];
-  let buffer = "";
-  let key = 0;
-
-  const flush = () => {
-    if (!buffer) return;
-    nodes.push(<span key={keyPrefix + "-t-" + key++}>{buffer}</span>);
-    buffer = "";
-  };
-
-  const isMathOperandChar = (char: string) =>
-    /[A-Za-zÀ-ÿ0-9)\]}]/.test(char || "");
-
-  const isMathNextChar = (char: string) =>
-    /[A-Za-zÀ-ÿ0-9(\[{]/.test(char || "");
-
-  for (let i = 0; i < value.length; i++) {
-    const char = value[i];
-
-    // Convert arithmetic * to a proper multiplication sign while leaving
-    // formatting markers to the outer RichText parser.
-    if (char === "*") {
-      let left = i - 1;
-      while (left >= 0 && /[ \t]/.test(value[left])) left--;
-      let right = i + 1;
-      while (right < value.length && /[ \t]/.test(value[right])) right++;
-      if (
-        left >= 0 &&
-        right < value.length &&
-        isMathOperandChar(value[left]) &&
-        isMathNextChar(value[right])
-      ) {
-        buffer = buffer.replace(/[ \t]+$/, "");
-        flush();
-        nodes.push(
-          <span className="mathOperator" key={keyPrefix + "-mul-" + key++}>{" × "}</span>
-        );
-        i = right - 1;
-        continue;
-      }
-    }
-
-    // Scientific/math subscript: C_2, k_e, D_oral, AUC_iv.
-    // It only activates when "_" is embedded in an identifier, so
-    // _italic text_ is handled separately by the outer parser.
-    if (
-      char === "_" &&
-      i > 0 &&
-      /[A-Za-zÀ-ÿ0-9)\]}]/.test(value[i - 1] || "") &&
-      i + 1 < value.length
-    ) {
-      let sub = "";
-      let end = i + 1;
-      const next = value[i + 1];
-
-      if (next === "{") {
-        const closeAt = value.indexOf("}", i + 2);
-        if (closeAt > i + 2) {
-          sub = value.slice(i + 2, closeAt);
-          end = closeAt + 1;
-        }
-      } else {
-        const match = value.slice(i + 1).match(/^[A-Za-zÀ-ÿ0-9/.,+-]+/);
-        if (match?.[0]) {
-          sub = match[0];
-          end = i + 1 + sub.length;
-        }
-      }
-
-      if (sub) {
-        flush();
-        const subKey = keyPrefix + "-sub-" + key++;
-        nodes.push(
-          <sub className="mathSub" key={subKey}>
-            {renderScientificPlainText(sub, subKey + "-inner")}
-          </sub>
-        );
-        i = end - 1;
-        continue;
-      }
-    }
-
-    // Superscript: x^2, e^(-kt), e^{−kt}. The raw caret is hidden.
-    if (
-      char === "^" &&
-      i > 0 &&
-      /[A-Za-zÀ-ÿ0-9)\]}]/.test(value[i - 1] || "")
-    ) {
-      const next = value[i + 1];
-      let power = "";
-      let end = i + 1;
-
-      if (next === "{" || next === "(") {
-        const close = next === "{" ? "}" : ")";
-        const closeAt = value.indexOf(close, i + 2);
-        if (closeAt > i + 2) {
-          power = value.slice(i + 2, closeAt);
-          end = closeAt + 1;
-        }
-      } else {
-        const match = value.slice(i + 1).match(/^[-+−]?[A-Za-zÀ-ÿ0-9.,]+/);
-        if (match?.[0]) {
-          power = match[0];
-          end = i + 1 + power.length;
-        }
-      }
-
-      if (power) {
-        flush();
-        const supKey = keyPrefix + "-sup-" + key++;
-        nodes.push(
-          <sup className="mathSup" key={supKey}>
-            {renderScientificPlainText(power, supKey + "-inner")}
-          </sup>
-        );
-        i = end - 1;
-        continue;
-      }
-    }
-
-    buffer += char;
-  }
-
-  flush();
-  return nodes;
+    .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
+    .replace(/__([^_\n]+)__/g, "_$1_");
 }
 
 function RichText({ text, className = "" }: { text: string; className?: string }) {
   const value = normalizeRichTextSource(text);
   const parts: any[] = [];
-  let cursor = 0;
-  let plainStart = 0;
+  const pattern = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
   let key = 0;
 
-  const pushPlain = (plain: string) => {
-    if (!plain) return;
-    parts.push(...renderScientificPlainText(plain, "plain-" + key++));
-  };
+  while ((match = pattern.exec(value))) {
+    if (match.index > last) parts.push(value.slice(last, match.index));
+    const token = match[0];
 
-  while (cursor < value.length) {
-    let consumed = 0;
-    let rendered: any = null;
-
-    // Standard **bold** fallback.
-    if (value.startsWith("**", cursor)) {
-      const close = value.indexOf("**", cursor + 2);
-      if (close > cursor + 2 && !value.slice(cursor + 2, close).includes("\n")) {
-        const innerKey = "bold2-" + key++;
-        rendered = (
-          <strong key={innerKey}>
-            {renderScientificPlainText(value.slice(cursor + 2, close), innerKey + "-inner")}
-          </strong>
-        );
-        consumed = close + 2 - cursor;
-      }
+    if (token.startsWith("**") && token.endsWith("**")) {
+      parts.push(<strong key={"b" + key++}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("__") && token.endsWith("__")) {
+      parts.push(<em key={"i" + key++}>{token.slice(2, -2)}</em>);
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      parts.push(<strong key={"b" + key++}>{token.slice(1, -1)}</strong>);
+    } else if (token.startsWith("_") && token.endsWith("_")) {
+      parts.push(<em key={"i" + key++}>{token.slice(1, -1)}</em>);
+    } else {
+      parts.push(token);
     }
-
-    // WhatsApp-style *bold*. Asterisks surrounded by spaces remain plain text
-    // so the scientific renderer can turn them into ×.
-    if (
-      !rendered &&
-      value[cursor] === "*" &&
-      value[cursor + 1] &&
-      !/\s/.test(value[cursor + 1])
-    ) {
-      const close = value.indexOf("*", cursor + 1);
-      if (
-        close > cursor + 1 &&
-        !value.slice(cursor + 1, close).includes("\n") &&
-        !/\s/.test(value[close - 1] || "")
-      ) {
-        const innerKey = "bold-" + key++;
-        rendered = (
-          <strong key={innerKey}>
-            {renderScientificPlainText(value.slice(cursor + 1, close), innerKey + "-inner")}
-          </strong>
-        );
-        consumed = close + 1 - cursor;
-      }
-    }
-
-    // _italic_ only when underscores are real delimiters. Embedded underscores
-    // such as C_2, k_e, D_oral and AUC_iv stay in the plain math stream.
-    if (
-      !rendered &&
-      value[cursor] === "_" &&
-      !isAlphaNumeric(value[cursor - 1] || "") &&
-      value[cursor + 1] &&
-      !/\s/.test(value[cursor + 1])
-    ) {
-      const close = value.indexOf("_", cursor + 1);
-      if (
-        close > cursor + 1 &&
-        !value.slice(cursor + 1, close).includes("\n") &&
-        !isAlphaNumeric(value[close + 1] || "") &&
-        !/\s/.test(value[close - 1] || "")
-      ) {
-        const innerKey = "italic-" + key++;
-        rendered = (
-          <em key={innerKey}>
-            {renderScientificPlainText(value.slice(cursor + 1, close), innerKey + "-inner")}
-          </em>
-        );
-        consumed = close + 1 - cursor;
-      }
-    }
-
-    if (!rendered && value.startsWith("__", cursor)) {
-      const close = value.indexOf("__", cursor + 2);
-      if (close > cursor + 2 && !value.slice(cursor + 2, close).includes("\n")) {
-        const innerKey = "italic2-" + key++;
-        rendered = (
-          <em key={innerKey}>
-            {renderScientificPlainText(value.slice(cursor + 2, close), innerKey + "-inner")}
-          </em>
-        );
-        consumed = close + 2 - cursor;
-      }
-    }
-
-    if (rendered && consumed > 0) {
-      pushPlain(value.slice(plainStart, cursor));
-      parts.push(rendered);
-      cursor += consumed;
-      plainStart = cursor;
-      continue;
-    }
-
-    cursor++;
+    last = pattern.lastIndex;
   }
 
-  pushPlain(value.slice(plainStart));
+  if (last < value.length) parts.push(value.slice(last));
   return <span className={"richText " + className}>{parts}</span>;
 }
 
@@ -7467,7 +6563,6 @@ function PracticePage({
   cards,
   quizzes,
   entries,
-  files,
   nodes,
   onChange,
 }: {
@@ -7476,13 +6571,11 @@ function PracticePage({
   cards: Flashcard[];
   quizzes: Quiz[];
   entries: KnowledgeEntry[];
-  files: SourceFile[];
   nodes: StudyNode[];
   onChange: () => void;
 }) {
   type AiGradeResult = {
     gradable: boolean;
-    verdict?: "benar" | "hampir_benar" | "benar_sebagian" | "benar_sedikit" | "salah" | "tidak_dapat_dinilai";
     correct: boolean;
     score: number;
     feedback: string;
@@ -7495,7 +6588,8 @@ function PracticePage({
   const localQuizzes = quizzes.filter((item) => item.scope_node_id === node.id);
 
   const fixedMcq = localQuizzes.filter((item) => item.quiz_type === "mcq" && item.grading_mode === "fixed");
-  const aiQuizzes = localQuizzes.filter((item) => item.grading_mode === "ai" || item.quiz_type === "essay");
+  const fixedEssay = localQuizzes.filter((item) => item.quiz_type === "essay" && item.grading_mode === "fixed");
+  const aiQuizzes = localQuizzes.filter((item) => item.grading_mode === "ai");
   const aiMcq = aiQuizzes.filter((item) => item.quiz_type === "mcq");
   const aiEssay = aiQuizzes.filter((item) => item.quiz_type === "essay");
 
@@ -7506,12 +6600,8 @@ function PracticePage({
   const [essayAnswers, setEssayAnswers] = useState<Record<string, string>>({});
   const [aiResults, setAiResults] = useState<Record<string, AiGradeResult>>({});
   const [submitted, setSubmitted] = useState(false);
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash"));
-  const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["ai", "database"]);
-  const [practiceSourceNodeIds, setPracticeSourceNodeIds] = useState<string[]>(
-    node.parent_id ? [node.parent_id] : []
-  );
-  const [practiceSourceFileIds, setPracticeSourceFileIds] = useState<string[]>([]);
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
+  const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["database"]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
@@ -7520,52 +6610,34 @@ function PracticePage({
   const [manualCorrect, setManualCorrect] = useState(0);
   const [manualExpectedAnswer, setManualExpectedAnswer] = useState("");
 
-  useEffect(() => {
-    setPracticeSourceNodeIds(node.parent_id ? [node.parent_id] : []);
-    setPracticeSourceFileIds([]);
-  }, [node.id, node.parent_id]);
-
   const answeredMcq = [...fixedMcq, ...aiMcq].filter((quiz) => answers[quiz.id]).length;
-  const answeredEssay = aiEssay.filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
+  const answeredEssay = [...fixedEssay, ...aiEssay].filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
   const totalQuestions = localQuizzes.length;
   const answeredTotal = answeredMcq + answeredEssay;
   const allAnswered = totalQuestions > 0 && answeredTotal === totalQuestions;
 
   const correctFixedMcq = fixedMcq.filter((quiz) => answers[quiz.id] === quiz.correct_answer).length;
+  const correctFixedEssay = fixedEssay.filter(
+    (quiz) => normalizeQuizAnswer(essayAnswers[quiz.id] || "") === normalizeQuizAnswer(quiz.correct_answer || "")
+  ).length;
   const gradableAiResults = aiQuizzes
     .map((quiz) => aiResults[quiz.id])
     .filter((item): item is AiGradeResult => !!item && item.gradable);
   const correctAi = gradableAiResults.filter((item) => item.correct).length;
-  const gradedCount = fixedMcq.length + gradableAiResults.length;
+  const gradedCount = fixedMcq.length + fixedEssay.length + gradableAiResults.length;
   const totalScorePoints =
-    correctFixedMcq * 100 +
+    (correctFixedMcq + correctFixedEssay) * 100 +
     gradableAiResults.reduce((sum, item) => sum + item.score, 0);
   const scorePercent = gradedCount ? Math.round(totalScorePoints / gradedCount) : 0;
 
   async function generate() {
     if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada folder sumber.");
-    if (
-      practiceAnswerSources.includes("database") &&
-      !practiceSourceNodeIds.length &&
-      !practiceSourceFileIds.length
-    ) {
-      return alert("Database aktif. Pilih minimal satu folder atau file sumber.");
-    }
 
     if (aiSelection.model === "local") {
       setBusy(true);
-      const scopeIds = new Set<string>();
-      for (const sourceNodeId of practiceSourceNodeIds.length ? practiceSourceNodeIds : [node.parent_id]) {
-        for (const id of collectSubtreeIds(nodes, sourceNodeId)) scopeIds.add(id);
-      }
-      const selectedFileIds = new Set(practiceSourceFileIds);
+      const scopeIds = collectSubtreeIds(nodes, node.parent_id);
       const sourceEntries = entries.filter(
-        (item) =>
-          item.source_type !== "transcript" &&
-          (
-            scopeIds.has(item.node_id) ||
-            (!!item.source_file_id && selectedFileIds.has(item.source_file_id))
-          )
+        (item) => scopeIds.includes(item.node_id) && item.source_type !== "transcript"
       );
       const sentences = sourceEntries
         .flatMap((entry) => (entry.raw_content || entry.content).replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
@@ -7623,9 +6695,7 @@ function PracticePage({
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
-        sourceNodeId: practiceSourceNodeIds[0] || node.parent_id,
-        sourceNodeIds: practiceSourceNodeIds,
-        sourceFileIds: practiceSourceFileIds,
+        sourceNodeId: node.parent_id,
         targetNodeId: node.id,
         mode,
         aiMode,
@@ -7678,7 +6748,7 @@ function PracticePage({
       explanation: isAi
         ? "Dinilai model Gemini aktif hanya berdasarkan Database."
         : manualKind === "essay-fixed"
-          ? "Essay dinilai AI secara semantik; jawaban acuan hanya menjadi referensi makna."
+          ? "Essay dinilai lokal berdasarkan jawaban acuan."
           : "Kuis dibuat manual.",
       quiz_type: isMcq ? "mcq" : "essay",
       grading_mode: isAi ? "ai" : "fixed",
@@ -7731,7 +6801,6 @@ function PracticePage({
       (data.results || []).forEach((item: any) => {
         mapped[String(item.id)] = {
           gradable: item.gradable !== false,
-          verdict: String(item.verdict || "") as AiGradeResult["verdict"],
           correct: item.correct === true,
           score: Number(item.score || 0),
           feedback: String(item.feedback || ""),
@@ -7784,56 +6853,14 @@ function PracticePage({
 
         {mode === "flashcards" ? (
           <>
-            <div className="practiceSourceControls">
-              <AiDatabaseSourcePicker
-                nodes={nodes}
-                files={files}
-                nodeIds={practiceSourceNodeIds}
-                fileIds={practiceSourceFileIds}
-                currentNodeId={node.parent_id}
-                onChange={(next) => {
-                  setPracticeSourceNodeIds(next.nodeIds);
-                  setPracticeSourceFileIds(next.fileIds);
-                  if (
-                    (next.nodeIds.length || next.fileIds.length) &&
-                    !practiceAnswerSources.includes("database")
-                  ) {
-                    setPracticeAnswerSources((current) =>
-                      current.includes("database") ? current : [...current, "database"]
-                    );
-                  }
-                }}
-              />
-              <div className="practiceSourceControls">
-                <AiDatabaseSourcePicker
-                  nodes={nodes}
-                  files={files}
-                  nodeIds={practiceSourceNodeIds}
-                  fileIds={practiceSourceFileIds}
-                  currentNodeId={node.parent_id}
-                  onChange={(next) => {
-                    setPracticeSourceNodeIds(next.nodeIds);
-                    setPracticeSourceFileIds(next.fileIds);
-                    if (
-                      (next.nodeIds.length || next.fileIds.length) &&
-                      !practiceAnswerSources.includes("database")
-                    ) {
-                      setPracticeAnswerSources((current) =>
-                        current.includes("database") ? current : [...current, "database"]
-                      );
-                    }
-                  }}
-                />
-                <AiSourceModelBar
-                  sources={practiceAnswerSources}
-                  onSourcesChange={setPracticeAnswerSources}
-                  selection={aiSelection}
-                  onSelectionChange={setAiSelection}
-                  action="study"
-                  allowLocal
-                />
-              </div>
-            </div>
+            <AiSourceModelBar
+              sources={practiceAnswerSources}
+              onSourcesChange={setPracticeAnswerSources}
+              selection={aiSelection}
+              onSelectionChange={setAiSelection}
+              action="study"
+              allowLocal
+            />
             <button className="primary inlinePrimary" onClick={generate} disabled={busy}>
               {busy ? "Membuat..." : "Buat Flashcard"}
             </button>
@@ -7937,7 +6964,7 @@ function PracticePage({
                 onChange={(e) => setManualExpectedAnswer(e.target.value)}
                 placeholder="Tulis jawaban yang dianggap benar..."
               />
-              <small className="muted">Jawaban acuan dipakai sebagai referensi makna. Saat selesai, AI tetap menilai konteks jawaban sehingga parafrasa yang benar tidak dianggap salah.</small>
+              <small className="muted">Mode Essay tanpa AI membandingkan jawaban secara lokal dengan jawaban acuan ini.</small>
             </label>
           )}
 
@@ -7979,13 +7006,10 @@ function PracticePage({
 
           {submitted && !!totalQuestions && (
             <div className="quizScore">
-              <div className="scoreNumber">
-                <strong>{scorePercent}</strong>
-                <small>/100</small>
-              </div>
+              <div className="scoreNumber">{scorePercent}</div>
               <div>
                 <small>NILAI AKHIR</small>
-                <strong>{correctFixedMcq + correctAi} jawaban dinilai benar · {gradedCount} soal dinilai</strong>
+                <strong>{correctFixedMcq + correctFixedEssay + correctAi} jawaban dinilai benar · {gradedCount} soal dinilai</strong>
                 {aiQuizzes.length !== gradableAiResults.length && (
                   <span className="muted">{aiQuizzes.length - gradableAiResults.length} soal AI tidak cukup sumber untuk dinilai.</span>
                 )}
@@ -7998,7 +7022,9 @@ function PracticePage({
               const isMcq = quiz.quiz_type === "mcq";
               const answer = isMcq ? answers[quiz.id] || "" : essayAnswers[quiz.id] || "";
               const aiResult = aiResults[quiz.id];
-              const fixedCorrect = isMcq && answer === quiz.correct_answer;
+              const fixedCorrect = isMcq
+                ? answer === quiz.correct_answer
+                : normalizeQuizAnswer(answer) === normalizeQuizAnswer(quiz.correct_answer || "");
 
               return (
                 <article className="dataCard quizCard" key={quiz.id}>
@@ -8030,34 +7056,19 @@ function PracticePage({
                     />
                   )}
 
-                  {submitted && quiz.grading_mode === "fixed" && isMcq && (
+                  {submitted && quiz.grading_mode === "fixed" && (
                     <div className={fixedCorrect ? "answerState ok" : "answerState bad"}>
-                      <strong>{fixedCorrect ? "Benar · 100/100" : "Salah · 0/100"}</strong>
+                      <strong>{fixedCorrect ? "Benar" : "Salah"}</strong>
                       <br />
-                      <span>Jawaban: <RichText text={quiz.correct_answer} /></span>
+                      <span>{isMcq ? "Jawaban" : "Jawaban acuan"}: <RichText text={quiz.correct_answer} /></span>
                       {quiz.explanation && <><br /><RichText text={quiz.explanation} /></>}
                     </div>
                   )}
 
-                  {submitted && aiResult && (
-                    <div className={aiResult.correct ? "answerState ok" : aiResult.score > 0 ? "answerState partial" : "answerState bad"}>
-                      <strong>{
-                        !aiResult.gradable
-                          ? "Belum dapat dinilai · 0/100"
-                          : aiResult.score === 100
-                            ? "Benar · 100/100"
-                            : aiResult.score === 70
-                              ? "Hampir benar · 70/100"
-                              : aiResult.score === 50
-                                ? "Benar sebagian · 50/100"
-                                : aiResult.score === 25
-                                  ? "Benar sedikit · 25/100"
-                                  : "Salah · 0/100"
-                      }</strong>
+                  {submitted && quiz.grading_mode === "ai" && aiResult && (
+                    <div className={aiResult.correct ? "answerState ok" : "answerState bad"}>
+                      <strong>{aiResult.gradable ? (aiResult.correct ? "Benar" : "Belum benar") : "Belum dapat dinilai"} · {aiResult.score}/100</strong>
                       {aiResult.feedback && <><br /><RichText text={aiResult.feedback} /></>}
-                      {quiz.quiz_type === "essay" && quiz.correct_answer && (
-                        <><br /><small>Jawaban acuan (referensi): <RichText text={quiz.correct_answer} /></small></>
-                      )}
                       {aiResult.basis && <><br /><small>Dasar Database: <RichText text={aiResult.basis} /></small></>}
                     </div>
                   )}
@@ -8252,9 +7263,6 @@ function AiModePicker({
     visibleModels.find((item) => item.id !== "local") ||
     visibleModels[0];
   const selectedEffort = selected?.efforts.find((item) => item.value === value.effort);
-  const selectedLength =
-    AI_RESPONSE_LENGTHS.find((item) => item.value === (value.length || "medium")) ||
-    AI_RESPONSE_LENGTHS[1];
 
   function modelRouteLabel(item: (typeof visibleModels)[number]) {
     if (item.provider === "gemini") {
@@ -8284,15 +7292,13 @@ function AiModePicker({
 
   function chooseModel(model: AiModelId) {
     const next = defaultSelection(model, context);
-    onChange({ ...next, length: value.length || "medium" });
+    onChange(next);
+    if (!modelCapability(model).efforts.length) setOpen(false);
   }
 
   function chooseEffort(effort: AiEffort) {
-    onChange({ model: selected.id, effort, length: value.length || "medium" });
-  }
-
-  function chooseLength(length: AiResponseLength) {
-    onChange({ model: selected.id, effort: value.effort, length });
+    onChange({ model: selected.id, effort });
+    setOpen(false);
   }
 
   return (
@@ -8308,7 +7314,6 @@ function AiModePicker({
           <small>
             {selected?.label || "Local"}
             {selected?.id !== "local" && selectedEffort ? " · " + selectedEffort.label : ""}
-            {" · " + selectedLength.label}
           </small>
         </span>
         <b>⌄</b>
@@ -8318,7 +7323,7 @@ function AiModePicker({
         <div className="aiModePopover aiModelPopover">
           <div className="modelPickerHead">
             <div>
-              <span className="aiModeSectionLabel">MODEL</span>
+              <span className="aiModeSectionLabel">CHOOSE MODEL</span>
               <strong>{selected?.label || "Local"}</strong>
             </div>
             <div className="modelPickerActions">
@@ -8349,8 +7354,8 @@ function AiModePicker({
           {!!selected?.efforts.length && (
             <div className="modelEffortPanel">
               <div>
-                <span className="aiModeSectionLabel">TINGKAT PENALARAN · {selected.label}</span>
-                <small>Pilih tingkat kecerdasan/penalaran yang tersedia untuk model ini.</small>
+                <span className="aiModeSectionLabel">REASONING · {selected.label}</span>
+                <small>Pilih tingkat penalaran untuk model ini.</small>
               </div>
               <div className="aiEffortGrid">
                 {selected.efforts.map((effort) => (
@@ -8367,27 +7372,6 @@ function AiModePicker({
               </div>
             </div>
           )}
-
-          <div className="modelLengthPanel">
-            <div>
-              <span className="aiModeSectionLabel">PANJANG JAWABAN</span>
-              <small>Atur seberapa ringkas atau lengkap jawaban, Study, Quiz, dan hasil AI.</small>
-            </div>
-            <div className="aiLengthGrid">
-              {AI_RESPONSE_LENGTHS.map((length) => (
-                <button
-                  type="button"
-                  key={length.value}
-                  className={(value.length || "medium") === length.value ? "aiLengthOption active" : "aiLengthOption"}
-                  onClick={() => chooseLength(length.value)}
-                >
-                  <strong>{length.label}</strong>
-                  <small>{length.hint}</small>
-                </button>
-              ))}
-            </div>
-          </div>
-
           <button
             type="button"
             className="modelPluginButton modelPluginButtonBottom"
@@ -8470,7 +7454,7 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
         <div className="citationPopover">
           <div className="citationPopoverHead">
             <div>
-              <small>SITASI</small>
+              <small>CHOOSE CITATION</small>
               <strong>{selected.label}</strong>
             </div>
             <button type="button" onClick={() => setOpen(false)}>×</button>
@@ -8539,7 +7523,6 @@ function AiSourceModelBar({
   compact = true,
   allowLocal = false,
   context = "general",
-  showSources = true,
 }: {
   sources: AiSourceKind[];
   onSourcesChange: (sources: AiSourceKind[]) => void;
@@ -8549,7 +7532,6 @@ function AiSourceModelBar({
   compact?: boolean;
   allowLocal?: boolean;
   context?: "general" | "chat";
-  showSources?: boolean;
 }) {
   useEffect(() => {
     if (selection.model === "local" && (sources.length !== 1 || sources[0] !== "database")) {
@@ -8567,30 +7549,28 @@ function AiSourceModelBar({
 
   return (
     <div className="askControls aiSourceModelBar">
-      {showSources && (
-        <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
-          {([
-            { id: "ai" as const, label: "AI" },
-            { id: "database" as const, label: "Database" },
-            { id: "web" as const, label: "Web" },
-          ]).map((item) => {
-            const disabled = selection.model === "local" && item.id !== "database";
-            return (
-              <button
-                type="button"
-                key={item.id}
-                className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
-                onClick={() => toggle(item.id)}
-                aria-pressed={sources.includes(item.id)}
-                disabled={disabled}
-                title={disabled ? "Model Local memakai Database saja." : undefined}
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
+        {([
+          { id: "ai" as const, label: "AI" },
+          { id: "database" as const, label: "Database" },
+          { id: "web" as const, label: "Web" },
+        ]).map((item) => {
+          const disabled = selection.model === "local" && item.id !== "database";
+          return (
+            <button
+              type="button"
+              key={item.id}
+              className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
+              onClick={() => toggle(item.id)}
+              aria-pressed={sources.includes(item.id)}
+              disabled={disabled}
+              title={disabled ? "Model Local memakai Database saja." : undefined}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
       <CitationPicker compact={compact} />
       <AiModePicker
         value={selection}
@@ -8699,7 +7679,6 @@ function BottomAskBar({
   scopeNodeId,
   scopeName,
   entries,
-  files,
   nodes,
   onChange,
 }: {
@@ -8707,50 +7686,24 @@ function BottomAskBar({
   scopeNodeId: string | null;
   scopeName: string;
   entries: KnowledgeEntry[];
-  files: SourceFile[];
   nodes: StudyNode[];
   onChange: () => void;
 }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [answerModel, setAnswerModel] = useState("");
-  const [sources, setSources] = useState<Array<{
-    id: string;
-    title: string;
-    category: string;
-    source_file_id?: string | null;
-    page_start?: number | null;
-    page_end?: number | null;
-  }>>([]);
+  const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
-  const [artifactBusy, setArtifactBusy] = useState(false);
-  const [artifactError, setArtifactError] = useState("");
-  const [answerArtifact, setAnswerArtifact] = useState<{
-    format: AskArtifactFormat;
-    fileName: string;
-    mimeType: string;
-    sizeBytes: number;
-    url: string;
-    storagePath: string;
-    expiresIn: number;
-  } | null>(null);
-  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["ai", "database"]);
-  const [selectedSourceNodeIds, setSelectedSourceNodeIds] = useState<string[]>([]);
-  const [selectedSourceFileIds, setSelectedSourceFileIds] = useState<string[]>([]);
+  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["database"]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
+  const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
   const [composerBottom, setComposerBottom] = useState(16);
   const [composerHeight, setComposerHeight] = useState(118);
   const dragRef = useRef<{ y: number; bottom: number } | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
-  const answerBodyRef = useRef<HTMLDivElement | null>(null);
-  const answerCopyTimerRef = useRef<number | null>(null);
-  const askDropDepthRef = useRef(0);
-  const [answerCopyState, setAnswerCopyState] = useState<"idle" | "copied" | "error">("idle");
-  const [askDropActive, setAskDropActive] = useState(false);
   const askVoiceRecorderRef = useRef<MediaRecorder | null>(null);
   const askVoiceChunksRef = useRef<Blob[]>([]);
   const askVoiceStreamRef = useRef<MediaStream | null>(null);
@@ -8781,9 +7734,6 @@ function BottomAskBar({
     mimeType: string;
     rawText: string;
     filePath: string;
-    ownsStorage?: boolean;
-    existingSourceFileId?: string | null;
-    sizeBytes?: number;
   } | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [linkInputOpen, setLinkInputOpen] = useState(false);
@@ -8833,7 +7783,6 @@ function BottomAskBar({
       } catch {}
       askVoiceStreamRef.current?.getTracks().forEach((track) => track.stop());
       if (askVoiceTimerRef.current) window.clearInterval(askVoiceTimerRef.current);
-      if (answerCopyTimerRef.current) window.clearTimeout(answerCopyTimerRef.current);
     };
   }, []);
 
@@ -8991,17 +7940,6 @@ function BottomAskBar({
   }
 
   function scopedLocalEntries() {
-    const hasExplicit = selectedSourceNodeIds.length > 0 || selectedSourceFileIds.length > 0;
-    if (hasExplicit) {
-      const nodeIds = new Set<string>();
-      for (const nodeId of selectedSourceNodeIds) {
-        for (const id of collectSubtreeIds(nodes, nodeId)) nodeIds.add(id);
-      }
-      const fileIds = new Set(selectedSourceFileIds);
-      return entries.filter(
-        (item) => nodeIds.has(item.node_id) || (!!item.source_file_id && fileIds.has(item.source_file_id))
-      );
-    }
     if (!scopeNodeId) return entries;
     const ids = collectSubtreeIds(nodes, scopeNodeId);
     return entries.filter((item) => ids.includes(item.node_id));
@@ -9129,9 +8067,6 @@ function BottomAskBar({
       "Jawab jelas, ringkas, dan terstruktur.",
       citationClientInstruction(),
     ];
-
-    const requestedFile = requestedArtifactFormat(query);
-    if (requestedFile) rules.push(artifactClientInstruction(requestedFile));
 
     if (useDatabase && !useAi) {
       rules.push('Jika Database tidak cukup, jawab persis: "Materi ini belum tersedia di database."');
@@ -9599,7 +8534,7 @@ function BottomAskBar({
     let extractedMime = mimeType;
 
     try {
-      setAttachmentStatus("File tersimpan. Membaca isi file...");
+      setAttachmentStatus("File tersimpan. Membaca teks dan mendeteksi scan/OCR...");
       const form = new FormData();
       form.append("file", file);
       form.append("aiMode", aiMode);
@@ -9630,9 +8565,6 @@ function BottomAskBar({
       mimeType: extractedMime,
       rawText: extractedRaw,
       filePath,
-      ownsStorage: true,
-      existingSourceFileId: null,
-      sizeBytes: file.size,
     });
     setAttachMenuOpen(false);
     setAttachmentBusy(false);
@@ -9645,7 +8577,7 @@ function BottomAskBar({
 
   async function discardPendingAttachment() {
     const current = pendingAttachment;
-    if (current?.filePath && current.ownsStorage !== false) {
+    if (current?.filePath) {
       await supabase.storage.from("study-files").remove([current.filePath]);
     }
     setPendingAttachment(null);
@@ -9749,164 +8681,6 @@ function BottomAskBar({
   }
 
 
-  async function createAnswerArtifact(
-    format: AskArtifactFormat,
-    query: string,
-    contentText: string
-  ) {
-    if (!contentText.trim()) return;
-    setArtifactBusy(true);
-    setArtifactError("");
-    setAnswerArtifact(null);
-
-    try {
-      const response = await fetch("/api/create-artifact", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + session.access_token,
-        },
-        body: JSON.stringify({
-          format,
-          question: query,
-          content: contentText,
-        }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result?.artifact?.url) {
-        throw new Error(result.error || "File belum berhasil dibuat.");
-      }
-      setAnswerArtifact(result.artifact);
-    } catch (error: any) {
-      setArtifactError(error?.message || "File belum berhasil dibuat.");
-    } finally {
-      setArtifactBusy(false);
-    }
-  }
-
-  async function copyAnswerToClipboard() {
-    const text = (answerBodyRef.current?.innerText || answer || "").trim();
-    if (!text || busy) return;
-
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const area = document.createElement("textarea");
-        area.value = text;
-        area.setAttribute("readonly", "");
-        area.style.position = "fixed";
-        area.style.opacity = "0";
-        document.body.appendChild(area);
-        area.select();
-        const copied = document.execCommand("copy");
-        area.remove();
-        if (!copied) throw new Error("copy failed");
-      }
-
-      setAnswerCopyState("copied");
-      if (answerCopyTimerRef.current) window.clearTimeout(answerCopyTimerRef.current);
-      answerCopyTimerRef.current = window.setTimeout(() => setAnswerCopyState("idle"), 1800);
-    } catch {
-      setAnswerCopyState("error");
-      if (answerCopyTimerRef.current) window.clearTimeout(answerCopyTimerRef.current);
-      answerCopyTimerRef.current = window.setTimeout(() => setAnswerCopyState("idle"), 2200);
-    }
-  }
-
-  function isAskDrop(event: any) {
-    const types = Array.from(event?.dataTransfer?.types || []) as string[];
-    return types.includes("Files") || types.includes("application/x-rb-explorer-item");
-  }
-
-  function handleAskDragEnter(event: any) {
-    if (!isAskDrop(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    askDropDepthRef.current += 1;
-    setAskDropActive(true);
-  }
-
-  function handleAskDragOver(event: any) {
-    if (!isAskDrop(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-    setAskDropActive(true);
-  }
-
-  function handleAskDragLeave(event: any) {
-    if (!isAskDrop(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    askDropDepthRef.current = Math.max(0, askDropDepthRef.current - 1);
-    if (askDropDepthRef.current === 0) setAskDropActive(false);
-  }
-
-  async function attachExplorerFile(fileId: string) {
-    const source = files.find((item) => item.id === fileId);
-    if (!source) return alert("File tidak ditemukan.");
-
-    if (source.source_kind === "link" || source.source_url) {
-      const rawUrl = source.source_url || source.file_path;
-      if (rawUrl) await prepareAskLink(rawUrl);
-      return;
-    }
-
-    const placeholder = new File([], source.file_name, {
-      type: source.mime_type || "application/octet-stream",
-      lastModified: Date.now(),
-    });
-
-    setPendingAttachment({
-      file: placeholder,
-      fileName: source.file_name,
-      mimeType: source.mime_type || "application/octet-stream",
-      rawText: source.raw_text || "",
-      filePath: source.file_path,
-      ownsStorage: false,
-      existingSourceFileId: source.id,
-      sizeBytes: Number(source.size_bytes || 0),
-    });
-    setSelectedSourceFileIds((current) =>
-      current.includes(source.id) ? current : [...current, source.id]
-    );
-    setSelectedSources((current) =>
-      current.includes("database") ? current : [...current, "database"]
-    );
-    setAttachMenuOpen(false);
-    setAttachmentBusy(false);
-    setAttachmentStatus("File dari Database siap dipakai langsung oleh Tanya AI.");
-  }
-
-  async function handleAskDrop(event: any) {
-    if (!isAskDrop(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    askDropDepthRef.current = 0;
-    setAskDropActive(false);
-
-    if (attachmentBusy) return;
-
-    const explorerPayload = String(
-      event.dataTransfer?.getData("application/x-rb-explorer-item") || ""
-    );
-    if (explorerPayload) {
-      try {
-        const item = JSON.parse(explorerPayload) as { kind?: string; id?: string };
-        if (item.kind === "file" && item.id) {
-          await attachExplorerFile(item.id);
-          return;
-        }
-      } catch {}
-    }
-
-    const droppedFiles = Array.from(event.dataTransfer?.files || []) as File[];
-    const file = droppedFiles[0];
-    if (!file) return;
-    await processAskAttachment(file);
-  }
-
   function sourcesLabel(value = selectedSources) {
     const ordered: AiSourceKind[] = ["ai", "database", "web"];
     const labels: Record<AiSourceKind, string> = {
@@ -9924,25 +8698,6 @@ function BottomAskBar({
     const typedUrl = firstUrl(question);
     const effectiveUrl = pendingLink?.url || typedUrl;
     const wantsSave = wantsDatabaseSave(question);
-    const requestedFileFormat = requestedArtifactFormat(question);
-    const previousAnswer = answer.trim();
-    const usePreviousAnswerForFile =
-      Boolean(requestedFileFormat && previousAnswer) &&
-      /\b(jawaban|hasil|teks|materi|isi|yang\s+tadi|tadi|sebelumnya|di\s+atas|diatas)\b/i.test(question);
-
-    if (usePreviousAnswerForFile && requestedFileFormat) {
-      setBusy(false);
-      setOpen(true);
-      setAnswer(previousAnswer);
-      setAnswerModel("Jawaban sebelumnya");
-      setSources([]);
-      setWebSources([]);
-      setWarning("");
-      setArtifactError("");
-      setAnswerArtifact(null);
-      void createAnswerArtifact(requestedFileFormat, question.trim(), previousAnswer);
-      return;
-    }
 
     if (wantsSave) {
       const suggested = suggestedDatabaseId(question);
@@ -9963,9 +8718,6 @@ function BottomAskBar({
     setSources([]);
     setWebSources([]);
     setWarning("");
-    setArtifactBusy(false);
-    setArtifactError("");
-    setAnswerArtifact(null);
 
     if (aiSelection.model === "local") {
       if (pendingAttachment?.rawText || pendingLink?.rawText) {
@@ -9977,9 +8729,6 @@ function BottomAskBar({
         setAnswerModel("Sumber RAW / Local");
         setSources([]);
         setBusy(false);
-        if (requestedFileFormat) {
-          void createAnswerArtifact(requestedFileFormat, question.trim(), raw);
-        }
         return;
       }
       const local = answerLocally(question.trim());
@@ -9987,9 +8736,6 @@ function BottomAskBar({
       setAnswerModel("Browser / Local");
       setSources(local.refs);
       setBusy(false);
-      if (requestedFileFormat) {
-        void createAnswerArtifact(requestedFileFormat, question.trim(), local.text);
-      }
       return;
     }
 
@@ -9999,9 +8745,6 @@ function BottomAskBar({
         setAnswer(local.text);
         setAnswerModel(local.model + " · Local");
         setSources(local.refs);
-        if (requestedFileFormat) {
-          void createAnswerArtifact(requestedFileFormat, question.trim(), local.text);
-        }
       } catch (error: any) {
         setAnswer(error?.message || "Local AI gagal menjawab.");
       } finally {
@@ -10015,31 +8758,25 @@ function BottomAskBar({
       pendingLink?.rawText || "",
     ].filter(Boolean).join("\n\n---\n\n");
 
-    const response = await authenticatedAiFetch(
-      "/api/ask",
-      session,
-      aiSelection,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          question,
-          scopeNodeId,
-          sourceNodeIds: selectedSourceNodeIds,
-          sourceFileIds: selectedSourceFileIds,
-          aiMode,
-          sources: selectedSources,
-          attachmentTitle:
-            pendingAttachment?.fileName ||
-            pendingLink?.title ||
-            "",
-          attachmentRaw,
-          attachmentPath: pendingAttachment?.filePath || "",
-          attachmentMimeType: pendingAttachment?.mimeType || "",
-          attachmentUrl: effectiveUrl,
-          ...citationRequestFields(),
-        }),
-      }
-    );
+    const response = await fetch("/api/ask", {
+      method: "POST",
+      headers: aiRequestHeaders(session, aiSelection),
+      body: JSON.stringify({
+        question,
+        scopeNodeId,
+        aiMode,
+        sources: selectedSources,
+        attachmentTitle:
+          pendingAttachment?.fileName ||
+          pendingLink?.title ||
+          "",
+        attachmentRaw,
+        attachmentPath: pendingAttachment?.filePath || "",
+        attachmentMimeType: pendingAttachment?.mimeType || "",
+        attachmentUrl: effectiveUrl,
+        ...citationRequestFields(),
+      }),
+    });
 
     const data = await response.json().catch(() => ({}));
     setBusy(false);
@@ -10054,14 +8791,6 @@ function BottomAskBar({
     setSources(data.sources || []);
     setWebSources(data.webSources || []);
     setWarning(data.warning || "");
-    const returnedArtifactFormat =
-      requestedFileFormat ||
-      (["docx", "pdf", "pptx", "txt", "md", "csv", "json"].includes(String(data.artifactFormat))
-        ? (String(data.artifactFormat) as AskArtifactFormat)
-        : null);
-    if (returnedArtifactFormat && data.answer) {
-      void createAnswerArtifact(returnedArtifactFormat, question.trim(), String(data.answer));
-    }
     if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
       setSelectedSources(data.selectedSources);
     }
@@ -10072,13 +8801,7 @@ function BottomAskBar({
   return (
     <>
       {open && (
-        <div
-          className="aiAnswer"
-          style={{
-            bottom: composerBottom + composerHeight + 12,
-            ["--rb-ai-answer-bottom" as any]: `${composerBottom + composerHeight + 12}px`,
-          }}
-        >
+        <div className="aiAnswer" style={{ bottom: composerBottom + composerHeight + 12 }}>
           <div className="aiAnswerHead">
             <div>
               <small title={scopeName}>
@@ -10097,99 +8820,16 @@ function BottomAskBar({
             <button onClick={() => setOpen(false)}>×</button>
           </div>
           {warning && <div className="aiWarning"><RichText text={warning} /></div>}
-          <div ref={answerBodyRef} className="aiAnswerBody">
+          <div className="aiAnswerBody">
             {busy
               ? "Memproses dari " + activeSourcesLabel + "..."
               : <RichText text={answer || "..."} />}
           </div>
-          {!busy && (artifactBusy || answerArtifact || artifactError) && (
-            <div className="aiArtifactCard">
-              {artifactBusy && (
-                <div>
-                  <strong>Membuat file...</strong>
-                  <small>AI sedang mengubah jawaban menjadi file jadi.</small>
-                </div>
-              )}
-              {!artifactBusy && answerArtifact && (
-                <>
-                  <div>
-                    <strong>📎 {answerArtifact.fileName}</strong>
-                    <small>
-                      {answerArtifact.format.toUpperCase()} · {Math.max(1, Math.round(answerArtifact.sizeBytes / 1024))} KB
-                    </small>
-                  </div>
-                  <a
-                    href={answerArtifact.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    download={answerArtifact.fileName}
-                  >
-                    Buka / unduh file
-                  </a>
-                </>
-              )}
-              {!artifactBusy && artifactError && !answerArtifact && (
-                <div>
-                  <strong>File belum berhasil dibuat</strong>
-                  <small>{artifactError}</small>
-                </div>
-              )}
-            </div>
-          )}
-          {!busy && answer && (
-            <div className="aiAnswerActions">
-              <button type="button" onClick={() => void copyAnswerToClipboard()}>
-                <span aria-hidden="true">⧉</span>
-                <strong>
-                  {answerCopyState === "copied"
-                    ? "Tersalin"
-                    : answerCopyState === "error"
-                      ? "Copy gagal"
-                      : "Copy jawaban"}
-                </strong>
-              </button>
-              <label className="aiArtifactQuickCreate">
-                <span aria-hidden="true">↧</span>
-                <select
-                  defaultValue=""
-                  disabled={artifactBusy}
-                  aria-label="Buat file dari jawaban"
-                  onChange={(event) => {
-                    const format = event.currentTarget.value as AskArtifactFormat;
-                    if (format) void createAnswerArtifact(format, question.trim(), answer);
-                    event.currentTarget.value = "";
-                  }}
-                >
-                  <option value="" disabled>Buat file</option>
-                  <option value="docx">Word (.docx)</option>
-                  <option value="pdf">PDF (.pdf)</option>
-                  <option value="pptx">PowerPoint (.pptx)</option>
-                  <option value="txt">Text (.txt)</option>
-                  <option value="md">Markdown (.md)</option>
-                  <option value="csv">CSV (.csv)</option>
-                  <option value="json">JSON (.json)</option>
-                </select>
-              </label>
-              <small>
-                {answerCopyState === "copied"
-                  ? "Jawaban sudah masuk clipboard."
-                  : "Salin jawaban atau buat file jadi langsung dari jawaban ini."}
-              </small>
-            </div>
-          )}
           {(!!sources.length || !!webSources.length) && (
             <div className="aiSources">
-              {sources.map((source) => {
-                const pageLabel =
-                  source.page_start && source.page_end
-                    ? source.page_start === source.page_end
-                      ? ` · hlm. ${source.page_start}`
-                      : ` · hlm. ${source.page_start}-${source.page_end}`
-                    : "";
-                return (
-                  <span key={source.id}>Database · {source.title}{pageLabel}</span>
-                );
-              })}
+              {sources.map((source) => (
+                <span key={source.id}>Database · {source.title}</span>
+              ))}
               {webSources.map((source) => (
                 <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
                   Web · {source.title}
@@ -10200,64 +8840,22 @@ function BottomAskBar({
         </div>
       )}
 
-      <form
-        ref={composerRef}
-        className={askDropActive ? "bottomAsk gptComposer askDropActive" : "bottomAsk gptComposer"}
-        style={{ bottom: composerBottom }}
-        onSubmit={ask}
-        onDragEnter={handleAskDragEnter}
-        onDragOver={handleAskDragOver}
-        onDragLeave={handleAskDragLeave}
-        onDrop={(event) => void handleAskDrop(event)}
-      >
-        {askDropActive && (
-          <div className="askDropOverlay" aria-hidden="true">
-            <div>
-              <strong>Lepas file di sini</strong>
-              <small>File langsung jadi lampiran untuk Tanya AI</small>
-            </div>
-          </div>
-        )}
+      <form ref={composerRef} className="bottomAsk gptComposer" style={{ bottom: composerBottom }} onSubmit={ask}>
         <button type="button" className="composerDragHandle" onPointerDown={startDrag} aria-label="Geser bar">
           <span />
         </button>
         <div className="askTopRow">
-          <div className="askTopControls">
-            <div className="askScope" title={scopeName}>{scopeName}</div>
-            <AiDatabaseSourcePicker
-              nodes={nodes}
-              files={files}
-              nodeIds={selectedSourceNodeIds}
-              fileIds={selectedSourceFileIds}
-              currentNodeId={scopeNodeId}
-              sources={selectedSources}
-              onSourcesChange={setSelectedSources}
-              selectionModel={aiSelection.model}
-              onChange={(next) => {
-                setSelectedSourceNodeIds(next.nodeIds);
-                setSelectedSourceFileIds(next.fileIds);
-                if (
-                  (next.nodeIds.length || next.fileIds.length) &&
-                  !selectedSources.includes("database")
-                ) {
-                  setSelectedSources((current) =>
-                    current.includes("database") ? current : [...current, "database"]
-                  );
-                }
-              }}
-            />
-            <AiSourceModelBar
-              sources={selectedSources}
-              onSourcesChange={setSelectedSources}
-              selection={aiSelection}
-              onSelectionChange={setAiSelection}
-              action="ask"
-              context="chat"
-              compact
-              allowLocal
-              showSources={false}
-            />
-          </div>
+          <div className="askScope" title={scopeName}>{scopeName}</div>
+          <AiSourceModelBar
+            sources={selectedSources}
+            onSourcesChange={setSelectedSources}
+            selection={aiSelection}
+            onSelectionChange={setAiSelection}
+            action="ask"
+            context="chat"
+            compact
+            allowLocal
+          />
         </div>
         <div className="askInputRow">
           <input
@@ -10401,47 +8999,33 @@ function BottomAskBar({
               <>
                 <div className="askAttachmentName">
                   <strong>{pendingAttachment.fileName}</strong>
-                  <small>{formatBytes(pendingAttachment.sizeBytes ?? pendingAttachment.file.size)} · file asli + RAW siap dibaca AI</small>
+                  <small>{formatBytes(pendingAttachment.file.size)} · file asli + RAW siap dibaca AI</small>
                 </div>
-                {pendingAttachment.existingSourceFileId ? (
-                  <div className="askExistingFileActions">
-                    <span>Sudah ada di Database · langsung dipakai sebagai lampiran</span>
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={attachmentBusy}
-                      onClick={() => void discardPendingAttachment()}
-                    >
-                      Lepas
-                    </button>
-                  </div>
-                ) : (
-                  <div className="askVoiceSaveRow">
-                    <FolderTreePicker
-                      nodes={nodes}
-                      value={attachmentDbId}
-                      onChange={setAttachmentDbId}
-                      allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
-                      placeholder="Pilih folder"
-                    />
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={attachmentBusy}
-                      onClick={() => void discardPendingAttachment()}
-                    >
-                      Abaikan
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={attachmentBusy || !attachmentDbId}
-                      onClick={() => void savePendingAttachmentToDatabase()}
-                    >
-                      Simpan ke Database
-                    </button>
-                  </div>
-                )}
+                <div className="askVoiceSaveRow">
+                  <FolderTreePicker
+                    nodes={nodes}
+                    value={attachmentDbId}
+                    onChange={setAttachmentDbId}
+                    allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
+                    placeholder="Pilih folder"
+                  />
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={attachmentBusy}
+                    onClick={() => void discardPendingAttachment()}
+                  >
+                    Abaikan
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={attachmentBusy || !attachmentDbId}
+                    onClick={() => void savePendingAttachmentToDatabase()}
+                  >
+                    Simpan ke Database
+                  </button>
+                </div>
               </>
             )}
           </div>
