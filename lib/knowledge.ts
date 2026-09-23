@@ -171,7 +171,9 @@ export async function searchSemanticKnowledge(
 export function fuseHybridKnowledge(
   lexical: KnowledgeSource[],
   semantic: KnowledgeSource[],
-  limit = 80
+  limit = 80,
+  question = "",
+  semanticModel = ""
 ): KnowledgeSource[] {
   const merged = new Map<string, { row: KnowledgeSource; weight: number }>();
   for (let index = 0; index < lexical.length; index++) {
@@ -189,6 +191,13 @@ export function fuseHybridKnowledge(
     const raw = String(row.raw_content || row.content || "").trim();
     if (raw.length < 70) continue;
     const prior = merged.get(row.id);
+    // A vague semantic resemblance does not justify citing an unrelated book.
+    // For explicitly named paracetamol/PCT, require evidence in the cited chunk.
+    const namedPct = /\b(pct|paracetamol|parasetamol|acetaminophen|acetaminofen)\b/i.test(question);
+    const chunkHasPct = /\b(pct|paracetamol|parasetamol|acetaminophen|acetaminofen)\b/i.test(raw);
+    if (!prior && namedPct && !chunkHasPct) continue;
+    const minimumOnlySemantic = semanticModel === "intfloat/multilingual-e5-small" ? 0.85 : 0.82;
+    if (!prior && (Number(row.score) || 0) < minimumOnlySemantic * 100000) continue;
     const weight = 1.0 / (60 + index + 1);
     merged.set(row.id, {
       // The vector chunk is the precise semantic evidence; preserve it instead
