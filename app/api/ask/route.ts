@@ -842,6 +842,35 @@ export async function POST(req: NextRequest) {
       /^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(question.trim());
 
     if (useDatabase && !casualAiQuestion) {
+      // Do not spend ANY AI credits while eligible material from the selected
+      // folder/files is still being embedded. A partial pgvector index can
+      // silently miss whole books (e.g. HOPE) and bias the answer.
+      const { data: pendingIndex, error: indexError } = await supabase.rpc(
+        "count_pending_knowledge_embeddings_scoped", {
+          p_model: "intfloat/multilingual-e5-small",
+          p_scope_node_id: scopeNodeId,
+          p_source_node_ids: sourceNodeIds,
+          p_source_file_ids: sourceFileIds,
+          p_use_selected: hasExplicitDatabaseSources,
+        }
+      );
+      if (indexError) {
+        console.warn("[DATABASE_INDEX_PREFLIGHT_FAILED]", {
+          code: String(indexError.code || "unknown").slice(0, 32),
+        });
+        return NextResponse.json({
+          code: "DATABASE_INDEX_STATUS_UNAVAILABLE",
+          error: "Status pengindeksan Database belum dapat diperiksa. Jawaban AI dihentikan agar tidak memakai kredit tanpa sumber yang terverifikasi. Periksa koneksi atau coba lagi.",
+        }, { status: 503 });
+      }
+      if (Number(pendingIndex || 0) > 0) {
+        return NextResponse.json({
+          code: "DATABASE_INDEXING",
+          pendingEntries: Number(pendingIndex),
+          semanticStatus: "index-pending",
+          error: "Masih ada " + Number(pendingIndex) + " entri dari sumber terpilih yang belum selesai diindeks oleh Hugging Face. AI belum dipanggil dan kredit belum dipakai. Buka Pilih sumber untuk melanjutkan pengindeksan; kirim ulang pertanyaan setelah selesai.",
+        }, { status: 409 });
+      }
       try {
       const lexical = hasExplicitDatabaseSources
         ? await searchSelectedKnowledge(
@@ -887,20 +916,17 @@ export async function POST(req: NextRequest) {
         contextSourceLimit, 3
       );
       } catch (databaseError: any) {
-        // Retrieval timeouts (e.g. Postgres 57014 on large OCR books) must not
-        // stop an otherwise valid AI-only conversational answer.
+        // Fail closed for every model. Previously the catch continued to GPT/
+        // Gemini with an empty Database, spent credits, and invented the false
+        // impression that a partial or unavailable index grounded the answer.
         console.warn("[DATABASE_RETRIEVAL_UNAVAILABLE]", {
           code: String(databaseError?.code || "unknown").slice(0, 30),
-          reason: "Search failed; no database content was cited"
+          stage: "retrieval",
         });
-        data = [];
-        semanticStatus = "fallback";
-        databaseWarning =
-          "Pencarian materi pribadi sedang gagal sementara; jawaban berikut tidak didasarkan pada Database. " +
-          "Jika butuh sitasi dokumen, coba lagi setelah indeks materi siap.";
-        if (!useAi && !useWeb) {
-          return NextResponse.json({ error: databaseWarning }, { status: 503 });
-        }
+        return NextResponse.json({
+          code: "DATABASE_RETRIEVAL_FAILED",
+          error: "Pencarian sumber Database gagal. AI belum dipanggil dan kredit belum dipakai. Tidak akan membuat jawaban tanpa referensi yang diminta. Coba lagi setelah indeks selesai atau periksa sumber terpilih.",
+        }, { status: 503 });
       }
     }
 
