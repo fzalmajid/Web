@@ -7735,6 +7735,12 @@ function AiDatabaseSourcePicker({
         if (!cancelled) {
           setVectorStatus(status);
           setVectorError("");
+          if (status.pendingEntries > 0 && !vectorRunning) {
+            setVectorProgress(status.indexedVectors > 0
+              ? "Melanjutkan indeks multilingual otomatis..."
+              : "Memulai machine learning multilingual otomatis...");
+            window.setTimeout(() => { void runVectorBackfill(); }, 0);
+          }
         }
       })
       .catch((error: any) => {
@@ -8023,6 +8029,7 @@ function AiDatabaseSourcePicker({
             </small>
             <button type="button" className="ghost" onClick={runVectorBackfill}>
               {vectorRunning ? "Hentikan sementara" :
+                vectorStatus?.pendingEntries === 0 ? "Indeks selesai" :
                 vectorStatus && vectorStatus.indexedVectors > 0 ? "Lanjutkan indeks" : "Indeks seluruh Database"}
             </button>
             {vectorProgress && <small className="muted" role="status">{vectorProgress}</small>}
