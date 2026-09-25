@@ -10,7 +10,8 @@ import {
 const CHUNK_CHARS = 1350;
 const OVERLAP_CHARS = 170;
 const STEP = CHUNK_CHARS - OVERLAP_CHARS;
-const EMBED_BATCH_SIZE = 24;
+const INFERENCE_BATCH_SIZE = 24;
+const MAX_CHUNKS_PER_ENTRY_PER_PASS = 24;
 
 type PendingEntry = {
   entry_id: string;
@@ -38,15 +39,17 @@ export type HfIndexProgress = HfIndexStatus & {
 
 let indexCacheUntil = 0;
 let indexCacheHasVectors = false;
+let lastIndexStatus: HfIndexStatus | null = null;
 
 export function markHfIndexChanged() {
-  indexCacheUntil = 0;
+  indexCacheHasVectors = true;
+  indexCacheUntil = Date.now() + 60_000;
 }
 
 /**
- * OCR/PDF extraction can occasionally leave an unpaired UTF-16 surrogate.
- * JavaScript can hold it, but PostgreSQL's JSON parser correctly rejects it.
- * Replace only malformed surrogate code units; valid Unicode pairs are kept.
+ * OCR/PDF extraction plus fixed-size UTF-16 slicing can leave an unpaired
+ * surrogate at a chunk boundary. JavaScript can hold that code unit, but
+ * PostgreSQL's JSON parser rejects it. Replace malformed units only.
  */
 function sanitizeJsonText(value: string): string {
   let result = "";
@@ -73,16 +76,16 @@ function chunksFromRaw(value: string): string[] {
   const clean = sanitizeJsonText(value.replace(/\r\n/g, "\n")).trim();
   const chunks: string[] = [];
   for (let start = 0; start < clean.length; start += STEP) {
-    const snippet = clean.slice(start, start + CHUNK_CHARS).trim();
+    // Sanitize again after slicing because slice() operates on UTF-16 code
+    // units and can split an otherwise-valid astral Unicode character.
+    const snippet = sanitizeJsonText(clean.slice(start, start + CHUNK_CHARS)).trim();
     if (snippet.length >= 60) chunks.push(snippet);
   }
   return chunks;
 }
 
 /**
- * Read-only state for the CURRENT logged-in user. Zero vectors means the
- * machine-learning model is not yet helping retrieval, even if the JS package
- * and Supabase function are deployed.
+ * Read-only state for the CURRENT logged-in user.
  */
 export async function getHfIndexStatus(supabase: SupabaseClient): Promise<HfIndexStatus> {
   const [pending, vectors, entries] = await Promise.all([
@@ -97,15 +100,16 @@ export async function getHfIndexStatus(supabase: SupabaseClient): Promise<HfInde
   if (vectors.error) throw vectors.error;
   if (entries.error) throw entries.error;
 
-  const indexedVectors = Number(vectors.count || 0);
-  indexCacheHasVectors = indexedVectors > 0;
-  indexCacheUntil = Date.now() + 60_000;
-  return {
+  const status = {
     model: HF_EMBEDDING_MODEL,
     pendingEntries: Number(pending.data || 0),
-    indexedVectors,
+    indexedVectors: Number(vectors.count || 0),
     indexedEntries: Number(entries.count || 0)
   };
+  lastIndexStatus = status;
+  indexCacheHasVectors = status.indexedVectors > 0;
+  indexCacheUntil = Date.now() + 60_000;
+  return status;
 }
 
 async function hasHfIndex(supabase: SupabaseClient): Promise<boolean> {
@@ -119,20 +123,17 @@ async function hasHfIndex(supabase: SupabaseClient): Promise<boolean> {
 }
 
 /**
- * Fire-and-forget startup work. It warms the model/backend and vector
- * availability cache while the user is reading the page, not after they click
- * Send. Failures are intentionally non-blocking because lexical retrieval must
- * remain usable.
+ * Fire-and-forget startup work. Model download/cache lookup and backend
+ * compilation happen before the user clicks Send.
  */
 export function prewarmHfRetrieval(supabase: SupabaseClient) {
   void preloadMultilingualEmbedding().catch(() => undefined);
   void hasHfIndex(supabase).catch(() => undefined);
 }
 
-/** Called BEFORE /api/ask, regardless of Local/Gemini/GPT/Claude selection.
- * This function is intentionally non-blocking while the model is still cold:
- * AI can answer immediately from lexical/RAW retrieval and semantic ranking
- * joins automatically once the browser model is warm.
+/**
+ * Semantic E5 is an enhancement, never a gate. If the worker or index cache is
+ * still cold, return immediately and let lexical/RAW retrieval answer now.
  */
 export async function maybeMultilingualQuery(
   supabase: SupabaseClient,
@@ -147,8 +148,6 @@ export async function maybeMultilingualQuery(
     return null;
   }
 
-  // Never make Send wait for a fresh database count. Refresh it in background
-  // and use lexical retrieval for this request if the cache is cold.
   if (Date.now() >= indexCacheUntil) {
     void hasHfIndex(supabase).catch(() => undefined);
     return null;
@@ -159,15 +158,31 @@ export async function maybeMultilingualQuery(
     const vector = await multilingualEmbed(question.slice(0, 1600), "query");
     return { model: HF_EMBEDDING_MODEL, vector };
   } catch {
-    // Semantic retrieval is an enhancement, never a gate for answering.
     return null;
   }
 }
 
+type PlannedEntry = {
+  entry: PendingEntry;
+  chunks: string[];
+  startAt: number;
+  endAt: number;
+};
+
+type PlannedChunk = {
+  entry: PendingEntry;
+  chunkIndex: number;
+  snippet: string;
+};
+
 /**
- * One large resumable batch of OFFLINE inference in a browser Web Worker.
- * Browser-side inference is batched (up to 24 passages per model call), while
- * writes remain idempotent through entry/model/chunk_index.
+ * Large resumable browser batch:
+ * - one pending RPC
+ * - one bulk stale-vector delete (when needed)
+ * - batched WebGPU/WASM inference
+ * - one bulk vector upsert
+ * - one bulk checkpoint upsert
+ * This removes the per-chunk/per-entry network waterfall.
  */
 export async function indexHfBatch(
   supabase: SupabaseClient,
@@ -187,8 +202,10 @@ export async function indexHfBatch(
   if (error) throw error;
 
   const pending = (data || []) as PendingEntry[];
-  let createdThisBatch = 0;
-  let completedThisBatch = 0;
+  if (!pending.length) {
+    const exact = await getHfIndexStatus(supabase);
+    return { ...exact, createdThisBatch: 0, completedThisBatch: 0 };
+  }
 
   await preloadMultilingualEmbedding((p) => {
     if (p.status === "initiate") {
@@ -199,78 +216,148 @@ export async function indexHfBatch(
     }
   });
 
+  const plans: PlannedEntry[] = [];
+  const tasks: PlannedChunk[] = [];
+  const resetEntryIds: string[] = [];
+  let remainingBudget = maxVectors;
+
   for (const entry of pending) {
-    if (options.shouldStop?.() || createdThisBatch >= maxVectors) break;
+    if (options.shouldStop?.() || remainingBudget <= 0) break;
 
     const chunks = chunksFromRaw(entry.raw_text || "");
     const startAt = Math.max(0, Number(entry.next_chunk_index || 0));
-    if (startAt === 0) {
-      // Updated entries are reset only for this model; existing completed
-      // entries never enter pending_knowledge_embeddings and are untouched.
-      const removed = await supabase.from("knowledge_vector_chunks").delete()
-        .eq("entry_id", entry.entry_id).eq("model", HF_EMBEDDING_MODEL);
-      if (removed.error) throw removed.error;
+    if (startAt === 0) resetEntryIds.push(entry.entry_id);
+
+    const take = Math.max(0, Math.min(
+      chunks.length - startAt,
+      remainingBudget,
+      MAX_CHUNKS_PER_ENTRY_PER_PASS
+    ));
+    const endAt = startAt + take;
+    plans.push({ entry, chunks, startAt, endAt });
+
+    for (let chunkIndex = startAt; chunkIndex < endAt; chunkIndex++) {
+      tasks.push({ entry, chunkIndex, snippet: chunks[chunkIndex] });
     }
-
-    const remainingBudget = maxVectors - createdThisBatch;
-    const endAt = Math.min(chunks.length, startAt + remainingBudget, startAt + EMBED_BATCH_SIZE);
-    let index = startAt;
-
-    if (endAt > startAt) {
-      options.onProgress?.(
-        "Embedding " + entry.entry_id.slice(0, 8) + ": bagian " +
-        (startAt + 1) + "–" + endAt + "/" + chunks.length
-      );
-
-      const texts = chunks.slice(startAt, endAt);
-      const embeddings = await multilingualEmbedMany(texts, "passage");
-      if (embeddings.length !== texts.length) {
-        throw new Error("Jumlah hasil embedding tidak cocok dengan jumlah bagian.");
-      }
-
-      const records = embeddings.map((embedding, offset) => ({
-        entry_id: entry.entry_id,
-        user_id: entry.user_id,
-        node_id: entry.node_id,
-        source_file_id: entry.source_file_id,
-        source_page_start: entry.source_page_start,
-        source_page_end: entry.source_page_end,
-        chunk_index: startAt + offset,
-        snippet: texts[offset],
-        model: HF_EMBEDDING_MODEL,
-        embedding,
-        entry_updated_at: entry.entry_updated_at
-      }));
-
-      const saved = await supabase.from("knowledge_vector_chunks")
-        .upsert(records, { onConflict: "entry_id,model,chunk_index" });
-      if (saved.error) {
-        throw new Error(
-          "Gagal menyimpan " + entry.entry_id.slice(0, 8) + " bagian " +
-          (startAt + 1) + "–" + endAt + ": " + saved.error.message
-        );
-      }
-      index = endAt;
-      createdThisBatch += records.length;
-      markHfIndexChanged();
-    }
-
-    const complete = index >= chunks.length;
-    if (index !== startAt || complete) {
-      const checkpoint = await supabase.from("knowledge_vector_state").upsert({
-        entry_id: entry.entry_id,
-        user_id: entry.user_id,
-        model: HF_EMBEDDING_MODEL,
-        entry_updated_at: entry.entry_updated_at,
-        next_chunk_index: index,
-        complete,
-        indexed_at: new Date().toISOString()
-      }, { onConflict: "entry_id,model" });
-      if (checkpoint.error) throw checkpoint.error;
-      if (complete) completedThisBatch++;
-    }
+    remainingBudget -= take;
   }
 
-  const status = await getHfIndexStatus(supabase);
-  return { ...status, createdThisBatch, completedThisBatch };
+  if (resetEntryIds.length) {
+    const removed = await supabase.from("knowledge_vector_chunks").delete()
+      .eq("model", HF_EMBEDDING_MODEL)
+      .in("entry_id", resetEntryIds);
+    if (removed.error) throw removed.error;
+  }
+
+  const vectors: number[][] = [];
+  for (let offset = 0; offset < tasks.length; offset += INFERENCE_BATCH_SIZE) {
+    if (options.shouldStop?.()) break;
+    const end = Math.min(tasks.length, offset + INFERENCE_BATCH_SIZE);
+    options.onProgress?.(
+      "Embedding cepat: " + (offset + 1) + "–" + end + "/" + tasks.length + " bagian"
+    );
+    const batch = await multilingualEmbedMany(
+      tasks.slice(offset, end).map((task) => task.snippet),
+      "passage"
+    );
+    vectors.push(...batch);
+  }
+
+  // If the user stopped between inference batches, save exactly the completed
+  // prefix and advance each affected entry only through those saved chunks.
+  const completedTaskCount = vectors.length;
+  const completedTasks = tasks.slice(0, completedTaskCount);
+  const records = completedTasks.map((task, index) => ({
+    entry_id: task.entry.entry_id,
+    user_id: task.entry.user_id,
+    node_id: task.entry.node_id,
+    source_file_id: task.entry.source_file_id,
+    source_page_start: task.entry.source_page_start,
+    source_page_end: task.entry.source_page_end,
+    chunk_index: task.chunkIndex,
+    snippet: task.snippet,
+    model: HF_EMBEDDING_MODEL,
+    embedding: vectors[index],
+    entry_updated_at: task.entry.entry_updated_at
+  }));
+
+  if (records.length) {
+    const saved = await supabase.from("knowledge_vector_chunks")
+      .upsert(records, { onConflict: "entry_id,model,chunk_index" });
+    if (saved.error) {
+      const first = completedTasks[0];
+      const last = completedTasks[completedTasks.length - 1];
+      throw new Error(
+        "Gagal menyimpan batch " +
+        String(first?.entry.entry_id || "").slice(0, 8) + ":" + String(first?.chunkIndex ?? "?") +
+        " sampai " + String(last?.entry.entry_id || "").slice(0, 8) + ":" +
+        String(last?.chunkIndex ?? "?") + ": " + saved.error.message
+      );
+    }
+    markHfIndexChanged();
+  }
+
+  const savedNextByEntry = new Map<string, number>();
+  for (const task of completedTasks) {
+    savedNextByEntry.set(task.entry.entry_id, task.chunkIndex + 1);
+  }
+
+  const states = plans.flatMap(({ entry, chunks, startAt }) => {
+    const next = savedNextByEntry.get(entry.entry_id) ?? startAt;
+    // Entries with no chunks are immediately complete. Entries interrupted by
+    // Stop remain resumable at their last successfully saved chunk.
+    const complete = next >= chunks.length;
+    if (next === startAt && !complete) return [];
+    return [{
+      entry_id: entry.entry_id,
+      user_id: entry.user_id,
+      model: HF_EMBEDDING_MODEL,
+      entry_updated_at: entry.entry_updated_at,
+      next_chunk_index: next,
+      complete,
+      indexed_at: new Date().toISOString()
+    }];
+  });
+
+  if (states.length) {
+    const checkpoint = await supabase.from("knowledge_vector_state")
+      .upsert(states, { onConflict: "entry_id,model" });
+    if (checkpoint.error) throw checkpoint.error;
+  }
+
+  const completedThisBatch = states.filter((state) => state.complete).length;
+  const { data: remaining, error: remainingError } = await supabase.rpc(
+    "count_pending_knowledge_embeddings", { p_model: HF_EMBEDDING_MODEL }
+  );
+  if (remainingError) throw remainingError;
+
+  const pendingEntries = Number(remaining || 0);
+  if (!lastIndexStatus) {
+    const exact = await getHfIndexStatus(supabase);
+    return {
+      ...exact,
+      createdThisBatch: records.length,
+      completedThisBatch
+    };
+  }
+
+  // Fast UI counters between exact refreshes. Final completion gets an exact
+  // recount, while intermediate passes avoid three extra COUNT queries each.
+  lastIndexStatus = {
+    model: HF_EMBEDDING_MODEL,
+    pendingEntries,
+    indexedVectors: lastIndexStatus.indexedVectors + records.length,
+    indexedEntries: lastIndexStatus.indexedEntries + completedThisBatch
+  };
+
+  if (pendingEntries === 0) {
+    const exact = await getHfIndexStatus(supabase);
+    return { ...exact, createdThisBatch: records.length, completedThisBatch };
+  }
+
+  return {
+    ...lastIndexStatus,
+    createdThisBatch: records.length,
+    completedThisBatch
+  };
 }
