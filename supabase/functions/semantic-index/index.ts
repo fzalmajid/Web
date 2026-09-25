@@ -75,8 +75,23 @@ async function embed(text: string, kind: "query" | "passage", model: string): Pr
   }
   return normalizeVector(await localSession.run(text, { mean_pool: true, normalize: true }));
 }
+function sanitizeJsonText(value: string) {
+  let result = "";
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        result += value[index] + value[index + 1];
+        index++;
+      } else result += "\ufffd";
+    } else if (code >= 0xdc00 && code <= 0xdfff) result += "\ufffd";
+    else result += value[index];
+  }
+  return result;
+}
 function contentChunks(value: string) {
-  const clean = value.replace(/\r\n/g, "\n").trim();
+  const clean = sanitizeJsonText(value.replace(/\r\n/g, "\n")).trim();
   const chunks: string[] = [];
   if (!clean) return chunks;
   const step = CHUNK_CHARS - OVERLAP_CHARS;
