@@ -2,6 +2,22 @@
 -- Source: pg_get_functiondef from the live project; keep SQL in GitHub.
 -- Important: SECURITY INVOKER and auth.uid() preserve RLS.
 
+-- 2026-09-25: precompute the expensive full-text vector once. Some imported
+-- OCR entries exceed one million characters; rebuilding to_tsvector during
+-- every ranked search caused PostgREST statement_timeout (SQLSTATE 57014).
+ALTER TABLE public.knowledge_entries
+  ADD COLUMN IF NOT EXISTS body_search_vector tsvector
+  GENERATED ALWAYS AS (
+    to_tsvector(
+      'simple'::regconfig,
+      coalesce(nullif(raw_content, ''::text), content, ''::text)
+    )
+  ) STORED;
+
+CREATE INDEX IF NOT EXISTS knowledge_entries_body_search_vector_idx
+  ON public.knowledge_entries USING gin (body_search_vector);
+
+
 CREATE OR REPLACE FUNCTION public.count_pending_knowledge_embeddings_scoped(p_model text, p_scope_node_id uuid DEFAULT NULL::uuid, p_source_node_ids uuid[] DEFAULT '{}'::uuid[], p_source_file_ids uuid[] DEFAULT '{}'::uuid[], p_use_selected boolean DEFAULT false)
  RETURNS integer
  LANGUAGE sql
@@ -101,11 +117,11 @@ matched as materialized (
  k.source_file_id,k.source_page_start,k.source_page_end,k.updated_at,
  coalesce(k.source_file_id::text,'entry:'||k.id::text) file_key,
  q.search_terms,
- to_tsvector('simple',coalesce(nullif(k.raw_content,''),k.content,'')) document_vector
+ k.body_search_vector document_vector
  from public.knowledge_entries k cross join q
  where k.user_id=(select auth.uid()) and (scope_node_id is null or k.node_id in (select id from scope_tree))
  and q.search_terms is not null
- and q.search_terms @@ to_tsvector('simple',coalesce(nullif(k.raw_content,''),k.content,''))
+ and k.body_search_vector @@ q.search_terms
 ),
 scored as (
  select m.*,
@@ -185,12 +201,12 @@ matched as materialized (
  k.source_file_id,k.source_page_start,k.source_page_end,k.updated_at,
  coalesce(k.source_file_id::text,'entry:'||k.id::text) file_key,
  q.search_terms,
- to_tsvector('simple',coalesce(nullif(k.raw_content,''),k.content,'')) document_vector
+ k.body_search_vector document_vector
  from public.knowledge_entries k cross join q
  where k.user_id=(select auth.uid()) and (k.node_id in (select id from selected_tree)
  or k.source_file_id=any(coalesce(source_file_ids,'{}'::uuid[])))
  and q.search_terms is not null
- and q.search_terms @@ to_tsvector('simple',coalesce(nullif(k.raw_content,''),k.content,''))
+ and k.body_search_vector @@ q.search_terms
 ),
 scored as (
  select m.*,
