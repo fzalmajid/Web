@@ -842,35 +842,8 @@ export async function POST(req: NextRequest) {
       /^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(question.trim());
 
     if (useDatabase && !casualAiQuestion) {
-      // Do not spend ANY AI credits while eligible material from the selected
-      // folder/files is still being embedded. A partial pgvector index can
-      // silently miss whole books (e.g. HOPE) and bias the answer.
-      const { data: pendingIndex, error: indexError } = await supabase.rpc(
-        "count_pending_knowledge_embeddings_scoped", {
-          p_model: "intfloat/multilingual-e5-small",
-          p_scope_node_id: scopeNodeId,
-          p_source_node_ids: sourceNodeIds,
-          p_source_file_ids: sourceFileIds,
-          p_use_selected: hasExplicitDatabaseSources,
-        }
-      );
-      if (indexError) {
-        console.warn("[DATABASE_INDEX_PREFLIGHT_FAILED]", {
-          code: String(indexError.code || "unknown").slice(0, 32),
-        });
-        return NextResponse.json({
-          code: "DATABASE_INDEX_STATUS_UNAVAILABLE",
-          error: "Status pengindeksan Database belum dapat diperiksa. Jawaban AI dihentikan agar tidak memakai kredit tanpa sumber yang terverifikasi. Periksa koneksi atau coba lagi.",
-        }, { status: 503 });
-      }
-      if (Number(pendingIndex || 0) > 0) {
-        return NextResponse.json({
-          code: "DATABASE_INDEXING",
-          pendingEntries: Number(pendingIndex),
-          semanticStatus: "index-pending",
-          error: "Masih ada " + Number(pendingIndex) + " entri dari sumber terpilih yang belum selesai diindeks oleh Hugging Face. AI belum dipanggil dan kredit belum dipakai. Buka Pilih sumber untuk melanjutkan pengindeksan; kirim ulang pertanyaan setelah selesai.",
-        }, { status: 409 });
-      }
+      // Semantic indexing is an optional ranking layer. A partial/cold index
+      // must never block lexical/RAW retrieval or delay the selected AI model.
       try {
       const lexical = hasExplicitDatabaseSources
         ? await searchSelectedKnowledge(
@@ -925,7 +898,7 @@ export async function POST(req: NextRequest) {
         });
         return NextResponse.json({
           code: "DATABASE_RETRIEVAL_FAILED",
-          error: "Pencarian sumber Database gagal. AI belum dipanggil dan kredit belum dipakai. Tidak akan membuat jawaban tanpa referensi yang diminta. Coba lagi setelah indeks selesai atau periksa sumber terpilih.",
+          error: "Pencarian sumber Database gagal. AI belum dipanggil dan kredit belum dipakai. Tidak akan membuat jawaban tanpa referensi yang diminta. Coba lagi atau periksa sumber terpilih.",
         }, { status: 503 });
       }
     }
@@ -957,7 +930,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         answer: data.length
           ? formatDatabaseLookup(question, data)
-          : "Tidak ditemukan kecocokan dalam isi materi yang sudah berhasil diindeks pada folder dan subfolder terpilih. Periksa apakah OCR/RAW seluruh halaman berstatus siap.",
+          : "Tidak ditemukan kecocokan dalam isi materi pada folder dan subfolder terpilih. Periksa apakah OCR/RAW seluruh halaman berstatus siap.",
         sources: Array.from(new Map<string, any>(data.map((row): [string, any] => [
           String(row.bibliographic_work_id || row.source_file_id || row.id),
           {
