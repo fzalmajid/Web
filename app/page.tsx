@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery } from "@/lib/hfIndexing";
+import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrieval } from "@/lib/hfIndexing";
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
 import { assertPdfFile } from "@/lib/pdfValidation";
@@ -7725,6 +7725,12 @@ function AiDatabaseSourcePicker({
     if (disabled) setOpen(false);
   }, [disabled]);
 
+  useEffect(() => {
+    // Start loading/caching E5 and checking vector availability before the
+    // source picker is opened or the first question is submitted.
+    prewarmHfRetrieval(supabase);
+  }, []);
+
   useEffect(() => () => { stopVectorRef.current = true; }, []);
 
   useEffect(() => {
@@ -7767,8 +7773,8 @@ function AiDatabaseSourcePicker({
       // Supabase tables. There are no GPT/Gemini API calls or HF API keys.
       for (let batch = 0; batch < 100000 && !stopVectorRef.current; batch++) {
         const status = await indexHfBatch(supabase, {
-          maxVectors: 6,
-          maxEntries: 2,
+          maxVectors: 72,
+          maxEntries: 8,
           shouldStop: () => stopVectorRef.current,
           onProgress: setVectorProgress
         });
@@ -7786,7 +7792,7 @@ function AiDatabaseSourcePicker({
             !stopVectorRef.current) {
           throw new Error("Tidak ada bagian yang bisa diindeks. Periksa file RAW/OCR yang belum siap.");
         }
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 30));
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       }
       if (stopVectorRef.current) setVectorProgress("Dihentikan. Progres tersimpan; klik Lanjutkan untuk meneruskan.");
     } catch (error: any) {
@@ -8013,9 +8019,9 @@ function AiDatabaseSourcePicker({
           <div className="aiDatabaseSourceTools" style={{ flexWrap: "wrap", gap: 8 }}>
             <strong>🧠 Hugging Face · Machine Learning Ruang Belajar</strong>
             <small className="muted">
-              Embedding multilingual E5 berjalan di browser secara lokal. Indeks hasilnya
-              dipakai bersama untuk pencarian Local, Gemini, GPT, dan Claude.
-              Model publik ~118 MB diunduh sekali lalu di-cache; tanpa kredit LLM
+              Embedding multilingual E5 dipreload dan di-cache di browser. WebGPU dipakai
+              bila tersedia, lalu fallback ke WASM. Indexing berjalan per batch dan tidak
+              pernah menahan jawaban Local, Gemini, GPT, atau Claude; tanpa kredit LLM
               dan tanpa HF_TOKEN.
             </small>
             <small className="muted">
@@ -9939,43 +9945,11 @@ function BottomAskBar({
     setWebSources([]);
     setWarning("");
 
-    // This preflight also covers Browser Local and local LLM, which bypass
-    // /api/ask. Do not answer from a partial vector index or consume any
-    // cloud credits while the selected source tree is still being indexed.
+    // Database answers must never wait for the semantic index. Lexical/RAW
+    // retrieval is immediately available; E5 joins the ranking when warm.
     const needsGroundedDatabase = selectedSources.includes("database") &&
       !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(question.trim());
-    if (needsGroundedDatabase) {
-      try {
-        const scopedIndex = await supabase.rpc("count_pending_knowledge_embeddings_scoped", {
-          p_model: "intfloat/multilingual-e5-small",
-          p_scope_node_id: scopeNodeId,
-          p_source_node_ids: selectedSourceNodeIds,
-          p_source_file_ids: selectedSourceFileIds,
-          p_use_selected: selectedSourceNodeIds.length > 0 || selectedSourceFileIds.length > 0,
-        });
-        if (scopedIndex.error) throw scopedIndex.error;
-        const pending = Number(scopedIndex.data || 0);
-        if (pending > 0) {
-          setAnswer("Belum membuat jawaban. Masih ada " + pending +
-            " entri di sumber terpilih yang belum selesai diindeks oleh Hugging Face. " +
-            "Buka Pilih sumber untuk melihat progres dan membiarkan pengindeksan berjalan; " +
-            "kirim ulang pertanyaan setelah selesai. Tidak ada kredit GPT/Gemini yang dipakai.");
-          setAnswerModel("Menunggu indeks Database · tanpa kredit AI");
-          setWarning("Referensi belum lengkap. Jawaban dari indeks sebagian berisiko mengabaikan buku atau halaman relevan.");
-          setBusy(false);
-          return;
-        }
-        // Refresh the shared browser index cache after a previously pending
-        // job completes; query vectors must match the stored E5 passages.
-        await getHfIndexStatus(supabase);
-      } catch (error: any) {
-        setAnswer("Status indeks Database belum dapat diperiksa. Jawaban dibatalkan agar tidak membuat sitasi yang keliru atau menghabiskan kredit AI. " +
-          String(error?.message || "").slice(0, 180));
-        setAnswerModel("Database belum siap · tanpa kredit AI");
-        setBusy(false);
-        return;
-      }
-    }
+    if (needsGroundedDatabase) prewarmHfRetrieval(supabase);
 
     if (aiSelection.model === "local") {
       if (pendingAttachment?.rawText || pendingLink?.rawText) {
@@ -10021,12 +9995,10 @@ function BottomAskBar({
       try {
         semanticEmbedding = await maybeMultilingualQuery(supabase, question.trim(),
           (message) => setAnswerModel(message));
-      } catch (error: any) {
-        setAnswer("Model Hugging Face belum dapat memproses pertanyaan. Jawaban tidak dikirim ke AI agar tidak menghabiskan kredit tanpa pencarian semantik: " +
-          String(error?.message || "periksa koneksi/model browser").slice(0, 200));
-        setAnswerModel("Embedding belum siap · tanpa kredit AI");
-        setBusy(false);
-        return;
+      } catch {
+        // Semantic retrieval is optional. Continue immediately with lexical/RAW
+        // retrieval rather than blocking the selected AI model.
+        semanticEmbedding = null;
       }
     }
 
