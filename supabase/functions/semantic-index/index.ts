@@ -96,7 +96,7 @@ function contentChunks(value: string) {
   if (!clean) return chunks;
   const step = CHUNK_CHARS - OVERLAP_CHARS;
   for (let start = 0; start < clean.length; start += step) {
-    const text = clean.slice(start, start + CHUNK_CHARS).trim();
+    const text = sanitizeJsonText(clean.slice(start, start + CHUNK_CHARS)).trim();
     if (text.length >= 60) chunks.push(text);
   }
   return chunks;
