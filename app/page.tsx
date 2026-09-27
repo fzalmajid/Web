@@ -9100,6 +9100,12 @@ function BottomAskBar({
   const [savedChats, setSavedChats] = useState<StoredChat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<StoredChatMessage[]>([]);
+  const [modelRecovery, setModelRecovery] = useState<{
+    message: string;
+    alternatives: AiModelId[];
+    requestBody: Record<string, any>;
+    conversationId: string;
+  } | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
@@ -9303,7 +9309,7 @@ function BottomAskBar({
     return result.data as StoredChatMessage;
   }
 
-  async function touchStoredChat(conversationId: string) {
+  async function touchStoredChat(conversationId: string, selectionOverride: AiSelection = aiSelection) {
     const now = new Date().toISOString();
     await supabase
       .from("ai_conversations")
@@ -9312,7 +9318,7 @@ function BottomAskBar({
           sources: selectedSources,
           sourceNodeIds: selectedSourceNodeIds,
           sourceFileIds: selectedSourceFileIds,
-          aiSelection,
+          aiSelection: selectionOverride,
           scopeName,
         },
         updated_at: now,
@@ -9348,6 +9354,7 @@ function BottomAskBar({
     setSavedChats((list) => [chat, ...list.filter((item) => item.id !== chat.id)]);
     setChatMessages((result.data || []) as StoredChatMessage[]);
     onActiveChatChange(chat.id);
+    setModelRecovery(null);
     setQuestion("");
     setOpen(true);
 
@@ -9371,6 +9378,7 @@ function BottomAskBar({
     setSources([]);
     setWebSources([]);
     setWarning("");
+    setModelRecovery(null);
     setOpen(false);
   }
 
@@ -10438,6 +10446,156 @@ function BottomAskBar({
     return ordered.filter((item) => value.includes(item)).map((item) => labels[item]).join(" + ");
   }
 
+  function modelAlternativesFromResponse(data: any): AiModelId[] {
+    const values = Array.isArray(data?.alternativeModels) ? data.alternativeModels : [];
+    return values
+      .map((item: any) => String(item?.id || item || "") as AiModelId)
+      .filter((id: AiModelId) =>
+        AI_MODEL_CATALOG.some(
+          (item) => item.id === id && item.contexts.includes("chat")
+        )
+      );
+  }
+
+  function showModelRecovery(
+    data: any,
+    requestBody: Record<string, any>,
+    conversationId: string
+  ) {
+    if (String(data?.code || "") !== "MODEL_SELECTION_REQUIRED") return false;
+    const alternatives = modelAlternativesFromResponse(data);
+    const message =
+      String(data?.error || "").trim() ||
+      "Model yang dipilih sedang tidak tersedia. Pilih model lain untuk melanjutkan pertanyaan yang sama.";
+    setModelRecovery({
+      message,
+      alternatives,
+      requestBody,
+      conversationId,
+    });
+    setAnswer(message);
+    setAnswerModel("");
+    setSources([]);
+    setWebSources([]);
+    setWarning("");
+    setBusy(false);
+    setOpen(true);
+    return true;
+  }
+
+  async function finishChatAnswerForConversation(
+    conversationId: string,
+    text: string,
+    model = "",
+    dbSources: Array<{ id: string; title: string; category: string }> = [],
+    currentWebSources: Array<{ title: string; uri: string }> = [],
+    warningText = "",
+    selectionForSettings: AiSelection = aiSelection
+  ) {
+    const finalText = String(text || "").trim() || "...";
+    setAnswer(finalText);
+    setAnswerModel(model);
+    setSources(dbSources);
+    setWebSources(currentWebSources);
+    setWarning(warningText);
+    setModelRecovery(null);
+
+    try {
+      const storedAssistant = await saveStoredMessage(
+        conversationId,
+        "assistant",
+        finalText,
+        {
+          model,
+          sources: dbSources,
+          webSources: currentWebSources,
+          warning: warningText,
+        }
+      );
+      setChatMessages((list) => [...list, storedAssistant]);
+      await touchStoredChat(conversationId, selectionForSettings);
+    } catch {
+      const temporaryAssistant: StoredChatMessage = {
+        id: "temporary-" + Date.now(),
+        conversation_id: conversationId,
+        role: "assistant",
+        content: finalText,
+        model: model || null,
+        sources: dbSources,
+        web_sources: currentWebSources,
+        warning: warningText || null,
+        created_at: new Date().toISOString(),
+      };
+      setChatMessages((list) => [...list, temporaryAssistant]);
+    }
+    setBusy(false);
+  }
+
+  async function retryFailedAskWithModel(model: AiModelId) {
+    const recovery = modelRecovery;
+    if (!recovery || busy) return;
+
+    const baseSelection = defaultSelection(model, "chat");
+    const nextSelection: AiSelection = {
+      ...baseSelection,
+      length: aiSelection.length,
+    };
+    const requestBody = {
+      ...recovery.requestBody,
+      aiMode: legacyModeForSelection(nextSelection),
+    };
+
+    setAiSelection(nextSelection);
+    setBusy(true);
+    setOpen(true);
+    setModelRecovery(null);
+    setAnswer("");
+    setAnswerModel("");
+    setSources([]);
+    setWebSources([]);
+    setWarning("");
+
+    const response = await fetch("/api/ask", {
+      method: "POST",
+      headers: aiRequestHeaders(session, nextSelection),
+      body: JSON.stringify(requestBody),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      if (showModelRecovery(data, requestBody, recovery.conversationId)) return;
+      await finishChatAnswerForConversation(
+        recovery.conversationId,
+        data.error || "Model belum dapat memproses permintaan ini. Coba model lain.",
+        "",
+        [],
+        [],
+        "",
+        nextSelection
+      );
+      return;
+    }
+
+    const warningText = [
+      data.warning,
+      ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : []),
+    ].filter(Boolean).join(" · ");
+
+    if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
+      setSelectedSources(data.selectedSources);
+    }
+
+    await finishChatAnswerForConversation(
+      recovery.conversationId,
+      data.answer || "",
+      String(data.model || ""),
+      Array.isArray(data.sources) ? data.sources : [],
+      Array.isArray(data.webSources) ? data.webSources : [],
+      warningText,
+      nextSelection
+    );
+  }
+
   async function ask(e: FormEvent) {
     e.preventDefault();
     const asked = question.trim();
@@ -10485,51 +10643,7 @@ function BottomAskBar({
     setSources([]);
     setWebSources([]);
     setWarning("");
-
-    async function finishChatAnswer(
-      text: string,
-      model = "",
-      dbSources: Array<{ id: string; title: string; category: string }> = [],
-      currentWebSources: Array<{ title: string; uri: string }> = [],
-      warningText = ""
-    ) {
-      const finalText = String(text || "").trim() || "...";
-      setAnswer(finalText);
-      setAnswerModel(model);
-      setSources(dbSources);
-      setWebSources(currentWebSources);
-      setWarning(warningText);
-
-      try {
-        const storedAssistant = await saveStoredMessage(
-          conversationId!,
-          "assistant",
-          finalText,
-          {
-            model,
-            sources: dbSources,
-            webSources: currentWebSources,
-            warning: warningText,
-          }
-        );
-        setChatMessages((list) => [...list, storedAssistant]);
-        await touchStoredChat(conversationId!);
-      } catch {
-        const temporaryAssistant: StoredChatMessage = {
-          id: "temporary-" + Date.now(),
-          conversation_id: conversationId!,
-          role: "assistant",
-          content: finalText,
-          model: model || null,
-          sources: dbSources,
-          web_sources: currentWebSources,
-          warning: warningText || null,
-          created_at: new Date().toISOString(),
-        };
-        setChatMessages((list) => [...list, temporaryAssistant]);
-      }
-      setBusy(false);
-    }
+    setModelRecovery(null);
 
     const needsGroundedDatabase = selectedSources.includes("database") &&
       !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(asked);
@@ -10541,20 +10655,20 @@ function BottomAskBar({
           pendingAttachment?.rawText || "",
           pendingLink?.rawText || "",
         ].filter(Boolean).join("\n\n---\n\n");
-        await finishChatAnswer(raw, "Sumber RAW / Local");
+        await finishChatAnswerForConversation(conversationId!, raw, "Sumber RAW / Local");
         return;
       }
       const local = await answerLocally(asked);
-      await finishChatAnswer(local.text, "Browser / Local", local.refs);
+      await finishChatAnswerForConversation(conversationId!, local.text, "Browser / Local", local.refs);
       return;
     }
 
     if (modelProvider(aiSelection.model) === "local-openai") {
       try {
         const local = await askLocalOpenAI(asked);
-        await finishChatAnswer(local.text, local.model + " · Local", local.refs);
+        await finishChatAnswerForConversation(conversationId!, local.text, local.model + " · Local", local.refs);
       } catch (error: any) {
-        await finishChatAnswer(error?.message || "Local AI gagal menjawab.", "Local");
+        await finishChatAnswerForConversation(conversationId!, error?.message || "Local AI gagal menjawab.", "Local");
       }
       return;
     }
@@ -10577,34 +10691,38 @@ function BottomAskBar({
       }
     }
 
+    const requestBody = {
+      question: asked,
+      history,
+      scopeNodeId: conversationScopeId,
+      sourceNodeIds: selectedSourceNodeIds,
+      sourceFileIds: selectedSourceFileIds,
+      aiMode,
+      sources: selectedSources,
+      attachmentTitle:
+        pendingAttachment?.fileName ||
+        pendingLink?.title ||
+        "",
+      attachmentRaw,
+      attachmentPath: pendingAttachment?.filePath || "",
+      attachmentMimeType: pendingAttachment?.mimeType || "",
+      attachmentUrl: effectiveUrl,
+      semanticEmbedding,
+      ...citationRequestFields(),
+    };
+
     const response = await fetch("/api/ask", {
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
-      body: JSON.stringify({
-        question: asked,
-        history,
-        scopeNodeId: conversationScopeId,
-        sourceNodeIds: selectedSourceNodeIds,
-        sourceFileIds: selectedSourceFileIds,
-        aiMode,
-        sources: selectedSources,
-        attachmentTitle:
-          pendingAttachment?.fileName ||
-          pendingLink?.title ||
-          "",
-        attachmentRaw,
-        attachmentPath: pendingAttachment?.filePath || "",
-        attachmentMimeType: pendingAttachment?.mimeType || "",
-        attachmentUrl: effectiveUrl,
-        semanticEmbedding,
-        ...citationRequestFields(),
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      await finishChatAnswer(
+      if (showModelRecovery(data, requestBody, conversationId!)) return;
+      await finishChatAnswerForConversation(
+        conversationId!,
         data.error || "Model belum dapat memproses permintaan ini. Coba model lain."
       );
       return;
@@ -10619,7 +10737,7 @@ function BottomAskBar({
       setSelectedSources(data.selectedSources);
     }
 
-    await finishChatAnswer(
+    await finishChatAnswerForConversation(conversationId!, 
       data.answer || "",
       String(data.model || ""),
       Array.isArray(data.sources) ? data.sources : [],
@@ -10693,6 +10811,36 @@ function BottomAskBar({
                   )}
               </article>
             ))}
+
+            {modelRecovery && !busy && (
+              <article className="aiChatMessage assistant modelRecoveryMessage">
+                <div className="aiChatMessageMeta">
+                  <strong>AI</strong>
+                  <small>Model tidak tersedia</small>
+                </div>
+                <div className="aiChatMessageBody modelRecoveryBody">
+                  <strong>{modelRecovery.message}</strong>
+                  <span>Pilih model di bawah. Pertanyaan tadi akan langsung dilanjutkan tanpa dikirim ulang.</span>
+                  {modelRecovery.alternatives.length ? (
+                    <div className="modelRecoveryChoices">
+                      {modelRecovery.alternatives.map((model) => (
+                        <button
+                          type="button"
+                          key={model}
+                          onClick={() => void retryFailedAskWithModel(model)}
+                        >
+                          {modelCapability(model).label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <small>
+                      Belum ada model alternatif yang terdeteksi pada provider ini. Pilih model lain dari Choose Model lalu kirim ulang jika diperlukan.
+                    </small>
+                  )}
+                </div>
+              </article>
+            )}
 
             {busy && (
               <article className="aiChatMessage assistant pending">
