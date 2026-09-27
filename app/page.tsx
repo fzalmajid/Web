@@ -7241,7 +7241,7 @@ function RichText({ text, className = "" }: { text: string; className?: string }
   // Parse scientific scripts before WA-style emphasis. This makes r^{2}, C_2,
   // t_{1/2}, and π^* render as actual super/subscript instead of leaking ^/_.
   const pattern =
-    /(\^\{[^{}\n]+\}|\^\([^()\n]+\)|\^[*+\-0-9A-Za-z]+|_\{[^{}\n]+\}|_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)(?!_)|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
+    /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_|\^\{[^{}\n]+\}|\^\([^()\n]+\)|\^[*+\-0-9A-Za-z]+|_\{[^{}\n]+\}|_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)(?!_))/g;
   let last = 0;
   let match: RegExpExecArray | null;
   let key = 0;
