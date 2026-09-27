@@ -9408,6 +9408,10 @@ function BottomAskBar({
     const base = config.endpoint.replace(/\/+$/, "");
     const messages: any[] = [
       { role: "system", content: "Ikuti instruksi sumber Ruang Belajar dengan ketat." },
+      ...chatMessages.slice(-24).map((message) => ({
+        role: message.role,
+        content: message.content.slice(0, 12000),
+      })),
       { role: "user", content: prompt },
     ];
 
@@ -10159,7 +10163,18 @@ function BottomAskBar({
         setChatMessages((list) => [...list, storedAssistant]);
         await touchStoredChat(conversationId!);
       } catch {
-        // Jawaban tetap ditampilkan walau penyimpanan riwayat sesaat gagal.
+        const temporaryAssistant: StoredChatMessage = {
+          id: "temporary-" + Date.now(),
+          conversation_id: conversationId!,
+          role: "assistant",
+          content: finalText,
+          model: model || null,
+          sources: dbSources,
+          web_sources: currentWebSources,
+          warning: warningText || null,
+          created_at: new Date().toISOString(),
+        };
+        setChatMessages((list) => [...list, temporaryAssistant]);
       }
       setBusy(false);
     }
