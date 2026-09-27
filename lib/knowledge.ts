@@ -486,6 +486,12 @@ function rawRelevantExcerpt(raw: string, question: string, maxChars = 1900) {
     eksipien: ["excipient", "excipients", "binder", "diluent", "disintegrant", "lubricant"],
     excipient: ["eksipien", "excipients", "binder", "diluent", "disintegrant", "lubricant"],
     tablet: ["tablets", "tabletting", "tablet formulation"],
+    spektrofotometer: ["spektrofotometri", "spectrophotometer", "spectrophotometry", "uv-vis", "uv visible", "absorbansi", "absorbance", "beer lambert", "panjang gelombang", "wavelength"],
+    spektrofotometri: ["spektrofotometer", "spectrophotometry", "spectrophotometric", "uv-vis", "absorbansi", "absorbance", "beer lambert", "panjang gelombang", "wavelength"],
+    spectrophotometer: ["spectrophotometry", "spektrofotometer", "spektrofotometri", "uv-vis", "absorbance", "beer lambert", "wavelength"],
+    spectrophotometry: ["spectrophotometer", "spektrofotometri", "spektrofotometer", "uv-vis", "absorbance", "beer lambert", "wavelength"],
+    kadar: ["assay", "quantitative", "kuantitatif", "concentration", "konsentrasi", "calibration curve", "kurva kalibrasi"],
+    assay: ["kadar", "quantitative", "concentration", "calibration curve"],
   };
   const ignored = new Set([
     "carikan", "cari", "temukan", "tolong", "saya", "aku", "ingin", "yang", "dan",
