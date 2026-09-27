@@ -10087,6 +10087,10 @@ function BottomAskBar({
     const asked = question.trim();
     if (!asked || !selectedSources.length) return;
 
+    const conversationScopeId = activeChatId
+      ? savedChats.find((item) => item.id === activeChatId)?.scope_node_id || scopeNodeId
+      : scopeNodeId;
+
     const history = chatMessages
       .slice(-24)
       .map((message) => ({ role: message.role, content: message.content.slice(0, 12000) }));
@@ -10096,6 +10100,7 @@ function BottomAskBar({
       if (!conversationId) conversationId = await createStoredChat(asked);
       const storedUser = await saveStoredMessage(conversationId, "user", asked);
       setChatMessages((list) => [...list, storedUser]);
+      setQuestion("");
     } catch (error: any) {
       alert(error?.message || "Chat belum dapat disimpan.");
       return;
@@ -10211,7 +10216,7 @@ function BottomAskBar({
       body: JSON.stringify({
         question: asked,
         history,
-        scopeNodeId,
+        scopeNodeId: conversationScopeId,
         sourceNodeIds: selectedSourceNodeIds,
         sourceFileIds: selectedSourceFileIds,
         aiMode,
@@ -10258,14 +10263,18 @@ function BottomAskBar({
 
 
   const activeSourcesLabel = sourcesLabel();
+  const activeChat = savedChats.find((item) => item.id === activeChatId) || null;
+  const activeChatTitle = activeChat?.title || "New Chat";
+  const activeChatScopeName = String(activeChat?.settings?.scopeName || scopeName);
+  const activeChatScopeNodeId = activeChat?.scope_node_id || scopeNodeId;
 
   return (
     <>
       {open && (
-        <div className="aiAnswer" style={{ bottom: composerBottom + composerHeight + 12 }}>
-          <div className="aiAnswerHead">
+        <div className="aiAnswer aiChatRoom" style={{ bottom: composerBottom + composerHeight + 12 }}>
+          <div className="aiAnswerHead aiChatHead">
             <div>
-              <small title={scopeName}>
+              <small title={activeChatScopeName}>
                 {aiSelection.model === "local"
                   ? "Local"
                   : modelCapability(aiSelection.model).label +
@@ -10273,31 +10282,117 @@ function BottomAskBar({
                       ? " · " + modelCapability(aiSelection.model).efforts.find((item) => item.value === aiSelection.effort)?.label
                       : "")}
                 {" · "}{activeSourcesLabel}
-                {answerModel ? " · " + answerModel : ""}
-                {" · "}{scopeName}
+                {" · "}{activeChatScopeName}
               </small>
-              <strong>{question}</strong>
+              <strong>{activeChatTitle}</strong>
             </div>
-            <button onClick={() => setOpen(false)}>×</button>
-          </div>
-          {warning && <div className="aiWarning"><RichText text={warning} /></div>}
-          <div className="aiAnswerBody">
-            {busy
-              ? "Memproses dari " + activeSourcesLabel + "..."
-              : <RichText text={answer || "..."} />}
-          </div>
-          {(!!sources.length || !!webSources.length) && (
-            <div className="aiSources">
-              {sources.map((source) => (
-                <span key={source.id}>Database · {source.title}</span>
-              ))}
-              {webSources.map((source) => (
-                <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
-                  Web · {source.title}
-                </a>
-              ))}
+            <div className="aiChatHeadActions">
+              <button
+                type="button"
+                onClick={() => setChatHistoryOpen((value) => !value)}
+                title="Riwayat chat"
+                aria-label="Riwayat chat"
+              >
+                🕘
+              </button>
+              <button
+                type="button"
+                onClick={startNewChat}
+                disabled={busy}
+                title="New Chat"
+                aria-label="New Chat"
+              >
+                ＋
+              </button>
+              <button
+                type="button"
+                onClick={startNewChat}
+                disabled={busy}
+                title="Tutup"
+                aria-label="Tutup"
+              >
+                ×
+              </button>
             </div>
+          </div>
+
+          {chatHistoryOpen && (
+            <aside className="aiChatHistory">
+              <div className="aiChatHistoryHead">
+                <strong>Riwayat chat</strong>
+                <button type="button" className="ghost" onClick={startNewChat} disabled={busy}>
+                  ＋ New Chat
+                </button>
+              </div>
+              <div className="aiChatHistoryList">
+                {savedChats.length ? (
+                  savedChats.map((chat) => (
+                    <button
+                      type="button"
+                      key={chat.id}
+                      className={chat.id === activeChatId ? "active" : ""}
+                      onClick={() => void loadStoredChat(chat)}
+                    >
+                      <strong>{chat.title}</strong>
+                      <small>{new Date(chat.last_message_at).toLocaleString("id-ID")}</small>
+                    </button>
+                  ))
+                ) : (
+                  <small className="muted">Belum ada chat tersimpan.</small>
+                )}
+              </div>
+            </aside>
           )}
+
+          <div className="aiChatMessages" ref={chatScrollRef}>
+            {!chatMessages.length && !busy && (
+              <div className="aiChatEmpty">
+                <strong>New Chat</strong>
+                <span>Tulis pertanyaan di bar bawah untuk memulai percakapan baru.</span>
+              </div>
+            )}
+
+            {chatMessages.map((message) => (
+              <article key={message.id} className={"aiChatMessage " + message.role}>
+                <div className="aiChatMessageMeta">
+                  <strong>{message.role === "user" ? "Kamu" : "AI"}</strong>
+                  {message.role === "assistant" && message.model && <small>{message.model}</small>}
+                </div>
+                {message.warning && (
+                  <div className="aiWarning">
+                    <RichText text={message.warning} />
+                  </div>
+                )}
+                <div className="aiChatMessageBody">
+                  <RichText text={message.content} />
+                </div>
+                {message.role === "assistant" &&
+                  (!!message.sources?.length || !!message.web_sources?.length) && (
+                    <div className="aiSources aiChatSources">
+                      {(message.sources || []).map((source) => (
+                        <span key={source.id}>Database · {source.title}</span>
+                      ))}
+                      {(message.web_sources || []).map((source) => (
+                        <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
+                          Web · {source.title}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+              </article>
+            ))}
+
+            {busy && (
+              <article className="aiChatMessage assistant pending">
+                <div className="aiChatMessageMeta">
+                  <strong>AI</strong>
+                </div>
+                <div className="aiChatMessageBody">
+                  Memproses dari {activeSourcesLabel}...
+                </div>
+              </article>
+            )}
+          </div>
         </div>
       )}
 
@@ -10307,13 +10402,13 @@ function BottomAskBar({
         </button>
         <div className="askTopRow">
           <div className="askTopControls">
-            <div className="askScope" title={scopeName}>{scopeName}</div>
+            <div className="askScope" title={activeChatScopeName}>{activeChatScopeName}</div>
             <AiDatabaseSourcePicker
               nodes={nodes}
               files={files}
               nodeIds={selectedSourceNodeIds}
               fileIds={selectedSourceFileIds}
-              currentNodeId={scopeNodeId}
+              currentNodeId={activeChatScopeNodeId}
               sources={selectedSources}
               onSourcesChange={setSelectedSources}
               selectionModel={aiSelection.model}
@@ -10344,6 +10439,27 @@ function BottomAskBar({
           </div>
         </div>
         <div className="askInputRow">
+          <button
+            type="button"
+            className="askChatHistoryButton"
+            onClick={() => {
+              setOpen(true);
+              setChatHistoryOpen((value) => !value);
+            }}
+            aria-label="Riwayat chat"
+            title="Riwayat chat"
+          >
+            🕘
+          </button>
+          <button
+            type="button"
+            className="askNewChatButton"
+            onClick={startNewChat}
+            disabled={busy}
+            title="Mulai percakapan baru"
+          >
+            New Chat
+          </button>
           <input
             ref={askAttachmentInputRef}
             className="askAttachmentInput"
