@@ -9568,3 +9568,101 @@ summary{
   .askAttach,.askMic{width:34px!important}
   .gptComposer .askInputRow .sendAsk{width:40px!important}
 }
+
+
+/* Chat history left sidebar — ChatGPT/Gemini style */
+.aiChatRoom{
+  width:min(1180px,calc(100% - 24px))!important;
+}
+.aiChatBody{
+  position:relative;
+  display:flex;
+  flex:1 1 auto;
+  min-height:0;
+  overflow:hidden;
+  background:var(--card);
+}
+.aiChatHistory{
+  flex:0 0 268px;
+  width:268px;
+  min-width:268px;
+  max-height:none!important;
+  overflow:auto;
+  border-right:1px solid var(--line);
+  border-bottom:0!important;
+  background:color-mix(in srgb,var(--card) 96%,var(--soft));
+  padding:10px;
+  transition:width .18s ease,min-width .18s ease,flex-basis .18s ease,opacity .14s ease,padding .18s ease;
+}
+.chatHistoryHidden .aiChatHistory{
+  flex-basis:0;
+  width:0;
+  min-width:0;
+  padding-left:0;
+  padding-right:0;
+  border-right:0;
+  opacity:0;
+  pointer-events:none;
+  visibility:hidden;
+}
+.aiChatHistoryHead{
+  position:sticky;
+  top:0;
+  z-index:2;
+  padding-bottom:8px;
+  background:inherit;
+}
+.aiChatHistoryList>button{
+  border-radius:10px;
+}
+.aiChatMessages{
+  flex:1 1 auto;
+  width:auto;
+  min-width:0;
+}
+.aiChatHistoryScrim{
+  display:none;
+}
+.aiChatHeadActions button:first-child{
+  font-size:1.05rem!important;
+}
+@media(max-width:767px){
+  .aiChatRoom{
+    width:calc(100% - 18px)!important;
+  }
+  .aiChatBody{
+    overflow:hidden;
+  }
+  .aiChatHistory{
+    position:absolute;
+    inset:0 auto 0 0;
+    z-index:15;
+    width:min(82vw,300px);
+    min-width:min(82vw,300px);
+    max-width:300px;
+    box-shadow:18px 0 42px rgba(0,0,0,.18);
+    transform:translateX(0);
+    opacity:1;
+    visibility:visible;
+    pointer-events:auto;
+  }
+  .chatHistoryHidden .aiChatHistory{
+    width:min(82vw,300px);
+    min-width:min(82vw,300px);
+    padding:10px;
+    border-right:1px solid var(--line);
+    transform:translateX(-105%);
+    opacity:0;
+    visibility:hidden;
+    pointer-events:none;
+  }
+  .chatHistoryVisible .aiChatHistoryScrim{
+    display:block;
+    position:absolute;
+    inset:0;
+    z-index:14;
+    border:0;
+    padding:0;
+    background:rgba(0,0,0,.22);
+  }
+}
