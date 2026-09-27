@@ -53,7 +53,7 @@ type AiChatMessage = {
   role: "user" | "assistant";
   content: string;
   model: string | null;
-  sources: Array<{ id: string; title: string; category?: string }>;
+  sources: Array<{ id: string; title: string; category: string }>;
   web_sources: Array<{ title: string; uri: string }>;
   warning: string | null;
   meta: Record<string, any>;
@@ -9057,7 +9057,7 @@ function BottomAskBar({
     content: string,
     extra?: {
       model?: string;
-      sources?: Array<{ id: string; title: string; category?: string }>;
+      sources?: Array<{ id: string; title: string; category: string }>;
       webSources?: Array<{ title: string; uri: string }>;
       warning?: string;
       meta?: Record<string, any>;
@@ -10190,7 +10190,7 @@ function BottomAskBar({
     async function finishAssistant(
       text: string,
       model = "",
-      dbSources: Array<{ id: string; title: string; category?: string }> = [],
+      dbSources: Array<{ id: string; title: string; category: string }> = [],
       currentWebSources: Array<{ title: string; uri: string }> = [],
       warningText = "",
       meta: Record<string, any> = {}
