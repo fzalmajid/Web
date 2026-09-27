@@ -9717,3 +9717,41 @@ summary{
     max-width:92%;
   }
 }
+
+
+/* User-chosen retry after model unavailable */
+.modelRecoveryBody{
+  display:grid;
+  gap:10px;
+}
+.modelRecoveryBody>strong{
+  font-size:.82rem;
+}
+.modelRecoveryBody>span,
+.modelRecoveryBody>small{
+  color:var(--muted);
+  font-size:.72rem;
+  line-height:1.45;
+}
+.modelRecoveryChoices{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+}
+.modelRecoveryChoices button{
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:var(--card);
+  color:var(--ink);
+  padding:7px 10px;
+  font-size:.72rem;
+  font-weight:800;
+  cursor:pointer;
+}
+.modelRecoveryChoices button:hover{
+  background:var(--soft);
+  border-color:color-mix(in srgb,var(--accent) 38%,var(--line));
+}
+:root[data-theme="dark"] .modelRecoveryChoices button{
+  background:var(--card);
+}
