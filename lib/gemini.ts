@@ -47,7 +47,7 @@ export class GeminiWebSearchQuotaError extends GeminiApiError {
 }
 
 export class GeminiUnavailableError extends GeminiApiError {
-  constructor(message = "Model Gemini yang dipilih sedang sibuk. Sistem sudah mencoba model fallback yang tersedia, tetapi belum berhasil. Coba lagi sebentar.") {
+  constructor(message = "Model Gemini yang dipilih sedang tidak tersedia atau sibuk.") {
     super(message, 503, "GEMINI_UNAVAILABLE");
     this.name = "GeminiUnavailableError";
   }
@@ -120,6 +120,24 @@ async function listGenerateModels(
   } catch {
     return [];
   }
+}
+
+export async function geminiAvailableTextModels(options?: {
+  apiKey?: string;
+  accessToken?: string;
+  projectId?: string;
+}) {
+  const accessToken = String(options?.accessToken || "").trim();
+  const projectId = String(options?.projectId || "").trim();
+  const key = String(options?.apiKey || (!accessToken ? process.env.GEMINI_API_KEY : "") || "").trim();
+  if (!accessToken && !key) return [] as string[];
+
+  const available = await listGenerateModels(accessToken, projectId, key);
+  return available.filter(
+    (model) =>
+      /^gemini-/i.test(model) &&
+      !/image|embedding|tts|live|robotics|omni|transcribe/i.test(model)
+  );
 }
 
 function prioritizeAvailableModels(
