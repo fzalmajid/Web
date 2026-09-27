@@ -8772,6 +8772,7 @@ function BottomAskBar({
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<StoredChatMessage[]>([]);
   const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
+  const [chatSidebarPreferenceReady, setChatSidebarPreferenceReady] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
@@ -8843,6 +8844,17 @@ function BottomAskBar({
   useEffect(() => {
     void refreshSavedChats();
   }, [session.user.id]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("rb-chat-sidebar-open");
+    setChatHistoryOpen(saved === null ? window.innerWidth >= 768 : saved === "1");
+    setChatSidebarPreferenceReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!chatSidebarPreferenceReady) return;
+    window.localStorage.setItem("rb-chat-sidebar-open", chatHistoryOpen ? "1" : "0");
+  }, [chatHistoryOpen, chatSidebarPreferenceReady]);
 
   useEffect(() => {
     if (!open) return;
@@ -8995,7 +9007,7 @@ function BottomAskBar({
 
     setActiveChatId(chat.id);
     setChatMessages((result.data || []) as StoredChatMessage[]);
-    setChatHistoryOpen(false);
+    if (window.innerWidth < 768) setChatHistoryOpen(false);
     setQuestion("");
     setOpen(true);
 
@@ -9012,7 +9024,6 @@ function BottomAskBar({
     if (busy) return;
     setActiveChatId(null);
     setChatMessages([]);
-    setChatHistoryOpen(false);
     setQuestion("");
     setAnswer("");
     setAnswerModel("");
@@ -10286,7 +10297,7 @@ function BottomAskBar({
   return (
     <>
       {open && (
-        <div className="aiAnswer aiChatRoom" style={{ bottom: composerBottom + composerHeight + 12 }}>
+        <div className={"aiAnswer aiChatRoom " + (chatHistoryOpen ? "chatHistoryVisible" : "chatHistoryHidden")} style={{ bottom: composerBottom + composerHeight + 12 }}>
           <div className="aiAnswerHead aiChatHead">
             <div>
               <small title={activeChatScopeName}>
@@ -10305,10 +10316,10 @@ function BottomAskBar({
               <button
                 type="button"
                 onClick={() => setChatHistoryOpen((value) => !value)}
-                title="Riwayat chat"
-                aria-label="Riwayat chat"
+                title={chatHistoryOpen ? "Sembunyikan riwayat chat" : "Tampilkan riwayat chat"}
+                aria-label={chatHistoryOpen ? "Sembunyikan riwayat chat" : "Tampilkan riwayat chat"}
               >
-                🕘
+                ☰
               </button>
               <button
                 type="button"
@@ -10331,8 +10342,8 @@ function BottomAskBar({
             </div>
           </div>
 
-          {chatHistoryOpen && (
-            <aside className="aiChatHistory">
+          <div className="aiChatBody">
+            <aside className="aiChatHistory" aria-label="Riwayat chat">
               <div className="aiChatHistoryHead">
                 <strong>Riwayat chat</strong>
                 <button type="button" className="ghost" onClick={startNewChat} disabled={busy}>
@@ -10357,56 +10368,63 @@ function BottomAskBar({
                 )}
               </div>
             </aside>
-          )}
-
-          <div className="aiChatMessages" ref={chatScrollRef}>
-            {!chatMessages.length && !busy && (
-              <div className="aiChatEmpty">
-                <strong>New Chat</strong>
-                <span>Tulis pertanyaan di bar bawah untuk memulai percakapan baru.</span>
-              </div>
+            {chatHistoryOpen && (
+              <button
+                type="button"
+                className="aiChatHistoryScrim"
+                onClick={() => setChatHistoryOpen(false)}
+                aria-label="Tutup riwayat chat"
+              />
             )}
+            <div className="aiChatMessages" ref={chatScrollRef}>
+              {!chatMessages.length && !busy && (
+                <div className="aiChatEmpty">
+                  <strong>New Chat</strong>
+                  <span>Tulis pertanyaan di bar bawah untuk memulai percakapan baru.</span>
+                </div>
+              )}
 
-            {chatMessages.map((message) => (
-              <article key={message.id} className={"aiChatMessage " + message.role}>
-                <div className="aiChatMessageMeta">
-                  <strong>{message.role === "user" ? "Kamu" : "AI"}</strong>
-                  {message.role === "assistant" && message.model && <small>{message.model}</small>}
-                </div>
-                {message.warning && (
-                  <div className="aiWarning">
-                    <RichText text={message.warning} />
+              {chatMessages.map((message) => (
+                <article key={message.id} className={"aiChatMessage " + message.role}>
+                  <div className="aiChatMessageMeta">
+                    <strong>{message.role === "user" ? "Kamu" : "AI"}</strong>
+                    {message.role === "assistant" && message.model && <small>{message.model}</small>}
                   </div>
-                )}
-                <div className="aiChatMessageBody">
-                  <RichText text={message.content} />
-                </div>
-                {message.role === "assistant" &&
-                  (!!message.sources?.length || !!message.web_sources?.length) && (
-                    <div className="aiSources aiChatSources">
-                      {(message.sources || []).map((source) => (
-                        <span key={source.id}>Database · {source.title}</span>
-                      ))}
-                      {(message.web_sources || []).map((source) => (
-                        <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
-                          Web · {source.title}
-                        </a>
-                      ))}
+                  {message.warning && (
+                    <div className="aiWarning">
+                      <RichText text={message.warning} />
                     </div>
                   )}
-              </article>
-            ))}
+                  <div className="aiChatMessageBody">
+                    <RichText text={message.content} />
+                  </div>
+                  {message.role === "assistant" &&
+                    (!!message.sources?.length || !!message.web_sources?.length) && (
+                      <div className="aiSources aiChatSources">
+                        {(message.sources || []).map((source) => (
+                          <span key={source.id}>Database · {source.title}</span>
+                        ))}
+                        {(message.web_sources || []).map((source) => (
+                          <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
+                            Web · {source.title}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                </article>
+              ))}
 
-            {busy && (
-              <article className="aiChatMessage assistant pending">
-                <div className="aiChatMessageMeta">
-                  <strong>AI</strong>
-                </div>
-                <div className="aiChatMessageBody">
-                  Memproses dari {activeSourcesLabel}...
-                </div>
-              </article>
-            )}
+              {busy && (
+                <article className="aiChatMessage assistant pending">
+                  <div className="aiChatMessageMeta">
+                    <strong>AI</strong>
+                  </div>
+                  <div className="aiChatMessageBody">
+                    Memproses dari {activeSourcesLabel}...
+                  </div>
+                </article>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -10459,12 +10477,12 @@ function BottomAskBar({
             className="askChatHistoryButton"
             onClick={() => {
               setOpen(true);
-              setChatHistoryOpen((value) => !value);
+              setChatHistoryOpen(true);
             }}
-            aria-label="Riwayat chat"
-            title="Riwayat chat"
+            aria-label="Buka riwayat chat"
+            title="Buka riwayat chat"
           >
-            🕘
+            ☰
           </button>
           <button
             type="button"
