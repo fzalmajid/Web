@@ -9333,3 +9333,238 @@ summary{
 .aiDatabaseSourceContent>.aiDatabaseSourceTree{min-height:160px!important}
 .gptComposer .aiDatabaseSourcePopover{height:min(72dvh,680px)!important}
 @media(max-width:767px){.aiDatabaseSourcePopover{width:min(100vw - 16px,660px)!important}.aiDatabaseSourceTree{padding:5px 6px 10px!important}.gptComposer .aiDatabaseSourcePopover{height:min(72dvh,660px)!important}.aiSourceTreeChoice small,.aiSourceFileRow small{display:none}.aiSourceTreeChoice,.aiSourceFileRow{grid-template-columns:20px 24px minmax(0,1fr)}}
+
+
+/* Persistent AI chat rooms — conversation history + New Chat */
+.aiChatRoom{
+  display:flex!important;
+  flex-direction:column!important;
+  overflow:hidden!important;
+  width:min(1020px,calc(100% - 24px))!important;
+  max-height:min(68vh,760px)!important;
+}
+.aiChatHead{
+  flex:0 0 auto;
+  z-index:4;
+}
+.aiChatHeadActions{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  gap:4px!important;
+}
+.aiChatHeadActions button{
+  width:34px!important;
+  height:34px!important;
+  padding:0!important;
+  border:1px solid var(--line)!important;
+  border-radius:10px!important;
+  background:var(--card)!important;
+  color:var(--ink)!important;
+  display:grid!important;
+  place-items:center!important;
+  font-size:.95rem!important;
+}
+.aiChatHeadActions button:disabled{opacity:.45}
+.aiChatHistory{
+  flex:0 0 auto;
+  max-height:min(38vh,340px);
+  overflow:auto;
+  border-bottom:1px solid var(--line);
+  background:var(--card);
+  padding:10px;
+}
+.aiChatHistoryHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:8px;
+}
+.aiChatHistoryHead .ghost{
+  min-height:34px;
+  padding:6px 9px;
+}
+.aiChatHistoryList{
+  display:grid;
+  gap:5px;
+}
+.aiChatHistoryList>button{
+  display:grid;
+  gap:3px;
+  width:100%;
+  min-width:0;
+  text-align:left;
+  padding:9px 10px;
+  border:1px solid transparent;
+  border-radius:11px;
+  background:transparent;
+  color:var(--ink);
+}
+.aiChatHistoryList>button:hover,
+.aiChatHistoryList>button.active{
+  background:var(--soft);
+  border-color:var(--line);
+}
+.aiChatHistoryList strong{
+  font-size:.77rem;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.aiChatHistoryList small{
+  font-size:.62rem;
+  color:var(--muted);
+}
+.aiChatMessages{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  background:var(--card);
+  overscroll-behavior:contain;
+}
+.aiChatMessage{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+  max-width:min(86%,760px);
+}
+.aiChatMessage.user{
+  align-self:flex-end;
+}
+.aiChatMessage.assistant{
+  align-self:flex-start;
+  width:min(100%,820px);
+  max-width:100%;
+}
+.aiChatMessageMeta{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  color:var(--muted);
+}
+.aiChatMessageMeta strong{font-size:.7rem}
+.aiChatMessageMeta small{font-size:.62rem}
+.aiChatMessageBody{
+  padding:11px 13px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  line-height:1.6;
+  overflow-wrap:anywhere;
+  background:var(--soft);
+}
+.aiChatMessage.assistant .aiChatMessageBody{
+  background:var(--card);
+}
+.aiChatMessage.user .aiChatMessageBody{
+  background:color-mix(in srgb,var(--accent) 10%,var(--card));
+  border-color:color-mix(in srgb,var(--accent) 28%,var(--line));
+}
+.aiChatMessage.pending .aiChatMessageBody{
+  color:var(--muted);
+}
+.aiChatSources{
+  padding:0!important;
+}
+.aiChatEmpty{
+  margin:auto;
+  max-width:430px;
+  display:grid;
+  gap:6px;
+  text-align:center;
+  color:var(--muted);
+  padding:28px 12px;
+}
+.aiChatEmpty strong{
+  color:var(--ink);
+  font-size:1rem;
+}
+.askInputRow{
+  grid-template-columns:38px auto 40px 40px minmax(0,1fr) 44px!important;
+  align-items:end!important;
+}
+.askChatHistoryButton,
+.askNewChatButton{
+  height:40px;
+  border:1px solid var(--line);
+  background:var(--card);
+  color:var(--ink);
+  border-radius:12px;
+  cursor:pointer;
+}
+.askChatHistoryButton{
+  width:38px;
+  padding:0;
+}
+.askNewChatButton{
+  min-width:82px;
+  padding:0 10px;
+  font-size:.7rem;
+  font-weight:800;
+  white-space:nowrap;
+}
+.askNewChatButton:disabled{opacity:.45}
+:root[data-theme="dark"] .aiChatHistory,
+:root[data-theme="dark"] .aiChatMessages,
+:root[data-theme="dark"] .aiChatMessage.assistant .aiChatMessageBody,
+:root[data-theme="dark"] .askChatHistoryButton,
+:root[data-theme="dark"] .askNewChatButton{
+  background:var(--card);
+  color:var(--ink);
+}
+
+@media(max-width:767px){
+  .aiChatRoom{
+    max-height:none!important;
+  }
+  .aiChatMessages{
+    padding:11px;
+    gap:11px;
+  }
+  .aiChatMessage{
+    max-width:92%;
+  }
+  .aiChatHistory{
+    max-height:42vh;
+  }
+  .askInputRow{
+    grid-template-columns:34px 36px 36px 36px minmax(0,1fr) 42px!important;
+    gap:5px!important;
+  }
+  .askNewChatButton{
+    width:36px!important;
+    min-width:36px!important;
+    padding:0!important;
+    font-size:0!important;
+  }
+  .askNewChatButton::after{
+    content:"✎";
+    font-size:1rem;
+  }
+  .askChatHistoryButton{
+    width:34px!important;
+  }
+  .askAttach{
+    width:36px!important;
+    height:40px!important;
+  }
+  .askMic{
+    width:36px!important;
+    height:40px!important;
+  }
+}
+
+@media(max-width:390px){
+  .askInputRow{
+    grid-template-columns:32px 34px 34px 34px minmax(0,1fr) 40px!important;
+    gap:4px!important;
+  }
+  .askChatHistoryButton{width:32px!important}
+  .askNewChatButton{width:34px!important;min-width:34px!important}
+  .askAttach,.askMic{width:34px!important}
+  .gptComposer .askInputRow .sendAsk{width:40px!important}
+}
