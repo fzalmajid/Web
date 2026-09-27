@@ -7228,11 +7228,28 @@ function normalizeRichTextSource(text: string) {
       .replace(/\\([_*^])/g, "$1")
       // Repair mixed italic delimiters such as (*hyperchromic shift_).
       .replace(/\(\*([^*\n_]+)_\)/g, "(_$1_)")
+      // A stray opening asterisk sometimes appears before a scientific symbol
+      // that already carries a subscript, e.g. *λ_maks. It is not emphasis.
+      .replace(/(^|[\s(])\*(?=[πσλαβγδε](?:_\{?[A-Za-z0-9/]+\}?))/g, "$1")
       .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
       .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
       .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
       .replace(/__([^_\n]+)__/g, "_$1_")
   );
+}
+
+function renderScientificScriptContent(value: string) {
+  // Some model outputs use ** inside an exponent to mean the single
+  // antibonding-orbital asterisk. In a script this is notation, not bold.
+  return value === "**" ? "*" : value;
+}
+
+function renderScientificSubscript(value: string, key: string) {
+  const content = renderScientificScriptContent(value);
+  if (/^(?:maks|max)$/i.test(content)) {
+    return <sub className="mathSub" key={key}><em>{content}</em></sub>;
+  }
+  return <sub className="mathSub" key={key}>{content}</sub>;
 }
 
 function RichText({ text, className = "" }: { text: string; className?: string }) {
@@ -7251,21 +7268,40 @@ function RichText({ text, className = "" }: { text: string; className?: string }
     const token = match[0];
 
     if (token.startsWith("^{") && token.endsWith("}")) {
-      parts.push(<sup className="mathSup" key={"sup" + key++}>{token.slice(2, -1)}</sup>);
+      parts.push(
+        <sup className="mathSup" key={"sup" + key++}>
+          {renderScientificScriptContent(token.slice(2, -1))}
+        </sup>
+      );
     } else if (token.startsWith("^(") && token.endsWith(")")) {
-      parts.push(<sup className="mathSup" key={"sup" + key++}>{token.slice(2, -1)}</sup>);
+      parts.push(
+        <sup className="mathSup" key={"sup" + key++}>
+          {renderScientificScriptContent(token.slice(2, -1))}
+        </sup>
+      );
     } else if (token.startsWith("^")) {
-      parts.push(<sup className="mathSup" key={"sup" + key++}>{token.slice(1)}</sup>);
+      parts.push(
+        <sup className="mathSup" key={"sup" + key++}>
+          {renderScientificScriptContent(token.slice(1))}
+        </sup>
+      );
     } else if (token.startsWith("_{") && token.endsWith("}")) {
-      parts.push(<sub className="mathSub" key={"sub" + key++}>{token.slice(2, -1)}</sub>);
+      parts.push(renderScientificSubscript(token.slice(2, -1), "sub" + key++));
     } else if (/^_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)$/.test(token)) {
-      parts.push(<sub className="mathSub" key={"sub" + key++}>{token.slice(1)}</sub>);
+      parts.push(renderScientificSubscript(token.slice(1), "sub" + key++));
     } else if (token.startsWith("**") && token.endsWith("**")) {
       parts.push(<strong key={"b" + key++}>{token.slice(2, -2)}</strong>);
     } else if (token.startsWith("__") && token.endsWith("__")) {
       parts.push(<em key={"i" + key++}>{token.slice(2, -2)}</em>);
     } else if (token.startsWith("*") && token.endsWith("*")) {
-      parts.push(<strong key={"b" + key++}>{token.slice(1, -1)}</strong>);
+      const body = token.slice(1, -1);
+      // Markdown-style italic frequently appears around scientific singleton
+      // variables even though ordinary app prose uses *...* for bold.
+      if (/^(?:π|σ|λ|α|β|γ|δ|ε|n)$/i.test(body)) {
+        parts.push(<em key={"i" + key++}>{body}</em>);
+      } else {
+        parts.push(<strong key={"b" + key++}>{body}</strong>);
+      }
     } else if (token.startsWith("_") && token.endsWith("_")) {
       parts.push(<em key={"i" + key++}>{token.slice(1, -1)}</em>);
     } else {
