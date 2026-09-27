@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   geminiGenerateDetailed,
+  geminiAvailableTextModels,
   GeminiWebSearchQuotaError,
   WHATSAPP_FORMAT_INSTRUCTION,
   type GeminiPart,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/externalAi";
 import { annotateBibliographicWorks, buildKnowledgeContext, diversifyKnowledgeSources, fuseHybridKnowledge, prioritizeQuestionRelevantSources, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
 import {
+  AI_MODEL_CATALOG,
   modelPlanForSelection,
   modelProvider,
   providerModelId,
@@ -1404,6 +1406,52 @@ export async function POST(req: NextRequest) {
         artifactFormat,
       });
     } catch (error: any) {
+      const errorCode = String(error?.code || "");
+      const modelSelectionFailure =
+        selectedProvider === "gemini" &&
+        ["GEMINI_UNAVAILABLE", "GEMINI_MODEL_UNAVAILABLE", "GEMINI_NO_AVAILABLE_MODEL", "GEMINI_QUOTA"].includes(errorCode);
+
+      if (modelSelectionFailure) {
+        let alternativeModels: Array<{ id: string; label: string }> = [];
+        try {
+          const available = await geminiAvailableTextModels({
+            apiKey: geminiAuth.apiKey,
+            accessToken: geminiAuth.accessToken,
+            projectId: geminiAuth.projectId,
+          });
+          const availableSet = new Set(available);
+          alternativeModels = AI_MODEL_CATALOG
+            .filter(
+              (item) =>
+                item.provider === "gemini" &&
+                item.contexts.includes("chat") &&
+                item.id !== aiSelection.model &&
+                availableSet.has(providerModelId(item.id)) &&
+                (!useWeb || item.freeWeb === true)
+            )
+            .slice(0, 5)
+            .map((item) => ({ id: item.id, label: item.label }));
+        } catch {
+          alternativeModels = [];
+        }
+
+        const selectedLabel =
+          AI_MODEL_CATALOG.find((item) => item.id === aiSelection.model)?.label ||
+          selectedProviderModel;
+
+        return NextResponse.json(
+          {
+            code: "MODEL_SELECTION_REQUIRED",
+            error:
+              selectedLabel +
+              " sedang tidak dapat digunakan. Pilih model lain untuk melanjutkan pertanyaan yang sama.",
+            selectedModel: aiSelection.model,
+            alternativeModels,
+          },
+          { status: 503 }
+        );
+      }
+
       const fallbackSources = selectedSources.filter((source) => source !== "web");
       const webSpecificFailure = useWeb && isWebProviderFailure(error);
 
