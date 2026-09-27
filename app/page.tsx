@@ -30,6 +30,24 @@ const AUTH_REDIRECT_URL = "https://web-fzalmajid.vercel.app";
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
 type AiSourceKind = "ai" | "database" | "web";
+type StoredChat = {
+  id: string;
+  title: string;
+  scope_node_id: string | null;
+  settings: any;
+  last_message_at: string;
+};
+type StoredChatMessage = {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  model: string | null;
+  sources: Array<{ id: string; title: string; category: string }>;
+  web_sources: Array<{ title: string; uri: string }>;
+  warning: string | null;
+  created_at: string;
+};
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
   id: string;
@@ -8750,6 +8768,11 @@ function BottomAskBar({
   const [selectedSourceFileIds, setSelectedSourceFileIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const [savedChats, setSavedChats] = useState<StoredChat[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<StoredChatMessage[]>([]);
+  const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
   const [composerBottom, setComposerBottom] = useState(16);
@@ -8818,6 +8841,19 @@ function BottomAskBar({
   }, [aiSelection.model]);
 
   useEffect(() => {
+    void refreshSavedChats();
+  }, [session.user.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() => {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    });
+  }, [open, busy, chatMessages]);
+
+  useEffect(() => {
     if (!askVoiceDbId && askVoiceDatabases[0]) setAskVoiceDbId(askVoiceDatabases[0].id);
   }, [askVoiceDatabases, askVoiceDbId]);
 
@@ -8856,6 +8892,135 @@ function BottomAskBar({
       window.removeEventListener("resize", update);
     };
   }, []);
+
+  function chatTitle(value: string) {
+    const clean = value.replace(/\s+/g, " ").trim();
+    return clean.length > 64 ? clean.slice(0, 61) + "..." : clean || "Chat baru";
+  }
+
+  async function refreshSavedChats() {
+    const result = await supabase
+      .from("ai_conversations")
+      .select("id,title,scope_node_id,settings,last_message_at")
+      .eq("user_id", session.user.id)
+      .order("last_message_at", { ascending: false })
+      .limit(80);
+    if (!result.error) setSavedChats((result.data || []) as StoredChat[]);
+  }
+
+  async function createStoredChat(firstQuestion: string) {
+    const now = new Date().toISOString();
+    const result = await supabase
+      .from("ai_conversations")
+      .insert({
+        user_id: session.user.id,
+        title: chatTitle(firstQuestion),
+        scope_node_id: scopeNodeId,
+        settings: {
+          sources: selectedSources,
+          sourceNodeIds: selectedSourceNodeIds,
+          sourceFileIds: selectedSourceFileIds,
+          aiSelection,
+          scopeName,
+        },
+        updated_at: now,
+        last_message_at: now,
+      })
+      .select("id,title,scope_node_id,settings,last_message_at")
+      .single();
+    if (result.error || !result.data) throw new Error(result.error?.message || "Chat gagal dibuat.");
+    const chat = result.data as StoredChat;
+    setActiveChatId(chat.id);
+    setSavedChats((list) => [chat, ...list.filter((item) => item.id !== chat.id)]);
+    return chat.id;
+  }
+
+  async function saveStoredMessage(
+    conversationId: string,
+    role: "user" | "assistant",
+    content: string,
+    detail?: {
+      model?: string;
+      sources?: Array<{ id: string; title: string; category: string }>;
+      webSources?: Array<{ title: string; uri: string }>;
+      warning?: string;
+    }
+  ) {
+    const result = await supabase
+      .from("ai_messages")
+      .insert({
+        conversation_id: conversationId,
+        user_id: session.user.id,
+        role,
+        content,
+        model: detail?.model || null,
+        sources: detail?.sources || [],
+        web_sources: detail?.webSources || [],
+        warning: detail?.warning || null,
+      })
+      .select("id,conversation_id,role,content,model,sources,web_sources,warning,created_at")
+      .single();
+    if (result.error || !result.data) throw new Error(result.error?.message || "Pesan gagal disimpan.");
+    return result.data as StoredChatMessage;
+  }
+
+  async function touchStoredChat(conversationId: string) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("ai_conversations")
+      .update({
+        settings: {
+          sources: selectedSources,
+          sourceNodeIds: selectedSourceNodeIds,
+          sourceFileIds: selectedSourceFileIds,
+          aiSelection,
+          scopeName,
+        },
+        updated_at: now,
+        last_message_at: now,
+      })
+      .eq("id", conversationId)
+      .eq("user_id", session.user.id);
+    void refreshSavedChats();
+  }
+
+  async function loadStoredChat(chat: StoredChat) {
+    const result = await supabase
+      .from("ai_messages")
+      .select("id,conversation_id,role,content,model,sources,web_sources,warning,created_at")
+      .eq("conversation_id", chat.id)
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: true });
+    if (result.error) throw new Error(result.error.message);
+
+    setActiveChatId(chat.id);
+    setChatMessages((result.data || []) as StoredChatMessage[]);
+    setChatHistoryOpen(false);
+    setQuestion("");
+    setOpen(true);
+
+    const settings = chat.settings || {};
+    if (Array.isArray(settings.sources) && settings.sources.length) {
+      setSelectedSources(settings.sources as AiSourceKind[]);
+    }
+    if (Array.isArray(settings.sourceNodeIds)) setSelectedSourceNodeIds(settings.sourceNodeIds.map(String));
+    if (Array.isArray(settings.sourceFileIds)) setSelectedSourceFileIds(settings.sourceFileIds.map(String));
+    if (settings.aiSelection?.model) setAiSelection(settings.aiSelection as AiSelection);
+  }
+
+  function startNewChat() {
+    if (busy) return;
+    setActiveChatId(null);
+    setChatMessages([]);
+    setChatHistoryOpen(false);
+    setQuestion("");
+    setAnswer("");
+    setAnswerModel("");
+    setSources([]);
+    setWebSources([]);
+    setWarning("");
+    setOpen(false);
+  }
 
   function firstUrl(value: string) {
     return value.match(/https?:\/\/[^\s<>"')\]]+/i)?.[0] || "";
