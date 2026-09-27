@@ -30,35 +30,6 @@ const AUTH_REDIRECT_URL = "https://web-fzalmajid.vercel.app";
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
 type AiSourceKind = "ai" | "database" | "web";
-type AiConversation = {
-  id: string;
-  user_id: string;
-  title: string;
-  scope_node_id: string | null;
-  settings: {
-    sources?: AiSourceKind[];
-    sourceNodeIds?: string[];
-    sourceFileIds?: string[];
-    aiSelection?: AiSelection;
-    scopeName?: string;
-  } | null;
-  created_at: string;
-  updated_at: string;
-  last_message_at: string;
-};
-type AiChatMessage = {
-  id: string;
-  conversation_id: string;
-  user_id: string;
-  role: "user" | "assistant";
-  content: string;
-  model: string | null;
-  sources: Array<{ id: string; title: string; category: string }>;
-  web_sources: Array<{ title: string; uri: string }>;
-  warning: string | null;
-  meta: Record<string, any>;
-  created_at: string;
-};
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
   id: string;
@@ -8779,13 +8750,6 @@ function BottomAskBar({
   const [selectedSourceFileIds, setSelectedSourceFileIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const [conversations, setConversations] = useState<AiConversation[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [chatMessages, setChatMessages] = useState<AiChatMessage[]>([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [conversationScopeNodeId, setConversationScopeNodeId] = useState<string | null>(scopeNodeId);
-  const [conversationScopeName, setConversationScopeName] = useState(scopeName);
-  const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
   const [composerBottom, setComposerBottom] = useState(16);
@@ -8854,25 +8818,6 @@ function BottomAskBar({
   }, [aiSelection.model]);
 
   useEffect(() => {
-    void loadConversations();
-  }, [session.user.id]);
-
-  useEffect(() => {
-    if (!activeConversationId) {
-      setConversationScopeNodeId(scopeNodeId);
-      setConversationScopeName(scopeName);
-    }
-  }, [scopeNodeId, scopeName, activeConversationId]);
-
-  useEffect(() => {
-    if (!open) return;
-    window.requestAnimationFrame(() => {
-      const element = chatScrollRef.current;
-      if (element) element.scrollTop = element.scrollHeight;
-    });
-  }, [chatMessages, busy, open]);
-
-  useEffect(() => {
     if (!askVoiceDbId && askVoiceDatabases[0]) setAskVoiceDbId(askVoiceDatabases[0].id);
   }, [askVoiceDatabases, askVoiceDbId]);
 
@@ -8911,180 +8856,6 @@ function BottomAskBar({
       window.removeEventListener("resize", update);
     };
   }, []);
-
-  function chatTitle(value: string) {
-    const clean = value.replace(/\s+/g, " ").trim();
-    if (!clean) return "Chat baru";
-    return clean.length > 64 ? clean.slice(0, 61).trimEnd() + "..." : clean;
-  }
-
-  async function loadConversations() {
-    const { data, error } = await supabase
-      .from("ai_conversations")
-      .select("id,user_id,title,scope_node_id,settings,created_at,updated_at,last_message_at")
-      .eq("user_id", session.user.id)
-      .order("last_message_at", { ascending: false })
-      .limit(80);
-
-    if (!error) setConversations((data || []) as AiConversation[]);
-  }
-
-  async function openConversation(conversation: AiConversation) {
-    setActiveConversationId(conversation.id);
-    setConversationScopeNodeId(conversation.scope_node_id ?? scopeNodeId);
-    setConversationScopeName(String(conversation.settings?.scopeName || scopeName));
-
-    const storedSettings = conversation.settings || {};
-    const storedSources = (storedSettings.sources || []).filter(
-      (value) => value === "ai" || value === "database" || value === "web"
-    );
-    if (storedSources.length) setSelectedSources(storedSources);
-    if (Array.isArray(storedSettings.sourceNodeIds)) {
-      setSelectedSourceNodeIds(storedSettings.sourceNodeIds.map(String));
-    }
-    if (Array.isArray(storedSettings.sourceFileIds)) {
-      setSelectedSourceFileIds(storedSettings.sourceFileIds.map(String));
-    }
-    const storedSelection = storedSettings.aiSelection;
-    if (storedSelection?.model) {
-      setAiSelection(storedSelection);
-    }
-
-    const { data, error } = await supabase
-      .from("ai_messages")
-      .select("id,conversation_id,user_id,role,content,model,sources,web_sources,warning,meta,created_at")
-      .eq("user_id", session.user.id)
-      .eq("conversation_id", conversation.id)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    setChatMessages((data || []) as AiChatMessage[]);
-    setHistoryOpen(false);
-    setQuestion("");
-    setOpen(true);
-  }
-
-  function newChat() {
-    if (busy) return;
-    setActiveConversationId(null);
-    setChatMessages([]);
-    setHistoryOpen(false);
-    setQuestion("");
-    setAnswer("");
-    setAnswerModel("");
-    setSources([]);
-    setWebSources([]);
-    setWarning("");
-    setConversationScopeNodeId(scopeNodeId);
-    setConversationScopeName(scopeName);
-    setOpen(false);
-  }
-
-  async function ensureConversation(firstQuestion: string) {
-    if (activeConversationId) return activeConversationId;
-
-    const settings = {
-      sources: selectedSources,
-      sourceNodeIds: selectedSourceNodeIds,
-      sourceFileIds: selectedSourceFileIds,
-      aiSelection,
-      scopeName,
-    };
-    const now = new Date().toISOString();
-    const { data, error } = await supabase
-      .from("ai_conversations")
-      .insert({
-        user_id: session.user.id,
-        title: chatTitle(firstQuestion),
-        scope_node_id: scopeNodeId,
-        settings,
-        updated_at: now,
-        last_message_at: now,
-      })
-      .select("id,user_id,title,scope_node_id,settings,created_at,updated_at,last_message_at")
-      .single();
-
-    if (error || !data) {
-      alert(error?.message || "Chat baru belum dapat dibuat.");
-      return null;
-    }
-
-    const conversation = data as AiConversation;
-    setConversations((current) => [conversation, ...current.filter((item) => item.id !== conversation.id)]);
-    setActiveConversationId(conversation.id);
-    setConversationScopeNodeId(conversation.scope_node_id ?? scopeNodeId);
-    setConversationScopeName(String(conversation.settings?.scopeName || scopeName));
-    return conversation.id;
-  }
-
-  async function saveConversationState(conversationId: string) {
-    const now = new Date().toISOString();
-    const { data } = await supabase
-      .from("ai_conversations")
-      .update({
-        settings: {
-          sources: selectedSources,
-          sourceNodeIds: selectedSourceNodeIds,
-          sourceFileIds: selectedSourceFileIds,
-          aiSelection,
-          scopeName: conversationScopeName || scopeName,
-        },
-        updated_at: now,
-        last_message_at: now,
-      })
-      .eq("id", conversationId)
-      .eq("user_id", session.user.id)
-      .select("id,user_id,title,scope_node_id,settings,created_at,updated_at,last_message_at")
-      .single();
-
-    if (data) {
-      const updated = data as AiConversation;
-      setConversations((current) => [
-        updated,
-        ...current.filter((item) => item.id !== updated.id),
-      ]);
-    } else {
-      void loadConversations();
-    }
-  }
-
-  async function appendConversationMessage(
-    conversationId: string,
-    role: "user" | "assistant",
-    content: string,
-    extra?: {
-      model?: string;
-      sources?: Array<{ id: string; title: string; category: string }>;
-      webSources?: Array<{ title: string; uri: string }>;
-      warning?: string;
-      meta?: Record<string, any>;
-    }
-  ) {
-    const { data, error } = await supabase
-      .from("ai_messages")
-      .insert({
-        conversation_id: conversationId,
-        user_id: session.user.id,
-        role,
-        content,
-        model: extra?.model || null,
-        sources: extra?.sources || [],
-        web_sources: extra?.webSources || [],
-        warning: extra?.warning || null,
-        meta: extra?.meta || {},
-      })
-      .select("id,conversation_id,user_id,role,content,model,sources,web_sources,warning,meta,created_at")
-      .single();
-
-    if (error || !data) {
-      alert(error?.message || "Pesan belum dapat disimpan.");
-      return null;
-    }
-    return data as AiChatMessage;
-  }
 
   function firstUrl(value: string) {
     return value.match(/https?:\/\/[^\s<>"')\]]+/i)?.[0] || "";
@@ -10148,29 +9919,17 @@ function BottomAskBar({
 
   async function ask(e: FormEvent) {
     e.preventDefault();
-    const asked = question.trim();
-    if (!asked || !selectedSources.length) return;
+    if (!question.trim() || !selectedSources.length) return;
 
-    const historyForRequest = chatMessages
-      .slice(-24)
-      .map((message) => ({ role: message.role, content: message.content.slice(0, 12000) }));
-    const conversationId = await ensureConversation(asked);
-    if (!conversationId) return;
-
-    const userMessage = await appendConversationMessage(conversationId, "user", asked);
-    if (!userMessage) return;
-    setChatMessages((current) => [...current, userMessage]);
-    setQuestion("");
-
-    const typedUrl = firstUrl(asked);
+    const typedUrl = firstUrl(question);
     const effectiveUrl = pendingLink?.url || typedUrl;
-    const wantsSave = wantsDatabaseSave(asked);
+    const wantsSave = wantsDatabaseSave(question);
 
     if (wantsSave) {
-      const suggested = suggestedDatabaseId(asked);
+      const suggested = suggestedDatabaseId(question);
       if (suggested) setAttachmentDbId(suggested);
       if (!effectiveUrl && !pendingAttachment && !pendingVoice) {
-        setPendingTextSave(asked);
+        setPendingTextSave(question.trim());
       }
     }
 
@@ -10180,49 +9939,16 @@ function BottomAskBar({
 
     setBusy(true);
     setOpen(true);
-    setHistoryOpen(false);
     setAnswer("");
     setAnswerModel("");
     setSources([]);
     setWebSources([]);
     setWarning("");
 
-    async function finishAssistant(
-      text: string,
-      model = "",
-      dbSources: Array<{ id: string; title: string; category: string }> = [],
-      currentWebSources: Array<{ title: string; uri: string }> = [],
-      warningText = "",
-      meta: Record<string, any> = {}
-    ) {
-      const clean = String(text || "").trim() || "...";
-      setAnswer(clean);
-      setAnswerModel(model);
-      setSources(dbSources);
-      setWebSources(currentWebSources);
-      setWarning(warningText);
-
-      const assistantMessage = await appendConversationMessage(
-        conversationId,
-        "assistant",
-        clean,
-        {
-          model,
-          sources: dbSources,
-          webSources: currentWebSources,
-          warning: warningText,
-          meta,
-        }
-      );
-      if (assistantMessage) {
-        setChatMessages((current) => [...current, assistantMessage]);
-      }
-      setBusy(false);
-      await saveConversationState(conversationId);
-    }
-
+    // Database answers must never wait for the semantic index. Lexical/RAW
+    // retrieval is immediately available; E5 joins the ranking when warm.
     const needsGroundedDatabase = selectedSources.includes("database") &&
-      !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(asked);
+      !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(question.trim());
     if (needsGroundedDatabase) prewarmHfRetrieval(supabase);
 
     if (aiSelection.model === "local") {
@@ -10231,27 +9957,30 @@ function BottomAskBar({
           pendingAttachment?.rawText || "",
           pendingLink?.rawText || "",
         ].filter(Boolean).join("\n\n---\n\n");
-        await finishAssistant(raw, "Sumber RAW / Local", []);
+        setAnswer(raw);
+        setAnswerModel("Sumber RAW / Local");
+        setSources([]);
+        setBusy(false);
         return;
       }
-      const local = await answerLocally(asked);
-      await finishAssistant(local.text, "Browser / Local", local.refs);
+      const local = await answerLocally(question.trim());
+      setAnswer(local.text);
+      setAnswerModel("Browser / Local");
+      setSources(local.refs);
+      setBusy(false);
       return;
     }
 
     if (modelProvider(aiSelection.model) === "local-openai") {
       try {
-        const local = await askLocalOpenAI(asked);
-        await finishAssistant(local.text, local.model + " · Local", local.refs);
+        const local = await askLocalOpenAI(question.trim());
+        setAnswer(local.text);
+        setAnswerModel(local.model + " · Local");
+        setSources(local.refs);
       } catch (error: any) {
-        await finishAssistant(
-          error?.message || "Local AI gagal menjawab.",
-          "Local",
-          [],
-          [],
-          "",
-          { error: true }
-        );
+        setAnswer(error?.message || "Local AI gagal menjawab.");
+      } finally {
+        setBusy(false);
       }
       return;
     }
@@ -10264,12 +9993,11 @@ function BottomAskBar({
     let semanticEmbedding: { model: string; vector: number[] } | null = null;
     if (needsGroundedDatabase) {
       try {
-        semanticEmbedding = await maybeMultilingualQuery(
-          supabase,
-          asked,
-          (message) => setAnswerModel(message)
-        );
+        semanticEmbedding = await maybeMultilingualQuery(supabase, question.trim(),
+          (message) => setAnswerModel(message));
       } catch {
+        // Semantic retrieval is optional. Continue immediately with lexical/RAW
+        // retrieval rather than blocking the selected AI model.
         semanticEmbedding = null;
       }
     }
@@ -10278,9 +10006,8 @@ function BottomAskBar({
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
-        question: asked,
-        history: historyForRequest,
-        scopeNodeId: conversationScopeNodeId ?? scopeNodeId,
+        question,
+        scopeNodeId,
         sourceNodeIds: selectedSourceNodeIds,
         sourceFileIds: selectedSourceFileIds,
         aiMode,
@@ -10299,54 +10026,32 @@ function BottomAskBar({
     });
 
     const data = await response.json().catch(() => ({}));
+    setBusy(false);
 
     if (!response.ok) {
-      await finishAssistant(
-        data.error || "Model belum dapat memproses permintaan ini. Coba model lain.",
-        "",
-        [],
-        [],
-        "",
-        { error: true }
-      );
+      setAnswer(data.error || "Model belum dapat memproses permintaan ini. Coba model lain.");
       return;
     }
 
-    const warningText = [
-      data.warning,
-      ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : []),
-    ].filter(Boolean).join(" · ");
-
+    setAnswer(data.answer || "");
+    setAnswerModel(String(data.model || ""));
+    setSources(data.sources || []);
+    setWebSources(data.webSources || []);
+    setWarning([data.warning, ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : [])].filter(Boolean).join(" · "));
     if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
       setSelectedSources(data.selectedSources);
     }
-
-    await finishAssistant(
-      data.answer || "",
-      String(data.model || ""),
-      Array.isArray(data.sources) ? data.sources : [],
-      Array.isArray(data.webSources) ? data.webSources : [],
-      warningText,
-      {
-        provider: data.provider || null,
-        selectedSources: data.selectedSources || selectedSources,
-        artifactFormat: data.artifactFormat || null,
-      }
-    );
   }
 
   const activeSourcesLabel = sourcesLabel();
-  const activeConversation = conversations.find((item) => item.id === activeConversationId) || null;
-  const activeConversationTitle = activeConversation?.title || "New Chat";
-  const activeScopeName = conversationScopeName || scopeName;
 
   return (
     <>
       {open && (
-        <div className="aiAnswer aiChatRoom" style={{ bottom: composerBottom + composerHeight + 12 }}>
-          <div className="aiAnswerHead aiChatHead">
+        <div className="aiAnswer" style={{ bottom: composerBottom + composerHeight + 12 }}>
+          <div className="aiAnswerHead">
             <div>
-              <small title={activeScopeName}>
+              <small title={scopeName}>
                 {aiSelection.model === "local"
                   ? "Local"
                   : modelCapability(aiSelection.model).label +
@@ -10354,77 +10059,31 @@ function BottomAskBar({
                       ? " · " + modelCapability(aiSelection.model).efforts.find((item) => item.value === aiSelection.effort)?.label
                       : "")}
                 {" · "}{activeSourcesLabel}
-                {" · "}{activeScopeName}
+                {answerModel ? " · " + answerModel : ""}
+                {" · "}{scopeName}
               </small>
-              <strong>{activeConversationTitle}</strong>
+              <strong>{question}</strong>
             </div>
-            <div className="aiChatHeadActions">
-              <button type="button" onClick={() => setHistoryOpen((value) => !value)} title="Riwayat chat">🕘</button>
-              <button type="button" onClick={newChat} disabled={busy} title="New Chat">＋</button>
-              <button type="button" onClick={newChat} disabled={busy} title="Tutup dan kembali ke New Chat">×</button>
-            </div>
+            <button onClick={() => setOpen(false)}>×</button>
           </div>
-
-          {historyOpen && (
-            <aside className="aiChatHistory">
-              <div className="aiChatHistoryHead">
-                <strong>Riwayat chat</strong>
-                <button type="button" className="ghost" disabled={busy} onClick={newChat}>＋ New Chat</button>
-              </div>
-              <div className="aiChatHistoryList">
-                {conversations.length ? conversations.map((conversation) => (
-                  <button
-                    type="button"
-                    key={conversation.id}
-                    className={conversation.id === activeConversationId ? "active" : ""}
-                    onClick={() => void openConversation(conversation)}
-                  >
-                    <strong>{conversation.title}</strong>
-                    <small>{new Date(conversation.last_message_at).toLocaleString("id-ID")}</small>
-                  </button>
-                )) : (
-                  <small className="muted">Belum ada chat tersimpan.</small>
-                )}
-              </div>
-            </aside>
+          {warning && <div className="aiWarning"><RichText text={warning} /></div>}
+          <div className="aiAnswerBody">
+            {busy
+              ? "Memproses dari " + activeSourcesLabel + "..."
+              : <RichText text={answer || "..."} />}
+          </div>
+          {(!!sources.length || !!webSources.length) && (
+            <div className="aiSources">
+              {sources.map((source) => (
+                <span key={source.id}>Database · {source.title}</span>
+              ))}
+              {webSources.map((source) => (
+                <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
+                  Web · {source.title}
+                </a>
+              ))}
+            </div>
           )}
-
-          <div className="aiChatMessages" ref={chatScrollRef}>
-            {!chatMessages.length && !busy && (
-              <div className="aiChatEmpty">
-                <strong>New Chat</strong>
-                <span>Tulis pertanyaan di bar bawah. Setelah jawaban pertama, chat ini otomatis tersimpan.</span>
-              </div>
-            )}
-            {chatMessages.map((message) => (
-              <article key={message.id} className={"aiChatMessage " + message.role}>
-                <div className="aiChatMessageMeta">
-                  <strong>{message.role === "user" ? "Kamu" : "AI"}</strong>
-                  {message.role === "assistant" && message.model && <small>{message.model}</small>}
-                </div>
-                {message.warning && <div className="aiWarning"><RichText text={message.warning} /></div>}
-                <div className="aiChatMessageBody"><RichText text={message.content} /></div>
-                {message.role === "assistant" && (!!message.sources?.length || !!message.web_sources?.length) && (
-                  <div className="aiSources aiChatSources">
-                    {(message.sources || []).map((source) => (
-                      <span key={source.id}>Database · {source.title}</span>
-                    ))}
-                    {(message.web_sources || []).map((source) => (
-                      <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
-                        Web · {source.title}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </article>
-            ))}
-            {busy && (
-              <article className="aiChatMessage assistant pending">
-                <div className="aiChatMessageMeta"><strong>AI</strong></div>
-                <div className="aiChatMessageBody">Memproses dari {activeSourcesLabel}...</div>
-              </article>
-            )}
-          </div>
         </div>
       )}
 
@@ -10434,13 +10093,13 @@ function BottomAskBar({
         </button>
         <div className="askTopRow">
           <div className="askTopControls">
-            <div className="askScope" title={activeScopeName}>{activeScopeName}</div>
+            <div className="askScope" title={scopeName}>{scopeName}</div>
             <AiDatabaseSourcePicker
               nodes={nodes}
               files={files}
               nodeIds={selectedSourceNodeIds}
               fileIds={selectedSourceFileIds}
-              currentNodeId={conversationScopeNodeId ?? scopeNodeId}
+              currentNodeId={scopeNodeId}
               sources={selectedSources}
               onSourcesChange={setSelectedSources}
               selectionModel={aiSelection.model}
@@ -10471,27 +10130,6 @@ function BottomAskBar({
           </div>
         </div>
         <div className="askInputRow">
-          <button
-            type="button"
-            className="askChatHistoryButton"
-            onClick={() => {
-              setOpen(true);
-              setHistoryOpen((value) => !value);
-            }}
-            aria-label="Riwayat chat"
-            title="Riwayat chat"
-          >
-            🕘
-          </button>
-          <button
-            type="button"
-            className="askNewChatButton"
-            disabled={busy}
-            onClick={newChat}
-            title="Mulai percakapan baru"
-          >
-            New Chat
-          </button>
           <input
             ref={askAttachmentInputRef}
             className="askAttachmentInput"
