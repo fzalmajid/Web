@@ -30,6 +30,24 @@ const AUTH_REDIRECT_URL = "https://web-fzalmajid.vercel.app";
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
 type AiSourceKind = "ai" | "database" | "web";
+type StoredChat = {
+  id: string;
+  title: string;
+  scope_node_id: string | null;
+  settings: any;
+  last_message_at: string;
+};
+type StoredChatMessage = {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  model: string | null;
+  sources: Array<{ id: string; title: string; category: string }>;
+  web_sources: Array<{ title: string; uri: string }>;
+  warning: string | null;
+  created_at: string;
+};
 type Correction = { heard: string; corrected: string; basis: string };
 type StudyNode = {
   id: string;
@@ -735,6 +753,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [refreshKey, setRefreshKey] = useState(0);
   const breadcrumbHoverTimerRef = useRef<number | null>(null);
   const [breadcrumbDropId, setBreadcrumbDropId] = useState<string | null>(null);
+  const [chatSidebarOpen, setChatSidebarOpen] = useState(false);
+  const [sidebarChats, setSidebarChats] = useState<StoredChat[]>([]);
+  const [activeSidebarChatId, setActiveSidebarChatId] = useState<string | null>(null);
+  const [chatRequestVersion, setChatRequestVersion] = useState(0);
 
   useEffect(() => {
     void loadAll();
@@ -745,6 +767,38 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     window.addEventListener("rb-open-plugins", openPlugins);
     return () => window.removeEventListener("rb-open-plugins", openPlugins);
   }, []);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("rb-left-chat-sidebar");
+    setChatSidebarOpen(saved === null ? window.innerWidth >= 900 : saved === "1");
+    void refreshSidebarChats();
+  }, [user.id]);
+
+  useEffect(() => {
+    window.localStorage.setItem("rb-left-chat-sidebar", chatSidebarOpen ? "1" : "0");
+  }, [chatSidebarOpen]);
+
+  async function refreshSidebarChats() {
+    const result = await supabase
+      .from("ai_conversations")
+      .select("id,title,scope_node_id,settings,last_message_at")
+      .eq("user_id", user.id)
+      .order("last_message_at", { ascending: false })
+      .limit(80);
+    if (!result.error) setSidebarChats((result.data || []) as StoredChat[]);
+  }
+
+  function requestNewChat() {
+    setActiveSidebarChatId(null);
+    setChatRequestVersion((value) => value + 1);
+    if (window.innerWidth < 768) setChatSidebarOpen(false);
+  }
+
+  function requestStoredChat(chatId: string) {
+    setActiveSidebarChatId(chatId);
+    setChatRequestVersion((value) => value + 1);
+    if (window.innerWidth < 768) setChatSidebarOpen(false);
+  }
 
   async function loadAll() {
     const result = await Promise.all([
@@ -859,7 +913,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }
 
   return (
-    <div className="appShell">
+    <div className={"appShell " + (chatSidebarOpen ? "leftChatSidebarOpen" : "leftChatSidebarCollapsed")}>
       <header className="topbar">
         <button className="brandButton" onClick={() => setCurrentId(null)}>
           <span className="brandMini">RB</span>
@@ -872,6 +926,65 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           <button className="ghost" onClick={() => supabase.auth.signOut()}>Keluar</button>
         </div>
       </header>
+
+      <aside className={"leftChatSidebar " + (chatSidebarOpen ? "open" : "collapsed")} aria-label="Chat">
+        <div className="leftChatSidebarTop">
+          <button
+            type="button"
+            className="leftChatSidebarToggle"
+            onClick={() => setChatSidebarOpen((value) => !value)}
+            aria-label={chatSidebarOpen ? "Sembunyikan chat" : "Tampilkan chat"}
+            title={chatSidebarOpen ? "Sembunyikan chat" : "Tampilkan chat"}
+          >
+            ☰
+          </button>
+          {chatSidebarOpen && <strong>Chat</strong>}
+        </div>
+
+        <button
+          type="button"
+          className="leftChatNewButton"
+          onClick={requestNewChat}
+          title="New Chat"
+          aria-label="New Chat"
+        >
+          <span>＋</span>
+          {chatSidebarOpen && <strong>New Chat</strong>}
+        </button>
+
+        {chatSidebarOpen && (
+          <div className="leftChatHistory">
+            <small>CHAT TERBARU</small>
+            <div className="leftChatHistoryList">
+              {sidebarChats.length ? (
+                sidebarChats.map((chat) => (
+                  <button
+                    type="button"
+                    key={chat.id}
+                    className={chat.id === activeSidebarChatId ? "active" : ""}
+                    onClick={() => requestStoredChat(chat.id)}
+                    title={chat.title}
+                  >
+                    <strong>{chat.title}</strong>
+                    <small>{new Date(chat.last_message_at).toLocaleString("id-ID")}</small>
+                  </button>
+                ))
+              ) : (
+                <span className="leftChatEmpty">Belum ada chat.</span>
+              )}
+            </div>
+          </div>
+        )}
+      </aside>
+
+      {chatSidebarOpen && (
+        <button
+          type="button"
+          className="leftChatMobileScrim"
+          onClick={() => setChatSidebarOpen(false)}
+          aria-label="Tutup sidebar chat"
+        />
+      )}
 
       <main className="pageShell">
         {current && (
@@ -1011,6 +1124,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         files={files}
         nodes={nodes}
         onChange={refresh}
+        requestedChatId={activeSidebarChatId}
+        chatRequestVersion={chatRequestVersion}
+        onActiveChatChange={setActiveSidebarChatId}
+        onChatsChange={() => void refreshSidebarChats()}
       />
 
       {settingsOpen && (
@@ -8730,6 +8847,10 @@ function BottomAskBar({
   files,
   nodes,
   onChange,
+  requestedChatId,
+  chatRequestVersion,
+  onActiveChatChange,
+  onChatsChange,
 }: {
   session: Session;
   scopeNodeId: string | null;
@@ -8738,6 +8859,10 @@ function BottomAskBar({
   files: SourceFile[];
   nodes: StudyNode[];
   onChange: () => void;
+  requestedChatId: string | null;
+  chatRequestVersion: number;
+  onActiveChatChange: (chatId: string | null) => void;
+  onChatsChange: () => void;
 }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -8750,6 +8875,10 @@ function BottomAskBar({
   const [selectedSourceFileIds, setSelectedSourceFileIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const [savedChats, setSavedChats] = useState<StoredChat[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<StoredChatMessage[]>([]);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
   const aiMode = legacyModeForSelection(aiSelection);
   const [composerBottom, setComposerBottom] = useState(16);
@@ -8818,6 +8947,28 @@ function BottomAskBar({
   }, [aiSelection.model]);
 
   useEffect(() => {
+    void refreshSavedChats();
+  }, [session.user.id]);
+
+  useEffect(() => {
+    if (chatRequestVersion === 0) return;
+    if (!requestedChatId) {
+      startNewChat();
+      return;
+    }
+    void loadStoredChatById(requestedChatId);
+  }, [requestedChatId, chatRequestVersion]);
+
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() => {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    });
+  }, [open, busy, chatMessages]);
+
+  useEffect(() => {
     if (!askVoiceDbId && askVoiceDatabases[0]) setAskVoiceDbId(askVoiceDatabases[0].id);
   }, [askVoiceDatabases, askVoiceDbId]);
 
@@ -8856,6 +9007,150 @@ function BottomAskBar({
       window.removeEventListener("resize", update);
     };
   }, []);
+
+  function chatTitle(value: string) {
+    const clean = value.replace(/\s+/g, " ").trim();
+    return clean.length > 64 ? clean.slice(0, 61) + "..." : clean || "Chat baru";
+  }
+
+  async function refreshSavedChats() {
+    const result = await supabase
+      .from("ai_conversations")
+      .select("id,title,scope_node_id,settings,last_message_at")
+      .eq("user_id", session.user.id)
+      .order("last_message_at", { ascending: false })
+      .limit(80);
+    if (!result.error) setSavedChats((result.data || []) as StoredChat[]);
+  }
+
+  async function createStoredChat(firstQuestion: string) {
+    const now = new Date().toISOString();
+    const result = await supabase
+      .from("ai_conversations")
+      .insert({
+        user_id: session.user.id,
+        title: chatTitle(firstQuestion),
+        scope_node_id: scopeNodeId,
+        settings: {
+          sources: selectedSources,
+          sourceNodeIds: selectedSourceNodeIds,
+          sourceFileIds: selectedSourceFileIds,
+          aiSelection,
+          scopeName,
+        },
+        updated_at: now,
+        last_message_at: now,
+      })
+      .select("id,title,scope_node_id,settings,last_message_at")
+      .single();
+    if (result.error || !result.data) throw new Error(result.error?.message || "Chat gagal dibuat.");
+    const chat = result.data as StoredChat;
+    setActiveChatId(chat.id);
+    setSavedChats((list) => [chat, ...list.filter((item) => item.id !== chat.id)]);
+    onActiveChatChange(chat.id);
+    onChatsChange();
+    return chat.id;
+  }
+
+  async function saveStoredMessage(
+    conversationId: string,
+    role: "user" | "assistant",
+    content: string,
+    detail?: {
+      model?: string;
+      sources?: Array<{ id: string; title: string; category: string }>;
+      webSources?: Array<{ title: string; uri: string }>;
+      warning?: string;
+    }
+  ) {
+    const result = await supabase
+      .from("ai_messages")
+      .insert({
+        conversation_id: conversationId,
+        user_id: session.user.id,
+        role,
+        content,
+        model: detail?.model || null,
+        sources: detail?.sources || [],
+        web_sources: detail?.webSources || [],
+        warning: detail?.warning || null,
+      })
+      .select("id,conversation_id,role,content,model,sources,web_sources,warning,created_at")
+      .single();
+    if (result.error || !result.data) throw new Error(result.error?.message || "Pesan gagal disimpan.");
+    return result.data as StoredChatMessage;
+  }
+
+  async function touchStoredChat(conversationId: string) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("ai_conversations")
+      .update({
+        settings: {
+          sources: selectedSources,
+          sourceNodeIds: selectedSourceNodeIds,
+          sourceFileIds: selectedSourceFileIds,
+          aiSelection,
+          scopeName,
+        },
+        updated_at: now,
+        last_message_at: now,
+      })
+      .eq("id", conversationId)
+      .eq("user_id", session.user.id);
+    void refreshSavedChats();
+    onChatsChange();
+  }
+
+  async function loadStoredChatById(chatId: string) {
+    const chatResult = await supabase
+      .from("ai_conversations")
+      .select("id,title,scope_node_id,settings,last_message_at")
+      .eq("id", chatId)
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if (chatResult.error || !chatResult.data) return;
+    await loadStoredChat(chatResult.data as StoredChat);
+  }
+
+  async function loadStoredChat(chat: StoredChat) {
+    const result = await supabase
+      .from("ai_messages")
+      .select("id,conversation_id,role,content,model,sources,web_sources,warning,created_at")
+      .eq("conversation_id", chat.id)
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: true });
+    if (result.error) throw new Error(result.error.message);
+
+    setActiveChatId(chat.id);
+    setSavedChats((list) => [chat, ...list.filter((item) => item.id !== chat.id)]);
+    setChatMessages((result.data || []) as StoredChatMessage[]);
+    onActiveChatChange(chat.id);
+    setQuestion("");
+    setOpen(true);
+
+    const settings = chat.settings || {};
+    if (Array.isArray(settings.sources) && settings.sources.length) {
+      setSelectedSources(settings.sources as AiSourceKind[]);
+    }
+    if (Array.isArray(settings.sourceNodeIds)) setSelectedSourceNodeIds(settings.sourceNodeIds.map(String));
+    if (Array.isArray(settings.sourceFileIds)) setSelectedSourceFileIds(settings.sourceFileIds.map(String));
+    if (settings.aiSelection?.model) setAiSelection(settings.aiSelection as AiSelection);
+  }
+
+  function startNewChat() {
+    if (busy) return;
+    setActiveChatId(null);
+    setChatMessages([]);
+    onActiveChatChange(null);
+    setQuestion("");
+    setAnswer("");
+    setAnswerModel("");
+    setSources([]);
+    setWebSources([]);
+    setWarning("");
+    setOpen(false);
+  }
 
   function firstUrl(value: string) {
     return value.match(/https?:\/\/[^\s<>"')\]]+/i)?.[0] || "";
@@ -9243,6 +9538,10 @@ function BottomAskBar({
     const base = config.endpoint.replace(/\/+$/, "");
     const messages: any[] = [
       { role: "system", content: "Ikuti instruksi sumber Ruang Belajar dengan ketat." },
+      ...chatMessages.slice(-24).map((message) => ({
+        role: message.role,
+        content: message.content.slice(0, 12000),
+      })),
       { role: "user", content: prompt },
     ];
 
@@ -9919,17 +10218,37 @@ function BottomAskBar({
 
   async function ask(e: FormEvent) {
     e.preventDefault();
-    if (!question.trim() || !selectedSources.length) return;
+    const asked = question.trim();
+    if (!asked || !selectedSources.length) return;
 
-    const typedUrl = firstUrl(question);
+    const conversationScopeId = activeChatId
+      ? savedChats.find((item) => item.id === activeChatId)?.scope_node_id || scopeNodeId
+      : scopeNodeId;
+
+    const history = chatMessages
+      .slice(-24)
+      .map((message) => ({ role: message.role, content: message.content.slice(0, 12000) }));
+
+    let conversationId = activeChatId;
+    try {
+      if (!conversationId) conversationId = await createStoredChat(asked);
+      const storedUser = await saveStoredMessage(conversationId, "user", asked);
+      setChatMessages((list) => [...list, storedUser]);
+      setQuestion("");
+    } catch (error: any) {
+      alert(error?.message || "Chat belum dapat disimpan.");
+      return;
+    }
+
+    const typedUrl = firstUrl(asked);
     const effectiveUrl = pendingLink?.url || typedUrl;
-    const wantsSave = wantsDatabaseSave(question);
+    const wantsSave = wantsDatabaseSave(asked);
 
     if (wantsSave) {
-      const suggested = suggestedDatabaseId(question);
+      const suggested = suggestedDatabaseId(asked);
       if (suggested) setAttachmentDbId(suggested);
       if (!effectiveUrl && !pendingAttachment && !pendingVoice) {
-        setPendingTextSave(question.trim());
+        setPendingTextSave(asked);
       }
     }
 
@@ -9945,10 +10264,53 @@ function BottomAskBar({
     setWebSources([]);
     setWarning("");
 
-    // Database answers must never wait for the semantic index. Lexical/RAW
-    // retrieval is immediately available; E5 joins the ranking when warm.
+    async function finishChatAnswer(
+      text: string,
+      model = "",
+      dbSources: Array<{ id: string; title: string; category: string }> = [],
+      currentWebSources: Array<{ title: string; uri: string }> = [],
+      warningText = ""
+    ) {
+      const finalText = String(text || "").trim() || "...";
+      setAnswer(finalText);
+      setAnswerModel(model);
+      setSources(dbSources);
+      setWebSources(currentWebSources);
+      setWarning(warningText);
+
+      try {
+        const storedAssistant = await saveStoredMessage(
+          conversationId!,
+          "assistant",
+          finalText,
+          {
+            model,
+            sources: dbSources,
+            webSources: currentWebSources,
+            warning: warningText,
+          }
+        );
+        setChatMessages((list) => [...list, storedAssistant]);
+        await touchStoredChat(conversationId!);
+      } catch {
+        const temporaryAssistant: StoredChatMessage = {
+          id: "temporary-" + Date.now(),
+          conversation_id: conversationId!,
+          role: "assistant",
+          content: finalText,
+          model: model || null,
+          sources: dbSources,
+          web_sources: currentWebSources,
+          warning: warningText || null,
+          created_at: new Date().toISOString(),
+        };
+        setChatMessages((list) => [...list, temporaryAssistant]);
+      }
+      setBusy(false);
+    }
+
     const needsGroundedDatabase = selectedSources.includes("database") &&
-      !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(question.trim());
+      !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(asked);
     if (needsGroundedDatabase) prewarmHfRetrieval(supabase);
 
     if (aiSelection.model === "local") {
@@ -9957,30 +10319,20 @@ function BottomAskBar({
           pendingAttachment?.rawText || "",
           pendingLink?.rawText || "",
         ].filter(Boolean).join("\n\n---\n\n");
-        setAnswer(raw);
-        setAnswerModel("Sumber RAW / Local");
-        setSources([]);
-        setBusy(false);
+        await finishChatAnswer(raw, "Sumber RAW / Local");
         return;
       }
-      const local = await answerLocally(question.trim());
-      setAnswer(local.text);
-      setAnswerModel("Browser / Local");
-      setSources(local.refs);
-      setBusy(false);
+      const local = await answerLocally(asked);
+      await finishChatAnswer(local.text, "Browser / Local", local.refs);
       return;
     }
 
     if (modelProvider(aiSelection.model) === "local-openai") {
       try {
-        const local = await askLocalOpenAI(question.trim());
-        setAnswer(local.text);
-        setAnswerModel(local.model + " · Local");
-        setSources(local.refs);
+        const local = await askLocalOpenAI(asked);
+        await finishChatAnswer(local.text, local.model + " · Local", local.refs);
       } catch (error: any) {
-        setAnswer(error?.message || "Local AI gagal menjawab.");
-      } finally {
-        setBusy(false);
+        await finishChatAnswer(error?.message || "Local AI gagal menjawab.", "Local");
       }
       return;
     }
@@ -9993,11 +10345,12 @@ function BottomAskBar({
     let semanticEmbedding: { model: string; vector: number[] } | null = null;
     if (needsGroundedDatabase) {
       try {
-        semanticEmbedding = await maybeMultilingualQuery(supabase, question.trim(),
-          (message) => setAnswerModel(message));
+        semanticEmbedding = await maybeMultilingualQuery(
+          supabase,
+          asked,
+          (message) => setAnswerModel(message)
+        );
       } catch {
-        // Semantic retrieval is optional. Continue immediately with lexical/RAW
-        // retrieval rather than blocking the selected AI model.
         semanticEmbedding = null;
       }
     }
@@ -10006,8 +10359,9 @@ function BottomAskBar({
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
-        question,
-        scopeNodeId,
+        question: asked,
+        history,
+        scopeNodeId: conversationScopeId,
         sourceNodeIds: selectedSourceNodeIds,
         sourceFileIds: selectedSourceFileIds,
         aiMode,
@@ -10026,32 +10380,46 @@ function BottomAskBar({
     });
 
     const data = await response.json().catch(() => ({}));
-    setBusy(false);
 
     if (!response.ok) {
-      setAnswer(data.error || "Model belum dapat memproses permintaan ini. Coba model lain.");
+      await finishChatAnswer(
+        data.error || "Model belum dapat memproses permintaan ini. Coba model lain."
+      );
       return;
     }
 
-    setAnswer(data.answer || "");
-    setAnswerModel(String(data.model || ""));
-    setSources(data.sources || []);
-    setWebSources(data.webSources || []);
-    setWarning([data.warning, ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : [])].filter(Boolean).join(" · "));
+    const warningText = [
+      data.warning,
+      ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : []),
+    ].filter(Boolean).join(" · ");
+
     if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
       setSelectedSources(data.selectedSources);
     }
+
+    await finishChatAnswer(
+      data.answer || "",
+      String(data.model || ""),
+      Array.isArray(data.sources) ? data.sources : [],
+      Array.isArray(data.webSources) ? data.webSources : [],
+      warningText
+    );
   }
 
+
   const activeSourcesLabel = sourcesLabel();
+  const activeChat = savedChats.find((item) => item.id === activeChatId) || null;
+  const activeChatTitle = activeChat?.title || "New Chat";
+  const activeChatScopeName = String(activeChat?.settings?.scopeName || scopeName);
+  const activeChatScopeNodeId = activeChat?.scope_node_id || scopeNodeId;
 
   return (
     <>
       {open && (
-        <div className="aiAnswer" style={{ bottom: composerBottom + composerHeight + 12 }}>
-          <div className="aiAnswerHead">
+        <div className="aiAnswer aiChatRoom" style={{ bottom: composerBottom + composerHeight + 12 }}>
+          <div className="aiAnswerHead aiChatHead">
             <div>
-              <small title={scopeName}>
+              <small title={activeChatScopeName}>
                 {aiSelection.model === "local"
                   ? "Local"
                   : modelCapability(aiSelection.model).label +
@@ -10059,31 +10427,62 @@ function BottomAskBar({
                       ? " · " + modelCapability(aiSelection.model).efforts.find((item) => item.value === aiSelection.effort)?.label
                       : "")}
                 {" · "}{activeSourcesLabel}
-                {answerModel ? " · " + answerModel : ""}
-                {" · "}{scopeName}
+                {" · "}{activeChatScopeName}
               </small>
-              <strong>{question}</strong>
+              <strong>{activeChatTitle}</strong>
             </div>
-            <button onClick={() => setOpen(false)}>×</button>
+            <button type="button" onClick={() => setOpen(false)} aria-label="Tutup chat">×</button>
           </div>
-          {warning && <div className="aiWarning"><RichText text={warning} /></div>}
-          <div className="aiAnswerBody">
-            {busy
-              ? "Memproses dari " + activeSourcesLabel + "..."
-              : <RichText text={answer || "..."} />}
+
+          <div className="aiChatMessages" ref={chatScrollRef}>
+            {!chatMessages.length && !busy && (
+              <div className="aiChatEmpty">
+                <strong>New Chat</strong>
+                <span>Tulis pertanyaan di bar bawah untuk memulai percakapan baru.</span>
+              </div>
+            )}
+
+            {chatMessages.map((message) => (
+              <article key={message.id} className={"aiChatMessage " + message.role}>
+                <div className="aiChatMessageMeta">
+                  <strong>{message.role === "user" ? "Kamu" : "AI"}</strong>
+                  {message.role === "assistant" && message.model && <small>{message.model}</small>}
+                </div>
+                {message.warning && (
+                  <div className="aiWarning">
+                    <RichText text={message.warning} />
+                  </div>
+                )}
+                <div className="aiChatMessageBody">
+                  <RichText text={message.content} />
+                </div>
+                {message.role === "assistant" &&
+                  (!!message.sources?.length || !!message.web_sources?.length) && (
+                    <div className="aiSources aiChatSources">
+                      {(message.sources || []).map((source) => (
+                        <span key={source.id}>Database · {source.title}</span>
+                      ))}
+                      {(message.web_sources || []).map((source) => (
+                        <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
+                          Web · {source.title}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+              </article>
+            ))}
+
+            {busy && (
+              <article className="aiChatMessage assistant pending">
+                <div className="aiChatMessageMeta">
+                  <strong>AI</strong>
+                </div>
+                <div className="aiChatMessageBody">
+                  Memproses dari {activeSourcesLabel}...
+                </div>
+              </article>
+            )}
           </div>
-          {(!!sources.length || !!webSources.length) && (
-            <div className="aiSources">
-              {sources.map((source) => (
-                <span key={source.id}>Database · {source.title}</span>
-              ))}
-              {webSources.map((source) => (
-                <a key={source.uri} href={source.uri} target="_blank" rel="noreferrer">
-                  Web · {source.title}
-                </a>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
@@ -10093,13 +10492,13 @@ function BottomAskBar({
         </button>
         <div className="askTopRow">
           <div className="askTopControls">
-            <div className="askScope" title={scopeName}>{scopeName}</div>
+            <div className="askScope" title={activeChatScopeName}>{activeChatScopeName}</div>
             <AiDatabaseSourcePicker
               nodes={nodes}
               files={files}
               nodeIds={selectedSourceNodeIds}
               fileIds={selectedSourceFileIds}
-              currentNodeId={scopeNodeId}
+              currentNodeId={activeChatScopeNodeId}
               sources={selectedSources}
               onSourcesChange={setSelectedSources}
               selectionModel={aiSelection.model}
