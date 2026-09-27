@@ -706,13 +706,42 @@ function buildPrompt({
  * individual OCR/page chunks, and ranked by body content rather than filename.
  */
 function expandPharmacyQuery(question: string) {
-  // "PCT" is contextual: in a paracetamol monograph query, expand it to
-  // medicine synonyms before FTS; do not assume it always means paracetamol.
-  if (!/\bpct\b/i.test(question) ||
-      !/\b(monografi|monograph|parasetamol|paracetamol|acetaminophen|analgesik|obat)\b/i.test(question)) {
-    return question;
+  let expanded = question;
+
+  // "PCT" is contextual: expand only when the surrounding request is clearly
+  // about paracetamol/medicine.
+  if (
+    /\bpct\b/i.test(expanded) &&
+    /\b(monografi|monograph|parasetamol|paracetamol|acetaminophen|analgesik|obat|kadar|assay|spektrofot|spectrophot)\b/i.test(expanded)
+  ) {
+    expanded = expanded.replace(/\bpct\b/gi, "paracetamol parasetamol acetaminophen acetaminofen");
   }
-  return question.replace(/\bpct\b/gi, "paracetamol parasetamol acetaminophen");
+
+  const analyticalIntent =
+    /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible)\b/i.test(expanded);
+
+  if (analyticalIntent) {
+    const analyteTerms =
+      /\b(paracetamol|parasetamol|acetaminophen|acetaminofen)\b/i.test(expanded)
+        ? "paracetamol parasetamol acetaminophen acetaminofen"
+        : expanded;
+
+    // Search the scientific concepts needed for a theory section, not boilerplate
+    // words such as "buatkan laporan". FTS uses OR, so this broadens candidate
+    // coverage across analyte monographs and analytical-chemistry references.
+    return [
+      analyteTerms,
+      "spektrofotometri spektrofotometer spectrophotometry spectrophotometer",
+      "uv vis ultraviolet visible",
+      "absorbansi absorbance transmitansi transmittance",
+      "beer lambert absorptivitas molar absorptivity",
+      "panjang gelombang wavelength lambda maksimum",
+      "kurva kalibrasi calibration curve konsentrasi concentration",
+      "penetapan kadar assay quantitative kuantitatif",
+    ].join(" ");
+  }
+
+  return expanded;
 }
 
 function databaseLookupTerms(question: string) {
@@ -1103,6 +1132,10 @@ export async function POST(req: NextRequest) {
     }
     const databaseSources = Array.from(sourceByWork.values());
 
+    const practicalTheoryIntent =
+      /\b(dasar teori|laporan praktikum|praktikum)\b/i.test(question.trim()) &&
+      /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible)\b/i.test(question.trim());
+
     const prompt = buildPrompt({
       question,
       historyText,
@@ -1116,9 +1149,13 @@ export async function POST(req: NextRequest) {
       citationStyle,
       citationOutputs,
       artifactFormat,
-    }) + (/\b(eksipien|excipients?)\b/i.test(question.trim()) && data.length
-      ? "\n\nPRIORITAS RELEVANSI: Untuk fungsi atau pemilihan eksipien tablet, gunakan monografi eksipien yang benar-benar cocok dari Handbook of Pharmaceutical Excipients atau referensi eksipien lain. Farmakope dipakai untuk fakta zat aktif/spesifikasi yang relevan, bukan sebagai satu-satunya sumber eksipien. Eksipien yang tidak menyebut PCT tetap bisa relevan sebagai bahan tambahan, tetapi jangan mengklaim formula tablet PCT sudah terbukti tanpa sumber formulasi. Sitasi hanya halaman yang memuat fakta terkait."
-      : "");
+    }) +
+      (/\b(eksipien|excipients?)\b/i.test(question.trim()) && data.length
+        ? "\n\nPRIORITAS RELEVANSI: Untuk fungsi atau pemilihan eksipien tablet, gunakan monografi eksipien yang benar-benar cocok dari Handbook of Pharmaceutical Excipients atau referensi eksipien lain. Farmakope dipakai untuk fakta zat aktif/spesifikasi yang relevan, bukan sebagai satu-satunya sumber eksipien. Eksipien yang tidak menyebut PCT tetap bisa relevan sebagai bahan tambahan, tetapi jangan mengklaim formula tablet PCT sudah terbukti tanpa sumber formulasi. Sitasi hanya halaman yang memuat fakta terkait."
+        : "") +
+      (practicalTheoryIntent && data.length
+        ? "\n\nDASAR TEORI PRAKTIKUM: Bangun uraian dari beberapa karya independen yang relevan bila tersedia, bukan satu referensi saja. Pisahkan dukungan untuk: (1) identitas/sifat analit, (2) prinsip spektrofotometri UV-Vis dan interaksi radiasi, (3) hukum Beer-Lambert/absorbansi, (4) panjang gelombang dan pemilihan kondisi pengukuran, serta (5) kuantifikasi/kurva kalibrasi/penetapan kadar. Gunakan hanya sumber yang benar-benar mendukung masing-masing bagian. Jika Database menyediakan tiga atau lebih karya relevan, usahakan beberapa karya berbeda terwakili dalam sitasi dan daftar pustaka; jangan mengulang satu buku untuk semua bagian bila ada sumber lain yang lebih tepat."
+        : "");
 
     const sharedGemini = selectedProvider === "gemini" && !geminiAuth.ownGemini;
     const action = useWeb ? "ask_web" : "ask";
@@ -1161,11 +1198,10 @@ export async function POST(req: NextRequest) {
         "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
         {
           googleSearch: withWeb,
-          models: modelPlanForSelection(
-            aiSelection.model,
-            aiMode,
-            withWeb ? "web" : "standard"
-          ),
+          models: withWeb
+            ? modelPlanForSelection(aiSelection.model, aiMode, "web")
+            : [selectedProviderModel],
+          strictModel: !withWeb,
           effort: aiSelection.effort,
           responseLength: aiSelection.length,
           apiKey: geminiAuth.apiKey,
