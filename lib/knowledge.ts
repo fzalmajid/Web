@@ -344,13 +344,16 @@ export function fuseHybridKnowledge(
     if (raw.length < 70) continue;
     const prior = merged.get(row.id);
     // A vague semantic resemblance does not justify citing an unrelated book.
-    // For explicitly named paracetamol/PCT, require evidence in the cited chunk.
+    // But a multi-part scientific question may legitimately need sources for
+    // the analyte AND separate sources for the analytical principle/method.
     const namedPct = /\b(pct|paracetamol|parasetamol|acetaminophen|acetaminofen)\b/i.test(question);
     const chunkHasPct = /\b(pct|paracetamol|parasetamol|acetaminophen|acetaminofen)\b/i.test(raw);
-    // "Eksipien potensial dalam tablet PCT" is a formulation question:
-    // a relevant excipient monograph need not mention the active ingredient.
     const excipientIntent = /\b(eksipien|excipients?|binder|diluent|pengikat|pengisi|penghancur|pelicin)\b/i.test(question);
-    if (!prior && namedPct && !chunkHasPct && !excipientIntent) continue;
+    const analyticalIntent =
+      /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible|beer[\s-]?lambert|absorbansi|absorbance|panjang gelombang|wavelength|kurva kalibrasi|calibration curve|penetapan kadar|assay)\b/i.test(question);
+    const analyticalEvidence =
+      /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible|beer[\s-]?lambert|absorbansi|absorbance|panjang gelombang|wavelength|transmitansi|transmittance|kurva kalibrasi|calibration curve|molar absorptivity|absorptivitas)\b/i.test(raw);
+    if (!prior && namedPct && !chunkHasPct && !excipientIntent && !(analyticalIntent && analyticalEvidence)) continue;
     const minimumOnlySemantic = semanticModel === "intfloat/multilingual-e5-small" ? 0.85 : 0.82;
     if (!prior && (Number(row.score) || 0) < minimumOnlySemantic * 100000) continue;
     const weight = 1.0 / (60 + index + 1);
@@ -379,29 +382,55 @@ export function prioritizeQuestionRelevantSources(
 ): KnowledgeSource[] {
   const needsExcipients =
     /\b(eksipien|excipients?|bahan tambahan|pengikat|pengisi|penghancur|pelicin)\b/i.test(question);
-  if (!needsExcipients) return rows;
+  const needsAnalyticalTheory =
+    /\b(dasar teori|laporan praktikum|praktikum|penetapan kadar|assay)\b/i.test(question) &&
+    /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible)\b/i.test(question);
+
+  if (!needsExcipients && !needsAnalyticalTheory) return rows;
 
   const excipientEvidence =
     /\b(excipients?|pengisi|pengikat|penghancur|pelicin|diluent|binder|disintegrant|lubricant|glidant|filler|microcrystalline cellulose|lactose|povidone|starch|magnesium stearate|croscarmellose|crospovidone)\b/i;
   const apiEvidence = /\b(paracetamol|parasetamol|acetaminophen|acetaminofen|pct)\b/i;
+  const analyticalEvidence =
+    /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible|beer[\s-]?lambert|absorbansi|absorbance|transmitansi|transmittance|panjang gelombang|wavelength|kurva kalibrasi|calibration curve|molar absorptivity|absorptivitas)\b/i;
+  const quantitativeEvidence =
+    /\b(kadar|assay|quantitative|kuantitatif|concentration|konsentrasi|standard curve|kurva baku|kurva kalibrasi|calibration curve)\b/i;
+
   const scored = rows.map((row) => {
     const title = String(row.title || "").toLowerCase();
     const raw = String(row.raw_content || row.content || "");
-    const excipientBook =
-      /handbook of pharmaceutical excipients|\bexcipients?\b|\beksipien\b/i.test(title);
-    const substantiveExcipient = excipientEvidence.test(raw);
-    const apiPage = apiEvidence.test(raw);
     let relevance = Number(row.score) || 0;
-    if (excipientBook && substantiveExcipient) relevance += 36000;
-    else if (substantiveExcipient) relevance += 9500;
-    // The opening HOPE pages contain a contents list and introduction, not
-    // actual substance monographs; prefer chapters on starch, calcium
-    // phosphate, magnesium stearate, etc. with substantive material data.
-    const page = Number(row.source_page_start || 0);
-    if (excipientBook && page >= 1 && page <= 21) relevance -= 26000;
-    if (apiPage && !substantiveExcipient) relevance -= 6000;
+
+    if (needsExcipients) {
+      const excipientBook =
+        /handbook of pharmaceutical excipients|\bexcipients?\b|\beksipien\b/i.test(title);
+      const substantiveExcipient = excipientEvidence.test(raw);
+      const apiPage = apiEvidence.test(raw);
+      if (excipientBook && substantiveExcipient) relevance += 36000;
+      else if (substantiveExcipient) relevance += 9500;
+      const page = Number(row.source_page_start || 0);
+      if (excipientBook && page >= 1 && page <= 21) relevance -= 26000;
+      if (apiPage && !substantiveExcipient) relevance -= 6000;
+    }
+
+    if (needsAnalyticalTheory) {
+      const hasAnalyte = apiEvidence.test(raw);
+      const hasAnalytical = analyticalEvidence.test(raw);
+      const hasQuantitative = quantitativeEvidence.test(raw);
+      const analyticalBook =
+        /analytical chemistry|kimia analitik|spectrophot|spektrofot|instrumental analysis|analisis instrumental/i.test(title);
+
+      // Strongest evidence is a source that connects the analyte to the method.
+      if (hasAnalyte && hasAnalytical) relevance += 42000;
+      else if (analyticalBook && hasAnalytical) relevance += 30000;
+      else if (hasAnalytical) relevance += 18000;
+      else if (hasAnalyte) relevance += 10000;
+      if (hasQuantitative) relevance += 7000;
+    }
+
     return { ...row, score: relevance };
   });
+
   scored.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
   return scored;
 }
