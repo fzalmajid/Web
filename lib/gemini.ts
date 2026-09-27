@@ -125,11 +125,21 @@ async function listGenerateModels(
 function prioritizeAvailableModels(
   requested: string[],
   available: string[],
-  audio = false
+  audio = false,
+  strictModel = false
 ) {
+  // If model discovery itself is unavailable, still attempt the exact requested
+  // model(s) directly. The provider response is authoritative.
   if (!available.length) return requested;
 
   const availableSet = new Set(available);
+  const requestedAvailable = requested.filter((model) => availableSet.has(model));
+
+  // A model explicitly selected by the user must not silently turn into a
+  // different Gemini model. In strict mode, either use exactly the selected
+  // model or return no candidate so the caller can show a clear error.
+  if (strictModel) return requestedAvailable;
+
   const safeFallbacks = audio
     ? ["gemini-3.5-transcribe", ...SAFE_GENERATE_FALLBACKS]
     : SAFE_GENERATE_FALLBACKS;
@@ -144,7 +154,7 @@ function prioritizeAvailableModels(
 
   return Array.from(
     new Set([
-      ...requested.filter((model) => availableSet.has(model)),
+      ...requestedAvailable,
       ...providerFallbacks,
       ...otherTextModels,
     ])
@@ -224,6 +234,7 @@ export async function geminiGenerateDetailed(
     responseMimeType?: "application/json";
     maxOutputTokens?: number;
     outputBudgetMultiplier?: number;
+    strictModel?: boolean;
   }
 ) {
   const lengthInstruction = options?.responseLength
@@ -258,12 +269,15 @@ export async function geminiGenerateDetailed(
   const models = prioritizeAvailableModels(
     requestedModels,
     availableModels,
-    requestedModels.some((model) => model === "gemini-3.5-transcribe")
+    requestedModels.some((model) => model === "gemini-3.5-transcribe"),
+    Boolean(options?.strictModel)
   );
 
   if (!models.length) {
     throw new GeminiApiError(
-      "Project Gemini ini belum memiliki model generateContent yang bisa dipakai. Pilih project Google Cloud lain atau gunakan provider bersama.",
+      options?.strictModel
+        ? "Model Gemini yang dipilih tidak tersedia untuk credential/project ini. Pilih model lain; sistem tidak akan menggantinya diam-diam dengan model lain."
+        : "Project Gemini ini belum memiliki model generateContent yang bisa dipakai. Pilih project Google Cloud lain atau gunakan provider bersama.",
       503,
       "GEMINI_NO_AVAILABLE_MODEL"
     );
