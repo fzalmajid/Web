@@ -2,6 +2,8 @@ name: Chat build debug
 on:
   push:
     branches: [chat-build-debug]
+  pull_request:
+    branches: [main]
 jobs:
   build:
     runs-on: ubuntu-latest
