@@ -978,13 +978,14 @@ export async function POST(req: NextRequest) {
           : undefined
       : undefined;
 
+    // Database-only lookup is allowed only when AI is genuinely disabled
+    // (or the Local model is selected). A search-style wording such as
+    // "cari/carikan/temukan" must NOT silently bypass a selected cloud model
+    // when the AI source is active.
     const lookupOnly =
       useDatabase &&
       !useWeb &&
-      (selectedProvider === "local" ||
-        /\b(carikan|cari|temukan|lokasi|dimana|di mana|halaman berapa|find|locate|search for|show me)\b/i.test(question)) &&
-      (selectedProvider === "local" ||
-        !/\b(jelaskan|ringkas|rangkum|uraikan|analisis|bandingkan|hitung|buat|tuliskan|explain|summarize|compare|analyze)\b/i.test(question)) &&
+      (!useAi || selectedProvider === "local") &&
       !attachmentRaw &&
       !attachmentUrl &&
       !body.attachmentPath;
