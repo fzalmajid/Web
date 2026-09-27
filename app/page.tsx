@@ -10084,17 +10084,32 @@ function BottomAskBar({
 
   async function ask(e: FormEvent) {
     e.preventDefault();
-    if (!question.trim() || !selectedSources.length) return;
+    const asked = question.trim();
+    if (!asked || !selectedSources.length) return;
 
-    const typedUrl = firstUrl(question);
+    const history = chatMessages
+      .slice(-24)
+      .map((message) => ({ role: message.role, content: message.content.slice(0, 12000) }));
+
+    let conversationId = activeChatId;
+    try {
+      if (!conversationId) conversationId = await createStoredChat(asked);
+      const storedUser = await saveStoredMessage(conversationId, "user", asked);
+      setChatMessages((list) => [...list, storedUser]);
+    } catch (error: any) {
+      alert(error?.message || "Chat belum dapat disimpan.");
+      return;
+    }
+
+    const typedUrl = firstUrl(asked);
     const effectiveUrl = pendingLink?.url || typedUrl;
-    const wantsSave = wantsDatabaseSave(question);
+    const wantsSave = wantsDatabaseSave(asked);
 
     if (wantsSave) {
-      const suggested = suggestedDatabaseId(question);
+      const suggested = suggestedDatabaseId(asked);
       if (suggested) setAttachmentDbId(suggested);
       if (!effectiveUrl && !pendingAttachment && !pendingVoice) {
-        setPendingTextSave(question.trim());
+        setPendingTextSave(asked);
       }
     }
 
@@ -10110,10 +10125,42 @@ function BottomAskBar({
     setWebSources([]);
     setWarning("");
 
-    // Database answers must never wait for the semantic index. Lexical/RAW
-    // retrieval is immediately available; E5 joins the ranking when warm.
+    async function finishChatAnswer(
+      text: string,
+      model = "",
+      dbSources: Array<{ id: string; title: string; category: string }> = [],
+      currentWebSources: Array<{ title: string; uri: string }> = [],
+      warningText = ""
+    ) {
+      const finalText = String(text || "").trim() || "...";
+      setAnswer(finalText);
+      setAnswerModel(model);
+      setSources(dbSources);
+      setWebSources(currentWebSources);
+      setWarning(warningText);
+
+      try {
+        const storedAssistant = await saveStoredMessage(
+          conversationId!,
+          "assistant",
+          finalText,
+          {
+            model,
+            sources: dbSources,
+            webSources: currentWebSources,
+            warning: warningText,
+          }
+        );
+        setChatMessages((list) => [...list, storedAssistant]);
+        await touchStoredChat(conversationId!);
+      } catch {
+        // Jawaban tetap ditampilkan walau penyimpanan riwayat sesaat gagal.
+      }
+      setBusy(false);
+    }
+
     const needsGroundedDatabase = selectedSources.includes("database") &&
-      !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(question.trim());
+      !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(asked);
     if (needsGroundedDatabase) prewarmHfRetrieval(supabase);
 
     if (aiSelection.model === "local") {
@@ -10122,30 +10169,20 @@ function BottomAskBar({
           pendingAttachment?.rawText || "",
           pendingLink?.rawText || "",
         ].filter(Boolean).join("\n\n---\n\n");
-        setAnswer(raw);
-        setAnswerModel("Sumber RAW / Local");
-        setSources([]);
-        setBusy(false);
+        await finishChatAnswer(raw, "Sumber RAW / Local");
         return;
       }
-      const local = await answerLocally(question.trim());
-      setAnswer(local.text);
-      setAnswerModel("Browser / Local");
-      setSources(local.refs);
-      setBusy(false);
+      const local = await answerLocally(asked);
+      await finishChatAnswer(local.text, "Browser / Local", local.refs);
       return;
     }
 
     if (modelProvider(aiSelection.model) === "local-openai") {
       try {
-        const local = await askLocalOpenAI(question.trim());
-        setAnswer(local.text);
-        setAnswerModel(local.model + " · Local");
-        setSources(local.refs);
+        const local = await askLocalOpenAI(asked);
+        await finishChatAnswer(local.text, local.model + " · Local", local.refs);
       } catch (error: any) {
-        setAnswer(error?.message || "Local AI gagal menjawab.");
-      } finally {
-        setBusy(false);
+        await finishChatAnswer(error?.message || "Local AI gagal menjawab.", "Local");
       }
       return;
     }
@@ -10158,11 +10195,12 @@ function BottomAskBar({
     let semanticEmbedding: { model: string; vector: number[] } | null = null;
     if (needsGroundedDatabase) {
       try {
-        semanticEmbedding = await maybeMultilingualQuery(supabase, question.trim(),
-          (message) => setAnswerModel(message));
+        semanticEmbedding = await maybeMultilingualQuery(
+          supabase,
+          asked,
+          (message) => setAnswerModel(message)
+        );
       } catch {
-        // Semantic retrieval is optional. Continue immediately with lexical/RAW
-        // retrieval rather than blocking the selected AI model.
         semanticEmbedding = null;
       }
     }
@@ -10171,7 +10209,8 @@ function BottomAskBar({
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
-        question,
+        question: asked,
+        history,
         scopeNodeId,
         sourceNodeIds: selectedSourceNodeIds,
         sourceFileIds: selectedSourceFileIds,
@@ -10191,22 +10230,32 @@ function BottomAskBar({
     });
 
     const data = await response.json().catch(() => ({}));
-    setBusy(false);
 
     if (!response.ok) {
-      setAnswer(data.error || "Model belum dapat memproses permintaan ini. Coba model lain.");
+      await finishChatAnswer(
+        data.error || "Model belum dapat memproses permintaan ini. Coba model lain."
+      );
       return;
     }
 
-    setAnswer(data.answer || "");
-    setAnswerModel(String(data.model || ""));
-    setSources(data.sources || []);
-    setWebSources(data.webSources || []);
-    setWarning([data.warning, ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : [])].filter(Boolean).join(" · "));
+    const warningText = [
+      data.warning,
+      ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : []),
+    ].filter(Boolean).join(" · ");
+
     if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
       setSelectedSources(data.selectedSources);
     }
+
+    await finishChatAnswer(
+      data.answer || "",
+      String(data.model || ""),
+      Array.isArray(data.sources) ? data.sources : [],
+      Array.isArray(data.webSources) ? data.webSources : [],
+      warningText
+    );
   }
+
 
   const activeSourcesLabel = sourcesLabel();
 
