@@ -36,6 +36,7 @@ type StoredChat = {
   scope_node_id: string | null;
   settings: any;
   last_message_at: string;
+  pinned_at?: string | null;
 };
 type StoredChatMessage = {
   id: string;
@@ -757,6 +758,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [sidebarChats, setSidebarChats] = useState<StoredChat[]>([]);
   const [activeSidebarChatId, setActiveSidebarChatId] = useState<string | null>(null);
   const [chatRequestVersion, setChatRequestVersion] = useState(0);
+  const [chatMenuId, setChatMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadAll();
@@ -781,23 +783,73 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   async function refreshSidebarChats() {
     const result = await supabase
       .from("ai_conversations")
-      .select("id,title,scope_node_id,settings,last_message_at")
+      .select("id,title,scope_node_id,settings,last_message_at,pinned_at")
       .eq("user_id", user.id)
+      .order("pinned_at", { ascending: false, nullsFirst: false })
       .order("last_message_at", { ascending: false })
       .limit(80);
     if (!result.error) setSidebarChats((result.data || []) as StoredChat[]);
   }
 
   function requestNewChat() {
+    setChatMenuId(null);
     setActiveSidebarChatId(null);
     setChatRequestVersion((value) => value + 1);
     if (window.innerWidth < 768) setChatSidebarOpen(false);
   }
 
   function requestStoredChat(chatId: string) {
+    setChatMenuId(null);
     setActiveSidebarChatId(chatId);
     setChatRequestVersion((value) => value + 1);
     if (window.innerWidth < 768) setChatSidebarOpen(false);
+  }
+
+  async function renameSidebarChat(chat: StoredChat) {
+    const nextTitle = window.prompt("Ubah nama chat", chat.title)?.trim();
+    if (!nextTitle || nextTitle === chat.title) {
+      setChatMenuId(null);
+      return;
+    }
+    const { error } = await supabase
+      .from("ai_conversations")
+      .update({ title: nextTitle.slice(0, 120), updated_at: new Date().toISOString() })
+      .eq("id", chat.id)
+      .eq("user_id", user.id);
+    if (error) return alert(error.message);
+    setChatMenuId(null);
+    await refreshSidebarChats();
+  }
+
+  async function togglePinSidebarChat(chat: StoredChat) {
+    const { error } = await supabase
+      .from("ai_conversations")
+      .update({
+        pinned_at: chat.pinned_at ? null : new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", chat.id)
+      .eq("user_id", user.id);
+    if (error) return alert(error.message);
+    setChatMenuId(null);
+    await refreshSidebarChats();
+  }
+
+  async function deleteSidebarChat(chat: StoredChat) {
+    if (!window.confirm('Hapus chat "' + chat.title + '"? Pesan dalam sesi ini akan ikut terhapus.')) return;
+    const { error } = await supabase
+      .from("ai_conversations")
+      .delete()
+      .eq("id", chat.id)
+      .eq("user_id", user.id);
+    if (error) return alert(error.message);
+
+    setChatMenuId(null);
+    if (activeSidebarChatId === chat.id) {
+      setActiveSidebarChatId(null);
+      setChatRequestVersion((value) => value + 1);
+    }
+    await refreshSidebarChats();
   }
 
   async function loadAll() {
@@ -958,16 +1010,52 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             <div className="leftChatHistoryList">
               {sidebarChats.length ? (
                 sidebarChats.map((chat) => (
-                  <button
-                    type="button"
+                  <div
+                    className={
+                      "leftChatHistoryItem " +
+                      (chat.id === activeSidebarChatId ? "active " : "") +
+                      (chat.pinned_at ? "pinned" : "")
+                    }
                     key={chat.id}
-                    className={chat.id === activeSidebarChatId ? "active" : ""}
-                    onClick={() => requestStoredChat(chat.id)}
-                    title={chat.title}
                   >
-                    <strong>{chat.title}</strong>
-                    <small>{new Date(chat.last_message_at).toLocaleString("id-ID")}</small>
-                  </button>
+                    <button
+                      type="button"
+                      className="leftChatHistoryMain"
+                      onClick={() => requestStoredChat(chat.id)}
+                      title={chat.title}
+                    >
+                      <span className="leftChatHistoryTitle">
+                        {chat.pinned_at && <span className="leftChatPinMark" aria-label="Pinned">📌</span>}
+                        <strong>{chat.title}</strong>
+                      </span>
+                      <small>{new Date(chat.last_message_at).toLocaleString("id-ID")}</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="leftChatMoreButton"
+                      aria-label={"Opsi chat " + chat.title}
+                      title="Opsi chat"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setChatMenuId((current) => current === chat.id ? null : chat.id);
+                      }}
+                    >
+                      ⋯
+                    </button>
+
+                    {chatMenuId === chat.id && (
+                      <div className="leftChatItemMenu" role="menu">
+                        <button type="button" onClick={() => void renameSidebarChat(chat)}>Rename</button>
+                        <button type="button" onClick={() => void togglePinSidebarChat(chat)}>
+                          {chat.pinned_at ? "Unpin" : "Pin"}
+                        </button>
+                        <button type="button" className="danger" onClick={() => void deleteSidebarChat(chat)}>
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ))
               ) : (
                 <span className="leftChatEmpty">Belum ada chat.</span>
@@ -9150,7 +9238,7 @@ function BottomAskBar({
   async function refreshSavedChats() {
     const result = await supabase
       .from("ai_conversations")
-      .select("id,title,scope_node_id,settings,last_message_at")
+      .select("id,title,scope_node_id,settings,last_message_at,pinned_at")
       .eq("user_id", session.user.id)
       .order("last_message_at", { ascending: false })
       .limit(80);
@@ -9175,7 +9263,7 @@ function BottomAskBar({
         updated_at: now,
         last_message_at: now,
       })
-      .select("id,title,scope_node_id,settings,last_message_at")
+      .select("id,title,scope_node_id,settings,last_message_at,pinned_at")
       .single();
     if (result.error || !result.data) throw new Error(result.error?.message || "Chat gagal dibuat.");
     const chat = result.data as StoredChat;
@@ -9239,7 +9327,7 @@ function BottomAskBar({
   async function loadStoredChatById(chatId: string) {
     const chatResult = await supabase
       .from("ai_conversations")
-      .select("id,title,scope_node_id,settings,last_message_at")
+      .select("id,title,scope_node_id,settings,last_message_at,pinned_at")
       .eq("id", chatId)
       .eq("user_id", session.user.id)
       .maybeSingle();
