@@ -8934,20 +8934,20 @@ function BottomAskBar({
     setConversationScopeNodeId(conversation.scope_node_id ?? scopeNodeId);
     setConversationScopeName(String(conversation.settings?.scopeName || scopeName));
 
-    const storedSources = Array.isArray(conversation.settings?.sources)
-      ? conversation.settings!.sources!.filter(
-          (value): value is AiSourceKind => value === "ai" || value === "database" || value === "web"
-        )
-      : [];
+    const storedSettings = conversation.settings || {};
+    const storedSources = (storedSettings.sources || []).filter(
+      (value) => value === "ai" || value === "database" || value === "web"
+    );
     if (storedSources.length) setSelectedSources(storedSources);
-    if (Array.isArray(conversation.settings?.sourceNodeIds)) {
-      setSelectedSourceNodeIds(conversation.settings!.sourceNodeIds!.map(String));
+    if (Array.isArray(storedSettings.sourceNodeIds)) {
+      setSelectedSourceNodeIds(storedSettings.sourceNodeIds.map(String));
     }
-    if (Array.isArray(conversation.settings?.sourceFileIds)) {
-      setSelectedSourceFileIds(conversation.settings!.sourceFileIds!.map(String));
+    if (Array.isArray(storedSettings.sourceFileIds)) {
+      setSelectedSourceFileIds(storedSettings.sourceFileIds.map(String));
     }
-    if (conversation.settings?.aiSelection?.model) {
-      setAiSelection(conversation.settings.aiSelection);
+    const storedSelection = storedSettings.aiSelection;
+    if (storedSelection?.model) {
+      setAiSelection(storedSelection);
     }
 
     const { data, error } = await supabase
