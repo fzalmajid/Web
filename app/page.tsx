@@ -7188,19 +7188,60 @@ function StoredRecording({
   );
 }
 
+function decodeRichTextEntities(value: string) {
+  const named: Record<string, string> = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " ",
+  };
+
+  return value
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : _match;
+    })
+    .replace(/&#(\d+);/g, (_match, decimal) => {
+      const code = Number.parseInt(decimal, 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : _match;
+    })
+    .replace(/&([a-z]+);/gi, (match, name) => named[String(name).toLowerCase()] ?? match);
+}
+
+function normalizeScientificNotation(value: string) {
+  return value
+    // Common chemistry notation: molecular-orbital transitions should use
+    // actual symbols instead of the words "pi" and "to/ke".
+    .replace(/\bpi\s*(?:ke|to|->|→)\s*pi(?=\s*(?:\^?\*|star\b))/gi, "π → π")
+    .replace(/\bpi(?=\s*(?:\^?\*|→|->|ke\b|to\b))/gi, "π")
+    .replace(/(?<=π)\s+star\b/gi, "^*");
+}
+
 function normalizeRichTextSource(text: string) {
-  return String(text || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
-    .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
-    .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
-    .replace(/__([^_\n]+)__/g, "_$1_");
+  return normalizeScientificNotation(
+    decodeRichTextEntities(String(text || ""))
+      .replace(/\r\n/g, "\n")
+      // LLMs occasionally escape formatter characters even though the UI
+      // expects the raw notation. Remove only these harmless presentation escapes.
+      .replace(/\\([_*^])/g, "$1")
+      // Repair mixed italic delimiters such as (*hyperchromic shift_).
+      .replace(/\(\*([^*\n_]+)_\)/g, "(_$1_)")
+      .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
+      .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
+      .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
+      .replace(/__([^_\n]+)__/g, "_$1_")
+  );
 }
 
 function RichText({ text, className = "" }: { text: string; className?: string }) {
   const value = normalizeRichTextSource(text);
   const parts: any[] = [];
-  const pattern = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
+  // Parse scientific scripts before WA-style emphasis. This makes r^{2}, C_2,
+  // t_{1/2}, and π^* render as actual super/subscript instead of leaking ^/_.
+  const pattern =
+    /(\^\{[^{}\n]+\}|\^\([^()\n]+\)|\^[*+\-0-9A-Za-z]+|_\{[^{}\n]+\}|_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)(?!_)|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
   let last = 0;
   let match: RegExpExecArray | null;
   let key = 0;
@@ -7209,7 +7250,17 @@ function RichText({ text, className = "" }: { text: string; className?: string }
     if (match.index > last) parts.push(value.slice(last, match.index));
     const token = match[0];
 
-    if (token.startsWith("**") && token.endsWith("**")) {
+    if (token.startsWith("^{") && token.endsWith("}")) {
+      parts.push(<sup key={"sup" + key++}>{token.slice(2, -1)}</sup>);
+    } else if (token.startsWith("^(") && token.endsWith(")")) {
+      parts.push(<sup key={"sup" + key++}>{token.slice(2, -1)}</sup>);
+    } else if (token.startsWith("^")) {
+      parts.push(<sup key={"sup" + key++}>{token.slice(1)}</sup>);
+    } else if (token.startsWith("_{") && token.endsWith("}")) {
+      parts.push(<sub key={"sub" + key++}>{token.slice(2, -1)}</sub>);
+    } else if (/^_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)$/.test(token)) {
+      parts.push(<sub key={"sub" + key++}>{token.slice(1)}</sub>);
+    } else if (token.startsWith("**") && token.endsWith("**")) {
       parts.push(<strong key={"b" + key++}>{token.slice(2, -2)}</strong>);
     } else if (token.startsWith("__") && token.endsWith("__")) {
       parts.push(<em key={"i" + key++}>{token.slice(2, -2)}</em>);
