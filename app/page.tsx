@@ -7313,7 +7313,7 @@ function normalizeRichTextSource(text: string) {
       .replace(/\r\n/g, "\n")
       // LLMs occasionally escape formatter characters even though the UI
       // expects the raw notation. Remove only these harmless presentation escapes.
-      .replace(/\\([_*^])/g, "$1")
+      .replace(/\\+([_*^])/g, "$1")
       // Repair mixed italic delimiters such as (*hyperchromic shift_).
       .replace(/\(\*([^*\n_]+)_\)/g, "(_$1_)")
       // A stray opening asterisk sometimes appears before a scientific symbol
