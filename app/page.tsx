@@ -7231,6 +7231,9 @@ function normalizeRichTextSource(text: string) {
       // A stray opening asterisk sometimes appears before a scientific symbol
       // that already carries a subscript, e.g. *λ_maks. It is not emphasis.
       .replace(/(^|[\s(])\*(?=[πσλαβγδε](?:_\{?[A-Za-z0-9/]+\}?))/g, "$1")
+      // Mixed model markup such as λ_*maks* means an italic scientific
+      // subscript, not a bold word after a literal underscore.
+      .replace(/([πσλαβγδεA-Za-z])_\*([A-Za-z0-9/]+)\*/g, "$1_{$2}")
       .replace(/(^|\n)([ \t]*)\*[ \t]+(?=\S)/g, "$1$2- ")
       .replace(/(^|\n)([ \t]*)•[ \t]+(?=\S)/g, "$1$2- ")
       .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
@@ -7250,6 +7253,46 @@ function renderScientificSubscript(value: string, key: string) {
     return <sub className="mathSub" key={key}><em>{content}</em></sub>;
   }
   return <sub className="mathSub" key={key}>{content}</sub>;
+}
+
+function renderScientificInline(value: string, keyPrefix: string) {
+  const parts: any[] = [];
+  const pattern = /(\^\{[^{}\n]+\}|\^\([^()\n]+\)|\^[*+\-0-9A-Za-z]+|_\{[^{}\n]+\}|_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)(?!_))/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let index = 0;
+
+  while ((match = pattern.exec(value))) {
+    if (match.index > last) parts.push(value.slice(last, match.index));
+    const token = match[0];
+    if (token.startsWith("^{") && token.endsWith("}")) {
+      parts.push(
+        <sup className="mathSup" key={keyPrefix + "sup" + index++}>
+          {renderScientificScriptContent(token.slice(2, -1))}
+        </sup>
+      );
+    } else if (token.startsWith("^(") && token.endsWith(")")) {
+      parts.push(
+        <sup className="mathSup" key={keyPrefix + "sup" + index++}>
+          {renderScientificScriptContent(token.slice(2, -1))}
+        </sup>
+      );
+    } else if (token.startsWith("^")) {
+      parts.push(
+        <sup className="mathSup" key={keyPrefix + "sup" + index++}>
+          {renderScientificScriptContent(token.slice(1))}
+        </sup>
+      );
+    } else if (token.startsWith("_{") && token.endsWith("}")) {
+      parts.push(renderScientificSubscript(token.slice(2, -1), keyPrefix + "sub" + index++));
+    } else {
+      parts.push(renderScientificSubscript(token.slice(1), keyPrefix + "sub" + index++));
+    }
+    last = pattern.lastIndex;
+  }
+
+  if (last < value.length) parts.push(value.slice(last));
+  return parts.length ? parts : value;
 }
 
 function RichText({ text, className = "" }: { text: string; className?: string }) {
@@ -7290,20 +7333,24 @@ function RichText({ text, className = "" }: { text: string; className?: string }
     } else if (/^_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)$/.test(token)) {
       parts.push(renderScientificSubscript(token.slice(1), "sub" + key++));
     } else if (token.startsWith("**") && token.endsWith("**")) {
-      parts.push(<strong key={"b" + key++}>{token.slice(2, -2)}</strong>);
+      const itemKey = "b" + key++;
+      parts.push(<strong key={itemKey}>{renderScientificInline(token.slice(2, -2), itemKey)}</strong>);
     } else if (token.startsWith("__") && token.endsWith("__")) {
-      parts.push(<em key={"i" + key++}>{token.slice(2, -2)}</em>);
+      const itemKey = "i" + key++;
+      parts.push(<em key={itemKey}>{renderScientificInline(token.slice(2, -2), itemKey)}</em>);
     } else if (token.startsWith("*") && token.endsWith("*")) {
       const body = token.slice(1, -1);
+      const itemKey = "fmt" + key++;
       // Markdown-style italic frequently appears around scientific singleton
       // variables even though ordinary app prose uses *...* for bold.
       if (/^(?:π|σ|λ|α|β|γ|δ|ε|n)$/i.test(body)) {
-        parts.push(<em key={"i" + key++}>{body}</em>);
+        parts.push(<em key={itemKey}>{body}</em>);
       } else {
-        parts.push(<strong key={"b" + key++}>{body}</strong>);
+        parts.push(<strong key={itemKey}>{renderScientificInline(body, itemKey)}</strong>);
       }
     } else if (token.startsWith("_") && token.endsWith("_")) {
-      parts.push(<em key={"i" + key++}>{token.slice(1, -1)}</em>);
+      const itemKey = "i" + key++;
+      parts.push(<em key={itemKey}>{renderScientificInline(token.slice(1, -1), itemKey)}</em>);
     } else {
       parts.push(token);
     }
