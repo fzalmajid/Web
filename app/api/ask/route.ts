@@ -979,7 +979,8 @@ export async function POST(req: NextRequest) {
       : undefined;
 
     // Database-only lookup is allowed only when AI is genuinely disabled
-    // (or the Local model is selected). A search-style wording such as
+    // (or the Local model is selected). Keep a selected cloud model active.
+    // A search-style wording such as
     // "cari/carikan/temukan" must NOT silently bypass a selected cloud model
     // when the AI source is active.
     const lookupOnly =
