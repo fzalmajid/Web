@@ -9440,36 +9440,114 @@ summary{
   gap:4px;
   padding-right:2px;
 }
-.leftChatHistoryList>button{
+.leftChatHistoryItem{
+  position:relative;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 30px;
+  align-items:center;
+  border:1px solid transparent;
+  border-radius:10px;
+  background:transparent;
+}
+.leftChatHistoryItem:hover{
+  background:var(--soft);
+}
+.leftChatHistoryItem.active{
+  background:var(--soft);
+  border-color:var(--line);
+}
+.leftChatHistoryItem.pinned{
+  background:color-mix(in srgb,var(--soft) 78%,var(--card));
+}
+.leftChatHistoryMain{
   width:100%;
   min-width:0;
   display:grid;
   gap:3px;
-  border:1px solid transparent;
-  border-radius:10px;
+  border:0;
   background:transparent;
   color:var(--ink);
-  padding:9px 9px;
+  padding:9px 4px 9px 9px;
   text-align:left;
   cursor:pointer;
 }
-.leftChatHistoryList>button:hover{
-  background:var(--soft);
-}
-.leftChatHistoryList>button.active{
-  background:var(--soft);
-  border-color:var(--line);
-}
-.leftChatHistoryList strong{
+.leftChatHistoryTitle{
   min-width:0;
+  display:flex;
+  align-items:center;
+  gap:5px;
+}
+.leftChatHistoryTitle strong{
+  min-width:0;
+  flex:1 1 auto;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
   font-size:.75rem;
 }
-.leftChatHistoryList small{
+.leftChatPinMark{
+  flex:0 0 auto;
+  font-size:.66rem;
+  line-height:1;
+}
+.leftChatHistoryMain small{
   color:var(--muted);
   font-size:.59rem;
+}
+.leftChatMoreButton{
+  width:28px;
+  height:28px;
+  padding:0;
+  border:0;
+  border-radius:8px;
+  display:grid;
+  place-items:center;
+  background:transparent;
+  color:var(--muted);
+  font-size:1rem;
+  line-height:1;
+  cursor:pointer;
+}
+.leftChatMoreButton:hover{
+  background:color-mix(in srgb,var(--ink) 7%,transparent);
+  color:var(--ink);
+}
+.leftChatItemMenu{
+  position:absolute;
+  z-index:75;
+  top:34px;
+  right:4px;
+  width:132px;
+  display:grid;
+  gap:2px;
+  padding:5px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:var(--card);
+  box-shadow:0 12px 32px rgba(20,30,27,.16);
+}
+.leftChatItemMenu button{
+  width:100%;
+  border:0;
+  border-radius:8px;
+  background:transparent;
+  color:var(--ink);
+  padding:8px 9px;
+  text-align:left;
+  font-size:.72rem;
+  cursor:pointer;
+}
+.leftChatItemMenu button:hover{
+  background:var(--soft);
+}
+.leftChatItemMenu button.danger{
+  color:#b42318;
+}
+.leftChatHistoryList strong{
+  min-width:0;
+}
+.leftChatHistoryList small{
+  color:var(--muted);
 }
 .leftChatEmpty{
   padding:8px;
