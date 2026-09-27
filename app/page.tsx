@@ -7251,15 +7251,15 @@ function RichText({ text, className = "" }: { text: string; className?: string }
     const token = match[0];
 
     if (token.startsWith("^{") && token.endsWith("}")) {
-      parts.push(<sup key={"sup" + key++}>{token.slice(2, -1)}</sup>);
+      parts.push(<sup className="mathSup" key={"sup" + key++}>{token.slice(2, -1)}</sup>);
     } else if (token.startsWith("^(") && token.endsWith(")")) {
-      parts.push(<sup key={"sup" + key++}>{token.slice(2, -1)}</sup>);
+      parts.push(<sup className="mathSup" key={"sup" + key++}>{token.slice(2, -1)}</sup>);
     } else if (token.startsWith("^")) {
-      parts.push(<sup key={"sup" + key++}>{token.slice(1)}</sup>);
+      parts.push(<sup className="mathSup" key={"sup" + key++}>{token.slice(1)}</sup>);
     } else if (token.startsWith("_{") && token.endsWith("}")) {
-      parts.push(<sub key={"sub" + key++}>{token.slice(2, -1)}</sub>);
+      parts.push(<sub className="mathSub" key={"sub" + key++}>{token.slice(2, -1)}</sub>);
     } else if (/^_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)$/.test(token)) {
-      parts.push(<sub key={"sub" + key++}>{token.slice(1)}</sub>);
+      parts.push(<sub className="mathSub" key={"sub" + key++}>{token.slice(1)}</sub>);
     } else if (token.startsWith("**") && token.endsWith("**")) {
       parts.push(<strong key={"b" + key++}>{token.slice(2, -2)}</strong>);
     } else if (token.startsWith("__") && token.endsWith("__")) {
