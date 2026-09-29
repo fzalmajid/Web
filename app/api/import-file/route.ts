@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
 
     const { data: row, error: rowError } = await supabase
       .from("source_files")
-      .select("id,node_id,file_path,file_name,mime_type,raw_text")
+      .select("id,node_id,file_path,file_name,mime_type,raw_text,processing_page,processing_total_pages,processing_chunks,processing_chars")
       .eq("id", sourceFileId)
       .single();
     if (rowError || !row || row.file_path !== filePath || row.node_id !== nodeId) {
@@ -228,6 +228,35 @@ export async function POST(req: NextRequest) {
     if (operation === "raw" && (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf"))) {
       const requestedStart = Math.floor(Number(body.pdfStartPage || 1));
       const startPage = Number.isFinite(requestedStart) && requestedStart >= 1 ? requestedStart : 1;
+      const rebuildingFromStart =
+        startPage === 1 &&
+        !body.pdfAppend &&
+        (!segmentedOriginal || pageOffset === 0);
+
+      if (rebuildingFromStart) {
+        // A true retry is a clean rebuild. Legacy/partial chunks and their vectors
+        // must not survive beside the newly page-mapped document.
+        const { error: cleanupError } = await supabase
+          .from("knowledge_entries")
+          .delete()
+          .eq("source_file_id", sourceFileId);
+        if (cleanupError) throw cleanupError;
+
+        const { error: resetError } = await supabase
+          .from("source_files")
+          .update({
+            raw_text: null,
+            processing_page: 0,
+            processing_total_pages: 0,
+            processing_chunks: 0,
+            processing_chars: 0,
+            processing_status: "processing",
+            error_message: null,
+          })
+          .eq("id", sourceFileId);
+        if (resetError) throw resetError;
+      }
+
       const batch = await readPdfNativeBatch(buffer!, startPage);
       if (!batch.pages.length || batch.endPage < startPage) {
         throw new Error("Tidak ada halaman PDF yang dapat dibaca pada batch ini.");
@@ -296,13 +325,29 @@ export async function POST(req: NextRequest) {
       }
 
       const nextStartPage = batch.endPage < batch.totalPages ? batch.endPage + 1 : null;
-      const currentPreview = startPage === 1 && !body.pdfAppend ? "" : String(row.raw_text || "");
+      const currentPreview = rebuildingFromStart
+        ? ""
+        : String(row.raw_text || "");
       const batchText = chunks.map((chunk) => chunk.text).join("\n\n");
+      const baseChunks = rebuildingFromStart ? 0 : Number(row.processing_chunks || 0);
+      const baseChars = rebuildingFromStart ? 0 : Number(row.processing_chars || 0);
+      const absoluteProcessedPage = pageOffset + batch.endPage;
+      const absoluteTotalPages = segmentedOriginal
+        ? Math.max(
+            Number(row.processing_total_pages || 0),
+            pageOffset + batch.totalPages
+          )
+        : batch.totalPages;
+
       // RAW is fully indexed in knowledge_entries; source_files.raw_text is a bounded preview.
       const previewText = (currentPreview + (currentPreview ? "\n\n" : "") + batchText).slice(0, 120000);
       const { error: pdfUpdateError } = await supabase.from("source_files").update({
         raw_text: previewText,
         processing_status: nextStartPage || segmentedOriginal ? "processing" : "ready",
+        processing_page: absoluteProcessedPage,
+        processing_total_pages: absoluteTotalPages,
+        processing_chunks: baseChunks + chunks.length,
+        processing_chars: baseChars + batchText.length,
         structured_text: null,
         corrections: [],
         error_message: null,
