@@ -1421,6 +1421,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             cards={cards}
             quizzes={quizzes}
             entries={entries}
+            files={files}
             nodes={nodes}
             onChange={refresh}
           />
@@ -7571,6 +7572,7 @@ function PracticePage({
   cards,
   quizzes,
   entries,
+  files,
   nodes,
   onChange,
 }: {
@@ -7579,6 +7581,7 @@ function PracticePage({
   cards: Flashcard[];
   quizzes: Quiz[];
   entries: KnowledgeEntry[];
+  files: SourceFile[];
   nodes: StudyNode[];
   onChange: () => void;
 }) {
@@ -7647,8 +7650,15 @@ function PracticePage({
         scope_node_id: node.parent_id,
         result_limit: 120,
       });
+      const readyFileIds = new Set(
+        files.filter((file) => file.processing_status === "ready").map((file) => file.id)
+      );
       const sourceEntries = !scopeResult.error && Array.isArray(scopeResult.data)
-        ? (scopeResult.data as any[]).filter((item) => item.source_type !== "transcript")
+        ? (scopeResult.data as any[]).filter(
+            (item) =>
+              item.source_type !== "transcript" &&
+              (!item.source_file_id || readyFileIds.has(String(item.source_file_id)))
+          )
         : entries.filter(
             (item) =>
               collectSubtreeIds(nodes, node.parent_id as string).includes(item.node_id) &&
@@ -9653,10 +9663,15 @@ function BottomAskBar({
         });
 
     if (!rpc.error && Array.isArray(rpc.data) && rpc.data.length) {
-      return (rpc.data as any[]).map((entry) => ({
-        ...entry,
-        raw_content: entry.raw_content || entry.content || "",
-      })) as KnowledgeEntry[];
+      const readyFileIds = new Set(
+        files.filter((file) => file.processing_status === "ready").map((file) => file.id)
+      );
+      return (rpc.data as any[])
+        .filter((entry) => !entry.source_file_id || readyFileIds.has(String(entry.source_file_id)))
+        .map((entry) => ({
+          ...entry,
+          raw_content: entry.raw_content || entry.content || "",
+        })) as KnowledgeEntry[];
     }
 
     // Manual notes are still fully hydrated in browser state. Keep them as a
@@ -9746,7 +9761,11 @@ function BottomAskBar({
     const chunks: string[] = [];
     const refs: Array<{ id: string; title: string; category: string }> = [];
     let used = 0;
+    const readyFileIds = new Set(
+      files.filter((file) => file.processing_status === "ready").map((file) => file.id)
+    );
     for (const row of data as any[]) {
+      if (row.source_file_id && !readyFileIds.has(String(row.source_file_id))) continue;
       const key = String(row.source_file_id || row.id) + ":" + String(row.source_page_start || row.id);
       if (seen.has(key)) continue;
       seen.add(key);
