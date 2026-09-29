@@ -230,63 +230,113 @@ export async function searchDirectRawKnowledge(
 ): Promise<KnowledgeSource[]> {
   const terms = directSearchTerms(question);
   if (!terms.length) return [];
-  const nodeIds = await resolveSelectedNodeIds(supabase, scopeNodeId, sourceNodeIds);
+
+  // If files were explicitly selected, do not silently broaden to the active page scope.
+  const nodeIds = await resolveSelectedNodeIds(
+    supabase,
+    sourceFileIds.length && !sourceNodeIds.length ? null : scopeNodeId,
+    sourceNodeIds
+  );
   const byId = new Map<string, KnowledgeSource>();
+  const searchTerms = terms.slice(0, 6);
 
-  async function runTerm(term: string, fileOnly: boolean) {
-    let query = supabase
-      .from("knowledge_entries")
-      .select("id,node_id,title,category,content,raw_content,source_type,source_file_id,source_page_start,source_page_end")
-      .or("raw_content.ilike.%" + term + "%,content.ilike.%" + term + "%,title.ilike.%" + term + "%")
-      .limit(Math.min(80, Math.max(20, limit * 2)));
-
-    if (fileOnly && sourceFileIds.length) query = query.in("source_file_id", sourceFileIds);
-    else if (nodeIds?.length) query = query.in("node_id", nodeIds);
-
-    const { data, error } = await query;
-    if (error || !Array.isArray(data)) return;
-    for (const row of data as any[]) {
-      if (sourceFileIds.length && !fileOnly && !sourceFileIds.includes(String(row.source_file_id || ""))) continue;
-      const raw = String(row.raw_content || row.content || "");
-      const printed = detectPrintedPageRange(raw);
-      const current = byId.get(String(row.id));
-      const normalized = raw.toLowerCase();
-      const requestedPrintedPage = (() => {
-        const match = /\b(?:halaman|page)\s+(?:cetak\s+)?(\d{1,4})\b/i.exec(question);
-        return match ? Number(match[1]) : null;
-      })();
-      const firstRelevantAt = terms.reduce((best, candidate) => {
-        const at = normalized.indexOf(candidate);
-        return at >= 0 && (best < 0 || at < best) ? at : best;
-      }, -1);
-      const score =
-        (normalized.includes(question.toLowerCase().trim()) ? 500000 : 0) +
-        (requestedPrintedPage && printed.start && requestedPrintedPage >= printed.start &&
-          requestedPrintedPage <= (printed.end || printed.start) ? 1_000_000 : 0) +
-        (firstRelevantAt >= 0 && firstRelevantAt <= 500 ? 120000 : 0) +
-        (firstRelevantAt >= 0 ? Math.max(0, 12000 - firstRelevantAt) : 0) +
-        terms.reduce((total, candidate) => {
-          const occurrences = normalized.split(candidate).length - 1;
-          return total + (occurrences > 0 ? 25000 + Math.min(occurrences, 8) * 2500 + candidate.length * 25 : 0);
-        }, 0);
-      if (!current || score > Number(current.score || 0)) {
-        byId.set(String(row.id), {
-          ...(row as KnowledgeSource),
-          raw_content: raw,
-          score,
-          printed_page_start: printed.start,
-          printed_page_end: printed.end,
-        });
-      }
+  const meaningfulWords = (question.toLowerCase().match(/[a-z0-9À-ÿ]{4,}/gi) || [])
+    .filter((word) => !DIRECT_SEARCH_STOPWORDS.has(word))
+    .slice(0, 8);
+  const phraseCandidates = new Set<string>();
+  if (meaningfulWords.length >= 2 && meaningfulWords.length <= 6) {
+    phraseCandidates.add(meaningfulWords.join(" "));
+  }
+  for (let width = Math.min(4, meaningfulWords.length); width >= 2; width--) {
+    for (let index = 0; index + width <= meaningfulWords.length; index++) {
+      phraseCandidates.add(meaningfulWords.slice(index, index + width).join(" "));
     }
   }
 
-  // A selected file is the strongest scope. Search it directly so an unready semantic
-  // model can never cause the app to miss text that is visibly present in that file.
-  for (const term of terms.slice(0, 5)) {
-    if (sourceFileIds.length) await runTerm(term, true);
-    else await runTerm(term, false);
-    if (byId.size >= limit * 2) break;
+  const requestedPrintedPage = (() => {
+    const match = /\b(?:halaman|page)\s+(?:cetak\s+)?(\d{1,4})\b/i.exec(question);
+    return match ? Number(match[1]) : null;
+  })();
+
+  const orFilter = searchTerms.flatMap((term) => [
+    "raw_content.ilike.%" + term + "%",
+    "content.ilike.%" + term + "%",
+    "title.ilike.%" + term + "%",
+  ]).join(",");
+
+  async function runQuery(kind: "files" | "nodes" | "all") {
+    let query = supabase
+      .from("knowledge_entries")
+      .select("id,node_id,title,category,content,raw_content,source_type,source_file_id,source_page_start,source_page_end")
+      .or(orFilter)
+      .limit(Math.min(180, Math.max(40, limit * 3)));
+
+    if (kind === "files") query = query.in("source_file_id", sourceFileIds);
+    if (kind === "nodes" && nodeIds?.length) query = query.in("node_id", nodeIds);
+
+    const { data, error } = await query;
+    if (error || !Array.isArray(data)) return [] as any[];
+    return data as any[];
+  }
+
+  const jobs: Array<Promise<any[]>> = [];
+  if (sourceFileIds.length) jobs.push(runQuery("files"));
+  if (nodeIds?.length) jobs.push(runQuery("nodes"));
+  if (!jobs.length) jobs.push(runQuery("all"));
+
+  const rowGroups = await Promise.all(jobs);
+  for (const row of rowGroups.flat()) {
+    const id = String(row.id || "");
+    if (!id) continue;
+
+    const raw = String(row.raw_content || row.content || "");
+    const printed = detectPrintedPageRange(raw);
+    const normalized = raw.toLowerCase();
+    const normalizedWords = normalized
+      .replace(/[^a-z0-9À-ÿ]+/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const firstRelevantAt = searchTerms.reduce((best, candidate) => {
+      const at = normalized.indexOf(candidate);
+      return at >= 0 && (best < 0 || at < best) ? at : best;
+    }, -1);
+
+    let phraseBonus = 0;
+    for (const phrase of phraseCandidates) {
+      if (!normalizedWords.includes(phrase)) continue;
+      const wordCount = phrase.split(" ").length;
+      phraseBonus = Math.max(
+        phraseBonus,
+        wordCount >= 4 ? 460000 : wordCount === 3 ? 360000 : 260000
+      );
+    }
+
+    const score =
+      phraseBonus +
+      (requestedPrintedPage && printed.start && requestedPrintedPage >= printed.start &&
+        requestedPrintedPage <= (printed.end || printed.start) ? 1_000_000 : 0) +
+      (firstRelevantAt >= 0 && firstRelevantAt <= 500 ? 140000 : 0) +
+      (firstRelevantAt >= 0 ? Math.max(0, 15000 - firstRelevantAt) : 0) +
+      searchTerms.reduce((total, candidate) => {
+        const occurrences = normalized.split(candidate).length - 1;
+        return total + (
+          occurrences > 0
+            ? 25000 + Math.min(occurrences, 8) * 2500 + candidate.length * 25
+            : 0
+        );
+      }, 0);
+
+    const current = byId.get(id);
+    if (!current || score > Number(current.score || 0)) {
+      byId.set(id, {
+        ...(row as KnowledgeSource),
+        raw_content: raw,
+        score,
+        printed_page_start: printed.start,
+        printed_page_end: printed.end,
+      });
+    }
   }
 
   return [...byId.values()]
