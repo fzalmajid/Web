@@ -8428,22 +8428,38 @@ function AiDatabaseSourcePicker({
           {isExpanded && (
             <>
               {localFiles.map((file) => {
-                const fileSelected = fileCoveredBySelection(file);
+                const fileReady = file.processing_status === "ready";
+                const fileSelected = fileReady && fileCoveredBySelection(file);
                 const inheritedFile = fileSelected && !fileIds.includes(file.id);
+                const statusLabel = fileReady
+                  ? "File"
+                  : file.processing_status === "error"
+                    ? "Perlu proses ulang"
+                    : "Sedang diproses";
                 return (
                   <button
                     type="button"
                     key={file.id}
-                    className={fileSelected ? "aiSourceFileRow selected" : "aiSourceFileRow"}
+                    className={
+                      (fileSelected ? "aiSourceFileRow selected" : "aiSourceFileRow") +
+                      (!fileReady ? " unavailable" : "")
+                    }
                     style={{ paddingLeft: 36 + depth * 16 }}
-                    onClick={() => toggleFile(file.id)}
-                    title={inheritedFile ? "Dipilih otomatis melalui folder induk." : undefined}
-                    aria-disabled={inheritedFile}
+                    onClick={() => fileReady && toggleFile(file.id)}
+                    title={
+                      !fileReady
+                        ? "File belum siap dan tidak akan dipakai AI sampai pemrosesan selesai."
+                        : inheritedFile
+                          ? "Dipilih otomatis melalui folder induk."
+                          : undefined
+                    }
+                    aria-disabled={!fileReady || inheritedFile}
+                    disabled={!fileReady}
                   >
                     <span className={fileSelected ? "sourceCheck checked" : "sourceCheck"}>{fileSelected ? "✓" : ""}</span>
                     <span>{file.mime_type === "application/pdf" ? "📕" : file.source_kind === "link" ? "🔗" : "📄"}</span>
                     <strong>{file.file_name}</strong>
-                    <small>File</small>
+                    <small>{statusLabel}</small>
                   </button>
                 );
               })}
@@ -8503,6 +8519,12 @@ function AiDatabaseSourcePicker({
                     : vectorStatus.pendingEntries + " entri belum selesai.")
                 : "Memeriksa jumlah vektor yang benar-benar tersimpan..."}
             </small>
+            {files.some((file) => file.processing_status !== "ready") && (
+              <small className="muted" role="status">
+                {files.filter((file) => file.processing_status !== "ready").length}
+                {" file belum siap. File processing/error tidak dipakai AI sampai selesai diproses atau di-retry."}
+              </small>
+            )}
             <button type="button" className="ghost" onClick={runVectorBackfill}>
               {vectorRunning ? "Hentikan sementara" :
                 vectorStatus?.pendingEntries === 0 ? "Indeks selesai" :
