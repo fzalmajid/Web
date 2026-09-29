@@ -157,6 +157,12 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+      if (selectedFiles.some((file: any) => file.processing_status !== "ready")) {
+        return NextResponse.json(
+          { error: "Ada file sumber yang belum siap. Proses ulang file error/processing sampai status Siap sebelum membangun Study." },
+          { status: 400 }
+        );
+      }
     }
 
     const sourceScopeIds = useDatabase
@@ -195,9 +201,33 @@ export async function POST(req: NextRequest) {
         for (const entry of fileEntries || []) merged.set(String(entry.id), entry);
       }
 
-      entries = Array.from(merged.values());
+      const candidateEntries = Array.from(merged.values());
+      const candidateFileIds = Array.from(new Set(
+        candidateEntries
+          .map((entry: any) => String(entry.source_file_id || ""))
+          .filter(Boolean)
+      ));
+      const readyFileIds = new Set<string>();
+
+      if (candidateFileIds.length) {
+        const { data: fileStates, error: fileStatesError } = await supabase
+          .from("source_files")
+          .select("id,processing_status")
+          .in("id", candidateFileIds);
+        if (fileStatesError) throw fileStatesError;
+        for (const file of fileStates || []) {
+          if (file.processing_status === "ready") readyFileIds.add(String(file.id));
+        }
+      }
+
+      entries = candidateEntries.filter((entry: any) =>
+        !entry.source_file_id || readyFileIds.has(String(entry.source_file_id))
+      );
+
       if (!entries.length) {
-        return NextResponse.json({ error: "Sumber yang dipilih belum memiliki RAW/index yang dapat dipakai." }, { status: 400 });
+        return NextResponse.json({
+          error: "Sumber yang dipilih belum memiliki RAW/index dari file yang berstatus Siap."
+        }, { status: 400 });
       }
     }
 
