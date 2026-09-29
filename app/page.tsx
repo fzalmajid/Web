@@ -26,7 +26,6 @@ import {
   type AiSelection,
 } from "@/lib/aiModels";
 
-const AUTH_REDIRECT_URL = "https://web-fzalmajid.vercel.app";
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
 type AiSourceKind = "ai" | "database" | "web";
