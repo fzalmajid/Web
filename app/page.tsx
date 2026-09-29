@@ -8145,29 +8145,17 @@ function AiDatabaseSourcePicker({
     if (disabled) setOpen(false);
   }, [disabled]);
 
+  const databaseRelevantForPrewarm = !sources || sources.includes("database");
+
   useEffect(() => {
     // Do not let a 118 MB embedding model compete with the first explorer render.
-    // Warm it only when Reference/Database is relevant, and only during browser idle time.
-    const databaseRelevant = !sources || sources.includes("database");
-    if (!databaseRelevant) return;
-
-    let timer: number | null = null;
-    let idleId: number | null = null;
-    const warm = () => prewarmHfRetrieval(supabase);
-
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      idleId = (window as any).requestIdleCallback(warm, { timeout: 2500 });
-    } else {
-      timer = window.setTimeout(warm, 1200);
-    }
-
-    return () => {
-      if (idleId !== null && "cancelIdleCallback" in window) {
-        (window as any).cancelIdleCallback(idleId);
-      }
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, [sources?.includes("database")]);
+    // Give the explorer a short head start; semantic retrieval remains optional.
+    if (!databaseRelevantForPrewarm) return;
+    const timer = window.setTimeout(() => {
+      prewarmHfRetrieval(supabase);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [databaseRelevantForPrewarm]);
 
   useEffect(() => () => { stopVectorRef.current = true; }, []);
 
