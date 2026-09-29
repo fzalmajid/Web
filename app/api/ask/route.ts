@@ -933,6 +933,11 @@ export async function POST(req: NextRequest) {
       // direct RAW/exact/fuzzy -> lexical FTS -> E5 semantic -> broad fallback.
       // E5 is useful for ranking, but it is never allowed to be the only path to a selected file.
       try {
+        const literalDatabaseIntent =
+          /\b(copy(?:\s*[- ]?paste)?|kutip(?:an)?|verbatim|teks\s+persis|persis|monografi|halaman|page|lokasi|locate|terletak|tercantum)\b/i.test(
+            question.trim()
+          );
+
         const lexicalPromise = hasExplicitDatabaseSources
           ? searchSelectedKnowledge(
               supabase,
@@ -943,7 +948,9 @@ export async function POST(req: NextRequest) {
             )
           : searchScopeKnowledge(supabase, databaseSearchQuery, scopeNodeId, searchLimit);
 
-        const directPromise = hasExplicitDatabaseSources
+        // Direct RAW is deliberately reserved for literal/source-location questions.
+        // Ordinary explanatory questions stay fast on FTS + vector ranking.
+        const directPromise = hasExplicitDatabaseSources && literalDatabaseIntent
           ? searchDirectRawKnowledge(
               supabase,
               question.trim(),
@@ -954,20 +961,26 @@ export async function POST(req: NextRequest) {
             )
           : Promise.resolve([]);
 
-        const [lexical, direct] = await Promise.all([lexicalPromise, directPromise]);
+        // All independent retrieval layers run concurrently. E5 is optional and can never
+        // block lexical/RAW evidence from reaching the selected model.
+        const semanticPromise = searchSemanticKnowledge(
+          supabase, databaseSearchQuery, scopeNodeId,
+          sourceNodeIds, sourceFileIds, hasExplicitDatabaseSources, searchLimit,
+          body.semanticEmbedding
+        );
+
+        const [lexical, direct, semantic] = await Promise.all([
+          lexicalPromise,
+          directPromise,
+          semanticPromise,
+        ]);
+
         const directIds = new Set(direct.map((row) => row.id));
         const lexicalWithDirectFirst = [
           ...direct,
           ...lexical.filter((row) => !directIds.has(row.id)),
         ];
 
-        // Independent embedding worker: no Gemini call or Gemini credits here.
-        // Folder and file filters are rechecked by RLS-protected database SQL.
-        const semantic = await searchSemanticKnowledge(
-          supabase, databaseSearchQuery, scopeNodeId,
-          sourceNodeIds, sourceFileIds, hasExplicitDatabaseSources, searchLimit,
-          body.semanticEmbedding
-        );
         semanticStatus = semantic.status;
         semanticModel = semantic.model;
         data = fuseHybridKnowledge(
@@ -978,9 +991,9 @@ export async function POST(req: NextRequest) {
           semantic.model || ""
         );
 
-        // If the normal index layers found nothing in a broader scope, scan RAW text directly
-        // before concluding that the requested material is absent.
-        if (!data.length && !hasExplicitDatabaseSources) {
+        // Final safety net: when both indexed layers miss, scan RAW content directly
+        // regardless of scope type before declaring that the material is absent.
+        if (!data.length) {
           data = await searchDirectRawKnowledge(
             supabase,
             question.trim(),
