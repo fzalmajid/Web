@@ -852,27 +852,92 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }
 
   async function loadAll() {
-    const result = await Promise.all([
-      supabase.from("study_nodes").select("*").order("position").order("created_at"),
-      supabase.from("knowledge_entries").select("*").order("created_at", { ascending: false }),
-      supabase.from("source_files").select("*").order("created_at", { ascending: false }),
-      supabase.from("recordings").select("*").order("created_at", { ascending: false }),
-      supabase.from("flashcards").select("*").order("created_at", { ascending: false }),
-      supabase.from("quizzes").select("*").order("created_at", { ascending: false }),
-      supabase.from("study_tasks").select("*").order("created_at", { ascending: false }),
+    // Fast path: render the explorer from lightweight structure/metadata first.
+    // Do not make 4k+ knowledge-entry bodies and multi-megabyte RAW text block folder/file paint.
+    const [nodesResult, fileMetaResult, recordingMetaResult] = await Promise.all([
+      supabase
+        .from("study_nodes")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("position")
+        .order("created_at"),
+      supabase
+        .from("source_files")
+        .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,processing_status,error_message,source_kind,source_url,ai_copy_mode,ai_copy_ratio,ai_copy_model,ai_copy_updated_at,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("recordings")
+        .select("id,user_id,node_id,title,file_path,mime_type,duration_seconds,knowledge_entry_id,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
     ]);
 
-    setNodes((result[0].data || []) as StudyNode[]);
-    setEntries((result[1].data || []) as KnowledgeEntry[]);
-    setFiles((result[2].data || []) as SourceFile[]);
-    setRecordings((result[3].data || []) as Recording[]);
-    setCards((result[4].data || []) as Flashcard[]);
-    setQuizzes((result[5].data || []) as Quiz[]);
-    setTasks((result[6].data || []) as StudyTask[]);
+    const nextNodes = (nodesResult.data || []) as StudyNode[];
+    setNodes(nextNodes);
+    setFiles(
+      (fileMetaResult.data || []).map((row: any) => ({
+        ...row,
+        raw_text: null,
+        structured_text: null,
+        corrections: [],
+      })) as SourceFile[]
+    );
+    setRecordings(
+      (recordingMetaResult.data || []).map((row: any) => ({
+        ...row,
+        transcript: null,
+        raw_transcript: null,
+        structured_transcript: null,
+        corrections: [],
+      })) as Recording[]
+    );
 
-    if (currentId && !(result[0].data || []).some((item: any) => item.id === currentId)) {
+    if (currentId && !nextNodes.some((item) => item.id === currentId)) {
       setCurrentId(null);
     }
+
+    // Slow path: hydrate content-heavy data after the explorer is already usable.
+    // Keep this behavior-compatible with Study/Quiz/AI while removing it from first paint.
+    void Promise.all([
+      supabase
+        .from("knowledge_entries")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("source_files")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("recordings")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("flashcards")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("quizzes")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("study_tasks")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+    ]).then((result) => {
+      setEntries((result[0].data || []) as KnowledgeEntry[]);
+      setFiles((result[1].data || []) as SourceFile[]);
+      setRecordings((result[2].data || []) as Recording[]);
+      setCards((result[3].data || []) as Flashcard[]);
+      setQuizzes((result[4].data || []) as Quiz[]);
+      setTasks((result[5].data || []) as StudyTask[]);
+    });
   }
 
   const refresh = () => setRefreshKey((value) => value + 1);
