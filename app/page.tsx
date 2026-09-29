@@ -10756,7 +10756,13 @@ function BottomAskBar({
   return (
     <>
       {open && (
-        <div className="aiAnswer aiChatRoom" style={{ bottom: composerBottom + composerHeight + 12 }}>
+        <div
+          className="aiAnswer aiChatRoom"
+          style={{
+            bottom: composerBottom + composerHeight + 12,
+            ["--rb-ai-answer-bottom" as any]: (composerBottom + composerHeight + 12) + "px",
+          }}
+        >
           <div className="aiAnswerHead aiChatHead">
             <div>
               <small title={activeChatScopeName}>
@@ -10856,7 +10862,15 @@ function BottomAskBar({
         </div>
       )}
 
-      <form ref={composerRef} className="bottomAsk gptComposer" style={{ bottom: composerBottom }} onSubmit={ask}>
+      <form
+        ref={composerRef}
+        className="bottomAsk gptComposer"
+        style={{
+          bottom: composerBottom,
+          ["--rb-composer-bottom" as any]: composerBottom + "px",
+        }}
+        onSubmit={ask}
+      >
         <button type="button" className="composerDragHandle" onPointerDown={startDrag} aria-label="Geser bar">
           <span />
         </button>
