@@ -298,6 +298,35 @@ function rawCandidateScore(question: string, ...values: Array<unknown>) {
   return words.reduce((score, word) => score + (haystack.includes(word) ? 1 : 0), 0);
 }
 
+async function filterReadyDatabaseRows(
+  supabase: any,
+  rows: any[]
+) {
+  const fileIds = Array.from(new Set(
+    rows.map((row) => String(row?.source_file_id || "")).filter(Boolean)
+  ));
+  if (!fileIds.length) return rows;
+
+  const { data, error } = await supabase
+    .from("source_files")
+    .select("id,processing_status")
+    .in("id", fileIds);
+
+  if (error || !Array.isArray(data)) {
+    // Fail closed for file-backed evidence when readiness cannot be verified.
+    return rows.filter((row) => !row?.source_file_id);
+  }
+
+  const ready = new Set(
+    data
+      .filter((file: any) => file.processing_status === "ready")
+      .map((file: any) => String(file.id))
+  );
+  return rows.filter(
+    (row) => !row?.source_file_id || ready.has(String(row.source_file_id))
+  );
+}
+
 async function loadDatabaseRawAssets(
   supabase: any,
   rows: any[],
@@ -318,6 +347,7 @@ async function loadDatabaseRawAssets(
     .from("source_files")
     .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,raw_text,source_kind,source_url,created_at")
     .eq("user_id", userId)
+    .eq("processing_status", "ready")
     .order("created_at", { ascending: false })
     .limit(80);
 
@@ -442,6 +472,7 @@ async function loadExplicitRawFiles(
     .from("source_files")
     .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,raw_text,source_kind,source_url")
     .eq("user_id", userId)
+    .eq("processing_status", "ready")
     .in("id", sourceFileIds)
     .limit(12);
 
@@ -1021,6 +1052,10 @@ export async function POST(req: NextRequest) {
               )
             : await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
         }
+        // Never ground an answer in a file whose ingestion is still processing
+        // or failed. Partial historical chunks must not masquerade as a complete source.
+        data = await filterReadyDatabaseRows(supabase, data);
+
         // First identify the *published work* (edition/year), not just the PDF.
         // Multiple file chunks/copies of one edition become one bibliography unit.
         data = await annotateBibliographicWorks(supabase, data);
