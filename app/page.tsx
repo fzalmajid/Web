@@ -8212,6 +8212,13 @@ function AiDatabaseSourcePicker({
   const [vectorError, setVectorError] = useState("");
   const [vectorProgress, setVectorProgress] = useState("");
   const stopVectorRef = useRef(false);
+  const priorityNodeIdsRef = useRef(nodeIds);
+  const priorityFileIdsRef = useRef(fileIds);
+
+  useEffect(() => {
+    priorityNodeIdsRef.current = nodeIds;
+    priorityFileIdsRef.current = fileIds;
+  }, [nodeIds, fileIds]);
 
   useEffect(() => {
     if (disabled) setOpen(false);
@@ -8273,8 +8280,8 @@ function AiDatabaseSourcePicker({
         const status = await indexHfBatch(supabase, {
           maxVectors: 72,
           maxEntries: 8,
-          priorityNodeIds: nodeIds,
-          priorityFileIds: fileIds,
+          priorityNodeIds: priorityNodeIdsRef.current,
+          priorityFileIds: priorityFileIdsRef.current,
           shouldStop: () => stopVectorRef.current,
           onProgress: setVectorProgress
         });
