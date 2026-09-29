@@ -965,7 +965,7 @@ export async function POST(req: NextRequest) {
       // E5 is useful for ranking, but it is never allowed to be the only path to a selected file.
       try {
         const literalDatabaseIntent =
-          /\b(copy(?:\s*[- ]?paste)?|kutip(?:an)?|verbatim|teks\s+persis|persis|monografi|halaman|page|lokasi|locate|terletak|tercantum)\b/i.test(
+          /\b(copy(?:\s*[- ]?paste)?|kutip(?:an)?|verbatim|teks\s+persis|persis|halaman|page|lokasi|locate|terletak|tercantum)\b/i.test(
             question.trim()
           );
 
@@ -979,12 +979,12 @@ export async function POST(req: NextRequest) {
             )
           : searchScopeKnowledge(supabase, databaseSearchQuery, scopeNodeId, searchLimit);
 
-        // Direct RAW runs for literal/source-location requests and short source-bound
-        // entity queries. Long explanatory prompts stay fast on FTS + vector ranking.
-        const shortSourceQuery =
-          question.trim().split(/\s+/).filter(Boolean).length <= 12;
+        // Direct RAW is intentionally reserved for requests that truly need
+        // literal text/page-location evidence. Ordinary short entity lookups such as
+        // "carikan monografi paracetamol" stay on indexed FTS + semantic ranking first;
+        // the unconditional RAW safety net below still runs if those indexed layers miss.
         const directPromise =
-          hasExplicitDatabaseSources && (literalDatabaseIntent || shortSourceQuery)
+          hasExplicitDatabaseSources && literalDatabaseIntent
           ? searchDirectRawKnowledge(
               supabase,
               question.trim(),
@@ -1078,11 +1078,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const semanticNotice = useDatabase && !databaseWarning && !casualAiQuestion
+    // Semantic E5 is a ranking enhancement, not a correctness gate. Do not
+    // alarm the user when indexed lexical/RAW retrieval already found grounded evidence.
+    // Keep semanticStatus/semanticModel in the response for diagnostics.
+    const semanticNotice = useDatabase && !databaseWarning && !casualAiQuestion && !data.length
       ? semanticStatus === "index-pending"
-        ? "Indeks embedding masih kosong. Jawaban/pencarian saat ini memakai isi teks RAW/OCR; model Hugging Face belum membantu pemeringkatan."
+        ? "Indeks embedding belum lengkap. Pencarian isi RAW/OCR tetap digunakan."
         : semanticStatus === "fallback"
-          ? "Pencarian embedding sementara tidak tersedia; pencarian isi teks tetap dipakai."
+          ? "Pemeringkatan semantic sementara tidak aktif. Pencarian isi RAW/OCR tetap digunakan."
           : undefined
       : undefined;
 
