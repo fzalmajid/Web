@@ -132,7 +132,6 @@ Deno.serve(async (req) => {
   const link = await admin.auth.admin.generateLink({
     type: "magiclink",
     email,
-    options: { redirectTo: APP_ORIGIN },
   });
   if (link.error || !link.data?.properties?.hashed_token) {
     return json({ error: link.error?.message || "Gagal membuat sesi Google." }, 500, origin);
@@ -141,6 +140,5 @@ Deno.serve(async (req) => {
   return json({
     ok: true,
     tokenHash: link.data.properties.hashed_token,
-    verificationType: link.data.properties.verification_type || "magiclink",
   }, 200, origin);
 });
