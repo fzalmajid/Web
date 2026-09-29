@@ -7803,7 +7803,7 @@ summary{
 /* Desktop-only baseline reset — 2026-09-30 */
 
 :root{
-  --rb-topbar-h:64px;
+  --rb-topbar-h:60px;
 }
 
 html,
@@ -7816,16 +7816,16 @@ body,
   position:fixed!important;
   inset:0 0 auto 0!important;
   width:100%!important;
-  height:64px!important;
-  min-height:64px!important;
+  height:60px!important;
+  min-height:60px!important;
   display:flex!important;
   align-items:center!important;
   justify-content:space-between!important;
-  padding:0 20px!important;
-  gap:12px!important;
+  padding:0 16px!important;
+  gap:10px!important;
   border-bottom:1px solid var(--line)!important;
   background:color-mix(in srgb,var(--card) 96%,transparent)!important;
-  backdrop-filter:blur(14px)!important;
+  backdrop-filter:blur(12px)!important;
   z-index:1000!important;
 }
 
@@ -7836,27 +7836,27 @@ body,
   max-width:none!important;
   display:flex!important;
   align-items:center!important;
-  gap:6px!important;
+  gap:2px!important;
   overflow:visible!important;
 }
 
 .topbarChatToggle,
 .topbarNewChat,
 .topbarBrandButton{
-  width:40px!important;
-  min-width:40px!important;
-  max-width:40px!important;
-  height:40px!important;
-  min-height:40px!important;
-  max-height:40px!important;
+  width:36px!important;
+  min-width:36px!important;
+  max-width:36px!important;
+  height:36px!important;
+  min-height:36px!important;
+  max-height:36px!important;
   padding:0!important;
   border:0!important;
-  border-radius:12px!important;
+  border-radius:10px!important;
   background:transparent!important;
   color:var(--ink)!important;
   display:grid!important;
   place-items:center!important;
-  flex:0 0 40px!important;
+  flex:0 0 36px!important;
 }
 
 .topbarChatToggle:hover,
@@ -7867,58 +7867,60 @@ body,
 }
 
 .topbarHamburgerIcon{
-  width:18px!important;
-  height:14px!important;
+  width:16px!important;
+  height:13px!important;
 }
 .topbarHamburgerIcon i{
-  width:18px!important;
+  width:16px!important;
   height:2px!important;
   flex-basis:2px!important;
 }
 
 .topbarPlusIcon{
-  width:18px!important;
-  min-width:18px!important;
-  max-width:18px!important;
-  height:18px!important;
-  min-height:18px!important;
-  max-height:18px!important;
-  flex-basis:18px!important;
+  width:16px!important;
+  min-width:16px!important;
+  max-width:16px!important;
+  height:16px!important;
+  min-height:16px!important;
+  max-height:16px!important;
+  flex-basis:16px!important;
 }
 .topbarPlusIcon::before{
-  width:18px!important;
+  width:16px!important;
   height:2px!important;
 }
 .topbarPlusIcon::after{
   width:2px!important;
-  height:18px!important;
+  height:16px!important;
 }
 
 .topbarBrandButton{
   margin-left:auto!important;
 }
 .topbarBrandButton .brandMini{
-  width:36px!important;
-  min-width:36px!important;
-  max-width:36px!important;
-  height:36px!important;
-  min-height:36px!important;
-  max-height:36px!important;
-  border-radius:12px!important;
+  width:32px!important;
+  min-width:32px!important;
+  max-width:32px!important;
+  height:32px!important;
+  min-height:32px!important;
+  max-height:32px!important;
+  border-radius:10px!important;
   line-height:1!important;
   white-space:nowrap!important;
+  font-size:.76rem!important;
+  letter-spacing:-.02em!important;
 }
 
 .appShell{
-  padding-top:64px!important;
+  padding-top:60px!important;
 }
 
 .leftChatSidebar.open{
-  top:64px!important;
+  top:60px!important;
   width:258px!important;
   max-width:258px!important;
 }
 
 .bigPlus{
-  top:80px!important;
+  top:76px!important;
 }
