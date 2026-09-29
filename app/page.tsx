@@ -8146,10 +8146,28 @@ function AiDatabaseSourcePicker({
   }, [disabled]);
 
   useEffect(() => {
-    // Start loading/caching E5 and checking vector availability before the
-    // source picker is opened or the first question is submitted.
-    prewarmHfRetrieval(supabase);
-  }, []);
+    // Do not let a 118 MB embedding model compete with the first explorer render.
+    // Warm it only when Reference/Database is relevant, and only during browser idle time.
+    const databaseRelevant = !sources || sources.includes("database");
+    if (!databaseRelevant) return;
+
+    let timer: number | null = null;
+    let idleId: number | null = null;
+    const warm = () => prewarmHfRetrieval(supabase);
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      idleId = (window as any).requestIdleCallback(warm, { timeout: 2500 });
+    } else {
+      timer = window.setTimeout(warm, 1200);
+    }
+
+    return () => {
+      if (idleId !== null && "cancelIdleCallback" in window) {
+        (window as any).cancelIdleCallback(idleId);
+      }
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [sources?.includes("database")]);
 
   useEffect(() => () => { stopVectorRef.current = true; }, []);
 
