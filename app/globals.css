@@ -10405,3 +10405,157 @@ summary{
     font-size:.63rem!important;
   }
 }
+
+
+/* Responsive containment guard — 2026-09-30 */
+/*
+  Keep the navigation rail viewport-fixed and make responsive compression structural:
+  containers may reflow, but their children are never allowed to impose an intrinsic
+  width larger than the available box.
+*/
+.topbar{
+  position:fixed!important;
+  inset:0 0 auto 0!important;
+  width:auto!important;
+  margin:0!important;
+  z-index:1000!important;
+}
+.appShell{
+  padding-top:var(--rb-topbar-h)!important;
+  min-width:0;
+}
+
+:where(
+  .appShell,
+  .pageShell,
+  .topbar,
+  .topbarStart,
+  .headerActions,
+  .pageNav,
+  .explorerPathNav,
+  .askTopRow,
+  .askControls,
+  .aiSourceModelBar,
+  .sourceToggleGroup,
+  .aiSourceKindsInPicker,
+  .aiDatabaseSourceTools,
+  .askInputRow,
+  .citationPicker,
+  .aiModeSelect,
+  .studySourceGrid,
+  .pluginGrid,
+  .settingsSection
+){
+  min-width:0;
+  max-width:100%;
+  box-sizing:border-box;
+}
+
+:where(
+  .topbar,
+  .topbarStart,
+  .headerActions,
+  .pageNav,
+  .explorerPathNav,
+  .askTopRow,
+  .askControls,
+  .aiSourceModelBar,
+  .sourceToggleGroup,
+  .aiSourceKindsInPicker,
+  .aiDatabaseSourceTools,
+  .askInputRow,
+  .studySourceGrid,
+  .pluginGrid,
+  .settingsSection
+)>*{
+  min-width:0;
+  max-width:100%;
+  box-sizing:border-box;
+}
+
+/* Long labels/titles can wrap inside their own layout box instead of widening it. */
+.appShell :where(p,small,label,h1,h2,h3,h4,strong,.muted,.fieldLabel,.userPill){
+  max-width:100%;
+  overflow-wrap:anywhere;
+  word-break:normal;
+}
+.appShell :where(button,a,input,textarea,select){
+  max-width:100%;
+  box-sizing:border-box;
+}
+
+/*
+  Source buttons use available space intelligently: the longer middle label gets
+  a little more room, and any future longer label wraps inside the button rather
+  than escaping from it.
+*/
+.sourceToggleGroup,
+.aiSourceModelBar .sourceToggleGroup,
+.aiSourceKindsInPicker .sourceToggleGroup,
+.gptComposer .sourceToggleGroup{
+  display:grid!important;
+  grid-template-columns:minmax(0,.82fr) minmax(0,1.36fr) minmax(0,.82fr)!important;
+  min-width:0!important;
+  max-width:100%!important;
+}
+.sourceToggle,
+.aiSourceModelBar .sourceToggle,
+.aiSourceKindsInPicker .sourceToggle,
+.gptComposer .sourceToggle{
+  width:100%!important;
+  min-width:0!important;
+  max-width:100%!important;
+  white-space:normal!important;
+  overflow:hidden!important;
+  text-overflow:clip!important;
+  overflow-wrap:anywhere!important;
+  word-break:normal!important;
+  line-height:1.08!important;
+}
+
+/*
+  On narrow phones do not keep squeezing Source + Citation + Model into one row.
+  Reflow them while preserving the same controls and visual language.
+*/
+@media(max-width:520px){
+  .gptComposer .aiSourceModelBar,
+  .bottomAsk .aiSourceModelBar{
+    width:100%!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+    gap:5px!important;
+    align-items:stretch!important;
+  }
+  .gptComposer .aiSourceModelBar>.sourceToggleGroup,
+  .bottomAsk .aiSourceModelBar>.sourceToggleGroup{
+    grid-column:1 / -1!important;
+    width:100%!important;
+  }
+  .gptComposer .aiSourceModelBar>.citationPicker,
+  .gptComposer .aiSourceModelBar>.aiModeSelect,
+  .bottomAsk .aiSourceModelBar>.citationPicker,
+  .bottomAsk .aiSourceModelBar>.aiModeSelect{
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+  }
+  .gptComposer .citationTrigger,
+  .bottomAsk .citationTrigger,
+  .gptComposer .aiModeSelect.compact .chooseModelTrigger,
+  .bottomAsk .aiModeSelect.compact .chooseModelTrigger{
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+  }
+}
+
+@media(max-width:360px){
+  .gptComposer .aiSourceModelBar,
+  .bottomAsk .aiSourceModelBar{
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+  .gptComposer .aiSourceModelBar>*,
+  .bottomAsk .aiSourceModelBar>*{
+    grid-column:1!important;
+  }
+}
