@@ -972,13 +972,20 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
       setCurrentId(null);
     }
 
-    // Slow path: hydrate content-heavy data after the explorer is already usable.
-    // Keep this behavior-compatible with Study/Quiz/AI while removing it from first paint.
+    // Background hydration must stay lightweight. File/OCR entry bodies can total
+    // tens of megabytes and are fetched on demand by Local AI/Quiz/RAG instead.
+    // Keep full bodies only for manual notes because Explorer preview/edit needs them.
     void Promise.all([
+      supabase
+        .from("knowledge_entries")
+        .select("id,user_id,node_id,title,category,source_type,source_file_id,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
       supabase
         .from("knowledge_entries")
         .select("*")
         .eq("user_id", user.id)
+        .eq("source_type", "manual")
         .order("created_at", { ascending: false }),
       supabase
         .from("source_files")
@@ -1006,12 +1013,24 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         .eq("user_id", user.id)
         .order("created_at", { ascending: false }),
     ]).then((result) => {
-      setEntries((result[0].data || []) as KnowledgeEntry[]);
-      setFiles((result[1].data || []) as SourceFile[]);
-      setRecordings((result[2].data || []) as Recording[]);
-      setCards((result[3].data || []) as Flashcard[]);
-      setQuizzes((result[4].data || []) as Quiz[]);
-      setTasks((result[5].data || []) as StudyTask[]);
+      const manualById = new Map(
+        ((result[1].data || []) as KnowledgeEntry[]).map((entry) => [entry.id, entry])
+      );
+      const lightweightEntries = (result[0].data || []).map((entry: any) => {
+        const manual = manualById.get(String(entry.id));
+        if (manual) return manual;
+        return {
+          ...entry,
+          content: "",
+          raw_content: null,
+        } as KnowledgeEntry;
+      });
+      setEntries(lightweightEntries as KnowledgeEntry[]);
+      setFiles((result[2].data || []) as SourceFile[]);
+      setRecordings((result[3].data || []) as Recording[]);
+      setCards((result[4].data || []) as Flashcard[]);
+      setQuizzes((result[5].data || []) as Quiz[]);
+      setTasks((result[6].data || []) as StudyTask[]);
     });
   }
 
