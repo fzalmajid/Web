@@ -143,8 +143,9 @@ export async function maybeMultilingualQuery(
   if (!question.trim()) return null;
 
   if (!isMultilingualEmbeddingReady()) {
+    // Warm silently. Indexed FTS/RAW retrieval remains authoritative while the
+    // local E5 worker is cold, so chat should not look or feel degraded.
     prewarmHfRetrieval(supabase);
-    onProgress?.("Semantic E5 sedang dipanaskan di belakang layar; pencarian isi tetap langsung berjalan.");
     return null;
   }
 
