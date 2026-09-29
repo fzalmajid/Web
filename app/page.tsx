@@ -7643,12 +7643,19 @@ function PracticePage({
 
     if (aiSelection.model === "local") {
       setBusy(true);
-      const scopeIds = collectSubtreeIds(nodes, node.parent_id);
-      const sourceEntries = entries.filter(
-        (item) => scopeIds.includes(item.node_id) && item.source_type !== "transcript"
-      );
+      const scopeResult = await supabase.rpc("get_scope_knowledge", {
+        scope_node_id: node.parent_id,
+        result_limit: 120,
+      });
+      const sourceEntries = !scopeResult.error && Array.isArray(scopeResult.data)
+        ? (scopeResult.data as any[]).filter((item) => item.source_type !== "transcript")
+        : entries.filter(
+            (item) =>
+              collectSubtreeIds(nodes, node.parent_id as string).includes(item.node_id) &&
+              item.source_type === "manual"
+          );
       const sentences = sourceEntries
-        .flatMap((entry) => (entry.raw_content || entry.content).replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
+        .flatMap((entry: any) => String(entry.raw_content || entry.content || "").replace(/\s+/g, " ").split(/(?<=[.!?])\s+/))
         .map((sentence) => sentence.trim())
         .filter((sentence) => sentence.length >= 35 && sentence.length <= 260)
         .slice(0, 12);
