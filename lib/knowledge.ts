@@ -369,7 +369,7 @@ async function hydrateRawContent(
     ])
   );
 
-  return rows.map((row) => {
+  const hydratedRows = rows.map((row) => {
     const hydrated = byId.get(row.id);
     return {
       ...row,
@@ -384,6 +384,33 @@ async function hydrateRawContent(
       })(),
     };
   });
+
+  const fileIds = Array.from(new Set(
+    hydratedRows.map((row) => row.source_file_id).filter(
+      (id): id is string => Boolean(id)
+    )
+  ));
+  if (!fileIds.length) return hydratedRows;
+
+  const { data: fileStates, error: fileStateError } = await supabase
+    .from("source_files")
+    .select("id,processing_status")
+    .in("id", fileIds);
+
+  if (fileStateError || !Array.isArray(fileStates)) {
+    // Manual/non-file knowledge remains safe. File-backed evidence fails closed
+    // if ingestion readiness cannot be verified.
+    return hydratedRows.filter((row) => !row.source_file_id);
+  }
+
+  const readyFiles = new Set(
+    fileStates
+      .filter((file: any) => file.processing_status === "ready")
+      .map((file: any) => String(file.id))
+  );
+  return hydratedRows.filter(
+    (row) => !row.source_file_id || readyFiles.has(String(row.source_file_id))
+  );
 }
 
 export async function getScopeKnowledge(
@@ -520,7 +547,8 @@ export async function searchSemanticKnowledge(
       p_limit: Math.min(120, Math.max(1, limit))
     });
     if (error) return empty;
-    return { rows: (data || []) as KnowledgeSource[], model: requestedModel, status: "ready" };
+    const rows = await hydrateRawContent(supabase, (data || []) as KnowledgeSource[]);
+    return { rows, model: requestedModel, status: "ready" };
   } catch {
     return empty;
   }
