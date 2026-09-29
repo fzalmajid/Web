@@ -967,10 +967,31 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   return (
     <div className={"appShell " + (chatSidebarOpen ? "leftChatSidebarOpen" : "leftChatSidebarCollapsed")}>
       <header className="topbar">
-        <button className="brandButton" onClick={() => setCurrentId(null)}>
-          <span className="brandMini">RB</span>
-          <span>Ruang Belajar</span>
-        </button>
+        <div className="topbarStart">
+          <button
+            type="button"
+            className="topbarChatToggle"
+            onClick={() => setChatSidebarOpen((value) => !value)}
+            aria-label={chatSidebarOpen ? "Sembunyikan riwayat chat" : "Tampilkan riwayat chat"}
+            title={chatSidebarOpen ? "Sembunyikan riwayat chat" : "Tampilkan riwayat chat"}
+            aria-expanded={chatSidebarOpen}
+          >
+            ☰
+          </button>
+          <button
+            type="button"
+            className="topbarNewChat"
+            onClick={requestNewChat}
+            title="New Chat"
+            aria-label="New Chat"
+          >
+            ＋
+          </button>
+          <button className="brandButton" onClick={() => setCurrentId(null)}>
+            <span className="brandMini">RB</span>
+            <span>Ruang Belajar</span>
+          </button>
+        </div>
         <div className="headerActions">
           <AiCreditBadge />
           <ThemePicker value={theme} onChange={onThemeChange} />
@@ -979,34 +1000,17 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         </div>
       </header>
 
-      <aside className={"leftChatSidebar " + (chatSidebarOpen ? "open" : "collapsed")} aria-label="Chat">
-        <div className="leftChatSidebarTop">
-          <button
-            type="button"
-            className="leftChatSidebarToggle"
-            onClick={() => setChatSidebarOpen((value) => !value)}
-            aria-label={chatSidebarOpen ? "Sembunyikan chat" : "Tampilkan chat"}
-            title={chatSidebarOpen ? "Sembunyikan chat" : "Tampilkan chat"}
-          >
-            ☰
-          </button>
-          {chatSidebarOpen && <strong>Chat</strong>}
-        </div>
-
-        <button
-          type="button"
-          className="leftChatNewButton"
-          onClick={requestNewChat}
-          title="New Chat"
-          aria-label="New Chat"
-        >
-          <span>＋</span>
-          {chatSidebarOpen && <strong>New Chat</strong>}
-        </button>
-
+      <aside
+        className={"leftChatSidebar " + (chatSidebarOpen ? "open" : "collapsed")}
+        aria-label="Riwayat chat"
+        aria-hidden={!chatSidebarOpen}
+      >
         {chatSidebarOpen && (
           <div className="leftChatHistory">
-            <small>CHAT TERBARU</small>
+            <div className="leftChatPanelTitle">
+              <strong>Chat</strong>
+              <small>RIWAYAT</small>
+            </div>
             <div className="leftChatHistoryList">
               {sidebarChats.length ? (
                 sidebarChats.map((chat) => (
