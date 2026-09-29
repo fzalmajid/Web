@@ -653,20 +653,39 @@ function Auth() {
       setBusy(true);
     }
 
-    const result =
-      mode === "login"
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
-
-    if (result.error) {
-      setMessage(result.error.message);
-    } else if (mode === "signup" && !result.data.session) {
-      setMessage(
-        "Pendaftaran diterima, tetapi konfigurasi Supabase masih mewajibkan konfirmasi email. " +
-        "Ruang Belajar tidak memakai flow verifikasi email; nonaktifkan Confirm email pada Auth > Providers > Email."
-      );
+    if (mode === "login") {
+      const result = await supabase.auth.signInWithPassword({ email, password });
+      if (result.error) setMessage(result.error.message);
+      setBusy(false);
+      return;
     }
 
+    const registration = await supabase.functions.invoke("register-no-confirm", {
+      body: { email: email.trim(), password },
+    });
+
+    if (registration.error || registration.data?.error) {
+      setMessage(
+        String(
+          registration.data?.error ||
+          registration.error?.message ||
+          "Gagal membuat akun."
+        )
+      );
+      setBusy(false);
+      return;
+    }
+
+    const login = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    if (login.error) {
+      setMessage(
+        "Akun berhasil dibuat tanpa verifikasi email, tetapi login otomatis gagal: " +
+        login.error.message
+      );
+    }
     setBusy(false);
   }
 
