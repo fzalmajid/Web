@@ -2450,7 +2450,7 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
 .askVoiceSaveRow select{
   min-width:0;
 }
-/* Mobile-first hardening: keep the full app usable on phones */
+
 /* Raw attachments in bottom AI composer */
 .askInputRow{
   grid-template-columns:40px 40px minmax(0,1fr) 44px!important;
@@ -2798,8 +2798,8 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   padding-top:2px;
 }
 /* Touch drag for Explorer folders */
-/* FINAL MOBILE OVERRIDE — keep this block last */
-/* Mobile folder explorer fix: no native drag ghost, smaller clean hero */
+
+
 .folderHeroTitle{
   display:flex;
   align-items:center;
@@ -2871,15 +2871,13 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
 .pathCrumb:hover{
   border-color:#9db8ad!important;
 }
-.pathCrumb.active,
-.pathCrumb.mobileFolderDropTarget{
+.pathCrumb.active{
   background:#e9f6ee!important;
   border-color:#67a17f!important;
   color:#286848!important;
   box-shadow:0 0 0 2px rgba(103,161,127,.13)!important;
 }
-:root[data-theme="dark"] .pathCrumb.active,
-:root[data-theme="dark"] .pathCrumb.mobileFolderDropTarget{
+:root[data-theme="dark"] .pathCrumb.active{
   background:#183026!important;
   border-color:#416e58!important;
   color:#a9d4bd!important;
@@ -3158,20 +3156,20 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   position:fixed!important;
   left:50%!important;
   right:auto!important;
-  top:max(12px,env(safe-area-inset-top))!important;
+  top:12px!important;
   bottom:auto!important;
   transform:translateX(-50%)!important;
   width:min(620px,calc(100vw - 24px))!important;
   max-width:none!important;
-  max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  max-height:calc(100vh - 24px)!important;
   overflow:auto!important;
   z-index:220!important;
 }
 .sheetBackdrop{
-  padding:max(10px,env(safe-area-inset-top)) 10px max(10px,env(safe-area-inset-bottom))!important;
+  padding:10px!important;
 }
 .addSheet{
-  max-height:calc(100dvh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  max-height:calc(100vh - 20px)!important;
   overscroll-behavior:contain;
 }
 .explorerAddSheet{
@@ -3409,11 +3407,11 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   position:fixed!important;
   left:50%!important;
   right:auto!important;
-  top:max(12px,env(safe-area-inset-top))!important;
+  top:12px!important;
   bottom:auto!important;
   transform:translateX(-50%)!important;
   width:min(620px,calc(100vw - 24px))!important;
-  max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  max-height:calc(100vh - 24px)!important;
   overflow:auto!important;
   z-index:230!important;
 }
@@ -3700,12 +3698,12 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   position:fixed!important;
   left:50%!important;
   right:auto!important;
-  top:max(10px,env(safe-area-inset-top))!important;
+  top:10px!important;
   bottom:auto!important;
   transform:translateX(-50%)!important;
   width:min(560px,calc(100vw - 20px))!important;
   max-width:560px!important;
-  max-height:calc(100dvh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  max-height:calc(100vh - 20px)!important;
   z-index:230!important;
 }
 
@@ -3864,7 +3862,7 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   margin-top:0!important;
 }
 
-/* Mobile: same AI hierarchy; model stays right-most on row two. */
+
 /* POPUP ANCHOR FIX — keep model/citation attached to their triggers inside Study/Quiz/Flashcard sheets */
 .sheetBackdrop .citationPicker,
 .sheetBackdrop .aiModeSelect{
@@ -3925,8 +3923,7 @@ summary{cursor:pointer;color:var(--accent-strong);font-weight:800;font-size:.85r
   margin-top:1px!important;
 }
 
-/* Mobile keeps both menus attached to their own half of the AI row.
-   Citation grows rightward from the left control; model grows leftward from the right control. */
+
 /* DENSITY PASS — remove dead space while keeping touch targets/readability */
 :root{
   --rb-dense-gap:9px;
@@ -4203,7 +4200,7 @@ summary{
   border-radius:16px!important;
 }
 
-/* Keep mobile dense without becoming cramped */
+
 /* RAW-first / optional AI copy */
 .aiCopyPanel{
   display:grid;
@@ -4597,11 +4594,7 @@ summary{
   margin-top:8px!important;
   justify-content:center!important;
 }
-/* =====================================================================
-   MOBILE CONSISTENCY PASS — 320–767px
-   Desktop hierarchy stays intact; phone layout must never clip content.
-   Keep this block LAST so older mobile experiments cannot override it.
-   ===================================================================== */
+
 /* Ask AI: generated file from chat instruction */
 .aiArtifactCard{
   display:flex;
@@ -5523,7 +5516,7 @@ summary{
 }
 
 /* Mid-size laptops: preserve the same visual language but wrap gracefully. */
-/* Mobile: same design system, stacked and touch-friendly. */
+
 /* Explorer asset cards: RAW notes follow the same visual pattern as files. */
 .explorerTextItem.explorerUnifiedCard{
   padding:14px!important;
@@ -6240,7 +6233,7 @@ summary{
   overflow:auto!important;
 }
 
-/* In-app name editing replaces native browser prompt, including on mobile. */
+
 .explorerRenameBackdrop{
   z-index:550;
   place-items:center;
@@ -6740,7 +6733,7 @@ summary{
 }
 
 
-/* Unified desktop/mobile shell: same UI, responsive sizing only */
+
 .leftChatSidebar.collapsed{
   left:8px;
   top:72px;
@@ -7147,12 +7140,7 @@ summary{
   Reflow them while preserving the same controls and visual language.
 */
 /* UI parity + overflow prevention contract — 2026-09-30 */
-/*
-  Desktop and mobile use the same component language.
-  Breakpoints may change available width / flow, but not turn a component into
-  a visually different component. This block intentionally comes last so it
-  resolves older accumulated responsive patches.
-*/
+
 
 /* Generic containment for real layout surfaces, not only the Reference toggle. */
 :where(
@@ -7307,12 +7295,10 @@ summary{
 }
 
 /* Top controls are allowed to reflow instead of becoming a hidden horizontal strip. */
-/* Same source-picker information on desktop and mobile; do not hide metadata. */
-/* Modal/sheet parity: mobile keeps the desktop card language instead of becoming
-   a different full-width bottom sheet. Only the width and max-height adapt. */
-/* Context actions retain the desktop card appearance on touch screens.
-   Position can adapt for touch, but visual identity is unchanged. */
-/* Popovers share the same card geometry across desktop/mobile and stay inside viewport. */
+
+
+
+
 .citationPopover,
 .aiModePopover,
 .aiDatabaseSourcePopover{
@@ -7320,7 +7306,7 @@ summary{
   max-width:calc(100vw - 16px)!important;
 }
 /* Cards keep one visual language; breakpoint only changes column count. */
-/* Extra-narrow phones: allow controls to stack, never clip or scroll sideways. */
+
 /* Cross-device visual identity lock — 2026-09-30 */
 /*
   The same controls must look like the same controls on every viewport.
@@ -7357,7 +7343,7 @@ summary{
   letter-spacing:0!important;
 }
 
-/* Font-independent navigation icons: identical geometry on mobile and desktop. */
+
 .topbarChatToggle,
 .topbarNewChat{
   width:38px!important;
@@ -7469,7 +7455,7 @@ summary{
 }
 
 
-/* Full mobile/desktop parity audit pass — 2026-09-30 */
+
 /*
   Preserve information and component identity on phones.
   Narrow screens reflow; they do not silently remove controls that desktop shows.
@@ -7666,7 +7652,7 @@ summary{
   transform:rotate(45deg);
 }
 
-/* Account popover opens upward, like a desktop/mobile app drawer. */
+
 .leftChatAccountMenu{
   position:absolute;
   left:0;
@@ -7811,14 +7797,11 @@ summary{
   color:var(--card);
 }
 
-/* Mobile keeps the exact same navigation model; only dimensions tighten. */
+
 
 
 /* Desktop-only baseline reset — 2026-09-30 */
-/*
-  Responsive/mobile presentation intentionally removed.
-  This is the single desktop baseline to refine before a clean responsive pass.
-*/
+
 :root{
   --rb-topbar-h:64px;
 }
