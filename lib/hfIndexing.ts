@@ -189,16 +189,38 @@ export async function indexHfBatch(
   options: {
     maxVectors?: number;
     maxEntries?: number;
+    priorityNodeIds?: string[];
+    priorityFileIds?: string[];
     shouldStop?: () => boolean;
     onProgress?: (message: string) => void;
   } = {}
 ): Promise<HfIndexProgress> {
   const maxVectors = Math.max(1, Math.min(96, Number(options.maxVectors || 72)));
   const maxEntries = Math.max(1, Math.min(12, Number(options.maxEntries || 8)));
-  const { data, error } = await supabase.rpc("pending_knowledge_embeddings", {
+  const priorityNodeIds = Array.from(new Set(
+    (options.priorityNodeIds || []).map(String).filter(Boolean)
+  )).slice(0, 24);
+  const priorityFileIds = Array.from(new Set(
+    (options.priorityFileIds || []).map(String).filter(Boolean)
+  )).slice(0, 40);
+
+  // Finish sources the user is actively working with before unrelated pending
+  // entries. The SQL function expands selected folders recursively to descendants.
+  // Fall back to the legacy queue if a local/dev database has not received the
+  // prioritization migration yet.
+  let pendingResult = await supabase.rpc("pending_knowledge_embeddings_priority", {
     p_model: HF_EMBEDDING_MODEL,
-    p_limit: maxEntries
+    p_limit: maxEntries,
+    p_source_node_ids: priorityNodeIds,
+    p_source_file_ids: priorityFileIds
   });
+  if (pendingResult.error) {
+    pendingResult = await supabase.rpc("pending_knowledge_embeddings", {
+      p_model: HF_EMBEDDING_MODEL,
+      p_limit: maxEntries
+    });
+  }
+  const { data, error } = pendingResult;
   if (error) throw error;
 
   const pending = (data || []) as PendingEntry[];
