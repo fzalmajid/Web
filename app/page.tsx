@@ -729,7 +729,6 @@ function Auth() {
         body: { accessToken },
       });
       const tokenHash = String(response.data?.tokenHash || "");
-      const verificationType = String(response.data?.verificationType || "magiclink");
       if (response.error || response.data?.error || !tokenHash) {
         throw new Error(await edgeInvokeMessage(
           response.error,
@@ -740,7 +739,7 @@ function Auth() {
 
       const verified = await supabase.auth.verifyOtp({
         token_hash: tokenHash,
-        type: verificationType as any,
+        type: "email",
       });
       if (verified.error) throw verified.error;
     } catch (error: any) {
