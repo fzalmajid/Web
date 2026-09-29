@@ -948,9 +948,12 @@ export async function POST(req: NextRequest) {
             )
           : searchScopeKnowledge(supabase, databaseSearchQuery, scopeNodeId, searchLimit);
 
-        // Direct RAW is deliberately reserved for literal/source-location questions.
-        // Ordinary explanatory questions stay fast on FTS + vector ranking.
-        const directPromise = hasExplicitDatabaseSources && literalDatabaseIntent
+        // Direct RAW runs for literal/source-location requests and short source-bound
+        // entity queries. Long explanatory prompts stay fast on FTS + vector ranking.
+        const shortSourceQuery =
+          question.trim().split(/\s+/).filter(Boolean).length <= 12;
+        const directPromise =
+          hasExplicitDatabaseSources && (literalDatabaseIntent || shortSourceQuery)
           ? searchDirectRawKnowledge(
               supabase,
               question.trim(),
