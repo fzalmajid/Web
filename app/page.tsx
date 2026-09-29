@@ -8387,11 +8387,11 @@ function AiDatabaseSourcePicker({
 
           {sources && onSourcesChange && (
             <div className="aiSourceKindsInPicker">
-              <small>SUMBER JAWABAN · AI / DATABASE / WEB</small>
-              <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
+              <small>SUMBER JAWABAN · AI / REFERENCE / WEB</small>
+              <div className="sourceToggleGroup" role="group" aria-label="Sumber jawaban AI Reference Web">
                 {([
                   { id: "ai" as const, label: "AI" },
-                  { id: "database" as const, label: "Database" },
+                  { id: "database" as const, label: "Reference" },
                   { id: "web" as const, label: "Web" },
                 ]).map((item) => {
                   const itemDisabled = selectionModel === "local" && item.id !== "database";
@@ -8414,7 +8414,7 @@ function AiDatabaseSourcePicker({
 
           {!databaseEnabled && (
             <div className="aiDatabaseDisabledHint">
-              Aktifkan <strong>Database</strong> untuk memilih folder atau file tertentu.
+              Aktifkan <strong>Reference</strong> untuk memilih folder atau file Database sebagai referensi.
             </div>
           )}
 
@@ -8939,10 +8939,10 @@ function AiSourceModelBar({
   return (
     <div className="askControls aiSourceModelBar">
       {showSources && (
-        <div className="sourceToggleGroup" role="group" aria-label="Sumber AI">
+        <div className="sourceToggleGroup" role="group" aria-label="Sumber jawaban AI Reference Web">
           {([
             { id: "ai" as const, label: "AI" },
-            { id: "database" as const, label: "Database" },
+            { id: "database" as const, label: "Reference" },
             { id: "web" as const, label: "Web" },
           ]).map((item) => {
             const disabled = selection.model === "local" && item.id !== "database";
