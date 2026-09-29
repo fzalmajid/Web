@@ -1859,16 +1859,7 @@ function FolderPage({
   const [dropBusy, setDropBusy] = useState(false);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const folderHoverTimerRef = useRef<number | null>(null);
-  const touchFolderDragRef = useRef<{
-    nodeId: string;
-    pointerId: number;
-    startX: number;
-    startY: number;
-    active: boolean;
-    target: HTMLElement | null;
-  } | null>(null);
-  const [touchDraggingNodeId, setTouchDraggingNodeId] = useState<string | null>(null);
-  const [nativeDragEnabled, setNativeDragEnabled] = useState(false);
+  const nativeDragEnabled = true;
   const [clipboardItem, setClipboardItem] = useState<ExplorerClipboardItem>(null);
   const [contextMenu, setContextMenu] = useState<ExplorerContextMenu>(null);
   const [previewItem, setPreviewItem] = useState<ExplorerPreviewItem | null>(null);
@@ -1885,14 +1876,6 @@ function FolderPage({
   const [renameError, setRenameError] = useState("");
 
   useEffect(() => {
-    const query = window.matchMedia("(hover: hover) and (pointer: fine)");
-    const sync = () => setNativeDragEnabled(query.matches);
-    sync();
-    query.addEventListener?.("change", sync);
-    return () => query.removeEventListener?.("change", sync);
-  }, []);
-
-  useEffect(() => {
     return () => {
       if (folderHoverTimerRef.current) window.clearTimeout(folderHoverTimerRef.current);
     };
@@ -1901,8 +1884,6 @@ function FolderPage({
   useEffect(() => {
     setDropActive(false);
     setDropTargetId(null);
-    setTouchDraggingNodeId(null);
-    clearTouchDropTarget();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [current?.id]);
 
@@ -2008,97 +1989,6 @@ function FolderPage({
       onOpen(nodeId);
       folderHoverTimerRef.current = null;
     }, 700);
-  }
-
-  function clearTouchDropTarget() {
-    const drag = touchFolderDragRef.current;
-    if (drag?.target) drag.target.classList.remove("mobileFolderDropTarget");
-    if (drag) drag.target = null;
-    setDropTargetId(null);
-  }
-
-  function startTouchFolderDrag(event: any, node: StudyNode) {
-    if (event.pointerType === "mouse") return;
-    const target = event.target as HTMLElement | null;
-    if (!target?.closest(".nodeIcon")) return;
-
-    clearTouchDropTarget();
-    touchFolderDragRef.current = {
-      nodeId: node.id,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      active: false,
-      target: null,
-    };
-    try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
-  }
-
-  function moveTouchFolderDrag(event: any) {
-    const drag = touchFolderDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
-    if (!drag.active && distance < 7) return;
-
-    if (!drag.active) {
-      drag.active = true;
-      setTouchDraggingNodeId(drag.nodeId);
-      setDropActive(true);
-    }
-
-    event.preventDefault();
-    const hit = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
-    const target = hit?.closest("[data-rb-drop-target]") as HTMLElement | null;
-
-    if (drag.target !== target) {
-      drag.target?.classList.remove("mobileFolderDropTarget");
-      drag.target = target;
-      target?.classList.add("mobileFolderDropTarget");
-      const rawTarget = target?.dataset.rbDropTarget || "";
-      setDropTargetId(rawTarget && rawTarget !== "__root__" ? rawTarget : null);
-    }
-  }
-
-  async function endTouchFolderDrag(event: any) {
-    const drag = touchFolderDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    const wasActive = drag.active;
-    const target = drag.target;
-    const nodeId = drag.nodeId;
-
-    clearTouchDropTarget();
-    touchFolderDragRef.current = null;
-    setTouchDraggingNodeId(null);
-    setDropActive(false);
-    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-
-    if (!wasActive || !target) return;
-
-    const rawTarget = target.dataset.rbDropTarget || "";
-    if (!rawTarget) return;
-    const targetNodeId = rawTarget === "__root__" ? null : rawTarget;
-
-    try {
-      const moved = await moveExplorerDraggedItem(
-        nodes,
-        { kind: "node", id: nodeId },
-        targetNodeId
-      );
-      if (moved) onChange();
-    } catch (error: any) {
-      alert(error?.message || "Gagal memindahkan folder.");
-    }
-  }
-
-  function cancelTouchFolderDrag(event: any) {
-    const drag = touchFolderDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    clearTouchDropTarget();
-    touchFolderDragRef.current = null;
-    setTouchDraggingNodeId(null);
-    setDropActive(false);
   }
 
   async function uploadFiles(targetNodeId: string, list: FileList | File[]) {
@@ -2304,17 +2194,12 @@ function FolderPage({
             <article
               className={
                 "nodeCard draggableFolderCard explorerUnifiedCard" +
-                (dropTargetId === node.id ? " folderDropTarget active" : "") +
-                (touchDraggingNodeId === node.id ? " touchDraggingFolder" : "")
+                (dropTargetId === node.id ? " folderDropTarget active" : "")
               }
               data-color={node.card_color || "default"}
               data-rb-drop-target={node.id}
               key={node.id}
               draggable={nativeDragEnabled}
-              onPointerDown={(event) => startTouchFolderDrag(event, node)}
-              onPointerMove={moveTouchFolderDrag}
-              onPointerUp={(event) => void endTouchFolderDrag(event)}
-              onPointerCancel={cancelTouchFolderDrag}
               onContextMenu={(event) => openContextMenu(event, { kind: "node", id: node.id })}
               onDragStart={(event) => {
                 event.stopPropagation();
