@@ -10892,3 +10892,216 @@ summary{
     justify-content:flex-end!important;
   }
 }
+
+
+/* Cross-device visual identity lock — 2026-09-30 */
+/*
+  The same controls must look like the same controls on every viewport.
+  Responsive rules may resize/reflow them, but may not replace their visual identity.
+*/
+
+/* Never let generic overflow guards squeeze fixed-size navigation marks. */
+.topbarStart{
+  flex:0 0 auto!important;
+  min-width:max-content!important;
+  overflow:visible!important;
+}
+.topbarChatToggle,
+.topbarNewChat,
+.topbarStart .brandMini{
+  flex:0 0 auto!important;
+  max-width:none!important;
+  overflow:hidden!important;
+}
+.topbarStart .brandMini{
+  width:36px!important;
+  min-width:36px!important;
+  max-width:36px!important;
+  height:36px!important;
+  min-height:36px!important;
+  max-height:36px!important;
+  display:grid!important;
+  place-items:center!important;
+  border-radius:12px!important;
+  white-space:nowrap!important;
+  overflow-wrap:normal!important;
+  word-break:keep-all!important;
+  line-height:1!important;
+  letter-spacing:0!important;
+}
+
+/* Font-independent navigation icons: identical geometry on mobile and desktop. */
+.topbarChatToggle,
+.topbarNewChat{
+  width:38px!important;
+  min-width:38px!important;
+  max-width:38px!important;
+  height:38px!important;
+  min-height:38px!important;
+  max-height:38px!important;
+  padding:0!important;
+  border-radius:10px!important;
+  display:grid!important;
+  place-items:center!important;
+  font-size:0!important;
+  line-height:0!important;
+}
+.topbarHamburgerIcon{
+  width:17px!important;
+  height:14px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:space-between!important;
+  flex:0 0 auto!important;
+  max-width:none!important;
+  overflow:visible!important;
+}
+.topbarHamburgerIcon i{
+  display:block!important;
+  width:17px!important;
+  height:2px!important;
+  flex:0 0 2px!important;
+  border-radius:999px!important;
+  background:currentColor!important;
+}
+.topbarPlusIcon{
+  position:relative!important;
+  display:block!important;
+  width:17px!important;
+  min-width:17px!important;
+  max-width:17px!important;
+  height:17px!important;
+  min-height:17px!important;
+  max-height:17px!important;
+  flex:0 0 17px!important;
+  overflow:visible!important;
+}
+.topbarPlusIcon::before,
+.topbarPlusIcon::after{
+  content:""!important;
+  position:absolute!important;
+  left:50%!important;
+  top:50%!important;
+  border-radius:999px!important;
+  background:currentColor!important;
+  transform:translate(-50%,-50%)!important;
+}
+.topbarPlusIcon::before{
+  width:17px!important;
+  height:2px!important;
+}
+.topbarPlusIcon::after{
+  width:2px!important;
+  height:17px!important;
+}
+
+/* Control identity: Source, Citation and Model are outlined cards on every device. */
+.gptComposer .chooseSourcesTrigger,
+.gptComposer .citationTrigger,
+.gptComposer .aiModeTrigger,
+.gptComposer .chooseModelTrigger,
+.bottomAsk .chooseSourcesTrigger,
+.bottomAsk .citationTrigger,
+.bottomAsk .aiModeTrigger,
+.bottomAsk .chooseModelTrigger{
+  border:1px solid var(--composer-line,var(--line))!important;
+  border-radius:13px!important;
+  background:var(--card)!important;
+  color:var(--ink)!important;
+  box-shadow:none!important;
+  min-height:40px!important;
+}
+.gptComposer .citationPicker,
+.gptComposer .aiModeSelect,
+.bottomAsk .citationPicker,
+.bottomAsk .aiModeSelect{
+  border:0!important;
+  background:transparent!important;
+}
+
+/* Keep the source-type segmented control itself consistent too. */
+.gptComposer .sourceToggleGroup,
+.bottomAsk .sourceToggleGroup{
+  border:1px solid var(--composer-line,var(--line))!important;
+  border-radius:13px!important;
+  background:var(--card)!important;
+  padding:3px!important;
+}
+.gptComposer .sourceToggle,
+.bottomAsk .sourceToggle{
+  border-radius:9px!important;
+}
+
+/* The rail may shrink spatially, but the icon/logo geometry does not mutate. */
+@media(max-width:899px){
+  .topbarStart{
+    gap:4px!important;
+  }
+  .topbarChatToggle,
+  .topbarNewChat{
+    width:36px!important;
+    min-width:36px!important;
+    max-width:36px!important;
+    height:36px!important;
+    min-height:36px!important;
+    max-height:36px!important;
+    border-radius:10px!important;
+  }
+  .topbarStart .brandMini{
+    width:34px!important;
+    min-width:34px!important;
+    max-width:34px!important;
+    height:34px!important;
+    min-height:34px!important;
+    max-height:34px!important;
+    border-radius:11px!important;
+  }
+}
+
+@media(max-width:430px){
+  .topbarStart{
+    gap:3px!important;
+  }
+  .topbarChatToggle,
+  .topbarNewChat{
+    width:34px!important;
+    min-width:34px!important;
+    max-width:34px!important;
+    height:34px!important;
+    min-height:34px!important;
+    max-height:34px!important;
+    border-radius:10px!important;
+  }
+  .topbarStart .brandMini{
+    width:32px!important;
+    min-width:32px!important;
+    max-width:32px!important;
+    height:32px!important;
+    min-height:32px!important;
+    max-height:32px!important;
+    border-radius:10px!important;
+  }
+
+  /* Individual boxes stay visible; only width/reflow adapts. */
+  .gptComposer .chooseSourcesTrigger,
+  .gptComposer .citationTrigger,
+  .gptComposer .aiModeTrigger,
+  .gptComposer .chooseModelTrigger,
+  .bottomAsk .chooseSourcesTrigger,
+  .bottomAsk .citationTrigger,
+  .bottomAsk .aiModeTrigger,
+  .bottomAsk .chooseModelTrigger{
+    min-height:38px!important;
+    border:1px solid var(--composer-line,var(--line))!important;
+    border-radius:13px!important;
+    background:var(--card)!important;
+  }
+}
+
+/* Undo the generic long-text breaker specifically for fixed compact marks. */
+.topbarStart .brandMini,
+.topbarChatToggle span,
+.topbarNewChat span{
+  overflow-wrap:normal!important;
+  word-break:keep-all!important;
+}
