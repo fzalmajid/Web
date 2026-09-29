@@ -7821,7 +7821,7 @@ body,
   display:flex!important;
   align-items:center!important;
   justify-content:space-between!important;
-  padding:0 16px!important;
+  padding:0 16px 0 7px!important;
   gap:10px!important;
   border-bottom:1px solid var(--line)!important;
   background:color-mix(in srgb,var(--card) 96%,transparent)!important;
@@ -7921,9 +7921,9 @@ body,
   max-width:258px!important;
 }
 
-/* Align the Chat heading with the visible hamburger strokes, not merely its 36px button box. */
+/* Desktop alignment: hamburger stroke and Chat title both start at x=17px. */
 .leftChatPanelTitle{
-  padding-left:16px!important;
+  padding-left:7px!important;
 }
 
 .bigPlus{
