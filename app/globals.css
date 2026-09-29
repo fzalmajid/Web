@@ -7940,3 +7940,61 @@ body,
 }
 
 /* deployment nudge: desktop chat alignment */
+
+
+/* Desktop auth providers — 2026-09-30 */
+.authGoogleButton{
+  width:100%;
+  min-height:42px;
+  margin:16px 0 0;
+  display:grid;
+  grid-template-columns:28px minmax(0,1fr) 28px;
+  align-items:center;
+  gap:8px;
+  padding:8px 12px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:var(--card);
+  color:var(--ink);
+  font-weight:800;
+  text-align:center;
+}
+.authGoogleButton:hover{
+  background:var(--soft);
+}
+.authGoogleMark{
+  width:26px;
+  height:26px;
+  display:grid;
+  place-items:center;
+  border:1px solid var(--line);
+  border-radius:50%;
+  background:var(--card);
+  font-size:.82rem;
+  font-weight:900;
+}
+.authGoogleButton>span:nth-child(2){
+  grid-column:2;
+}
+.authDivider{
+  width:100%;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  align-items:center;
+  gap:10px;
+  margin:14px 0;
+  color:var(--muted);
+}
+.authDivider>span{
+  height:1px;
+  background:var(--line);
+}
+.authDivider small{
+  font-size:.68rem;
+  font-weight:750;
+}
+:root[data-theme="dark"] .authGoogleButton,
+:root[data-theme="dark"] .authGoogleMark{
+  background:var(--card);
+  color:var(--ink);
+}
