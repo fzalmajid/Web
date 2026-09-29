@@ -250,10 +250,22 @@ export async function searchDirectRawKnowledge(
       const raw = String(row.raw_content || row.content || "");
       const printed = detectPrintedPageRange(raw);
       const current = byId.get(String(row.id));
+      const normalized = raw.toLowerCase();
+      const requestedPrintedPage = (() => {
+        const match = /\b(?:halaman|page)\s+(?:cetak\s+)?(\d{1,4})\b/i.exec(question);
+        return match ? Number(match[1]) : null;
+      })();
+      const firstRelevantAt = terms.reduce((best, candidate) => {
+        const at = normalized.indexOf(candidate);
+        return at >= 0 && (best < 0 || at < best) ? at : best;
+      }, -1);
       const score =
-        (raw.toLowerCase().includes(question.toLowerCase().trim()) ? 500000 : 0) +
+        (normalized.includes(question.toLowerCase().trim()) ? 500000 : 0) +
+        (requestedPrintedPage && printed.start && requestedPrintedPage >= printed.start &&
+          requestedPrintedPage <= (printed.end || printed.start) ? 1_000_000 : 0) +
+        (firstRelevantAt >= 0 && firstRelevantAt <= 500 ? 120000 : 0) +
+        (firstRelevantAt >= 0 ? Math.max(0, 12000 - firstRelevantAt) : 0) +
         terms.reduce((total, candidate) => {
-          const normalized = raw.toLowerCase();
           const occurrences = normalized.split(candidate).length - 1;
           return total + (occurrences > 0 ? 25000 + Math.min(occurrences, 8) * 2500 + candidate.length * 25 : 0);
         }, 0);
