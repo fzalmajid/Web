@@ -773,7 +773,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
   useEffect(() => {
     const saved = window.localStorage.getItem("rb-left-chat-sidebar");
-    setChatSidebarOpen(saved === null ? window.innerWidth >= 900 : saved === "1");
+    setChatSidebarOpen(saved === null ? true : saved === "1");
     void refreshSidebarChats();
   }, [user.id]);
 
@@ -796,14 +796,12 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     setChatMenuId(null);
     setActiveSidebarChatId(null);
     setChatRequestVersion((value) => value + 1);
-    if (window.innerWidth < 768) setChatSidebarOpen(false);
   }
 
   function requestStoredChat(chatId: string) {
     setChatMenuId(null);
     setActiveSidebarChatId(chatId);
     setChatRequestVersion((value) => value + 1);
-    if (window.innerWidth < 768) setChatSidebarOpen(false);
   }
 
   async function renameSidebarChat(chat: StoredChat) {
@@ -1139,15 +1137,6 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           </div>
         )}
       </aside>
-
-      {chatSidebarOpen && (
-        <button
-          type="button"
-          className="leftChatMobileScrim"
-          onClick={() => setChatSidebarOpen(false)}
-          aria-label="Tutup sidebar chat"
-        />
-      )}
 
       <main className="pageShell">
         {current && (
