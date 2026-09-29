@@ -2,11 +2,16 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const APP_ORIGIN = "https://web-fzalmajid.vercel.app";
+const ALLOWED_ORIGINS = new Set([
+  APP_ORIGIN,
+  "https://web-sigma-nine-23.vercel.app",
+  "https://web-git-main-fzalmajid.vercel.app",
+]);
 const GOOGLE_CLIENT_ID = "42957287889-qgsdslbqcipbuatleep800hjb8na9s25.apps.googleusercontent.com";
 
 function cors(origin: string | null) {
   return {
-    "Access-Control-Allow-Origin": origin === APP_ORIGIN ? origin : APP_ORIGIN,
+    "Access-Control-Allow-Origin": origin && ALLOWED_ORIGINS.has(origin) ? origin : APP_ORIGIN,
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Content-Type": "application/json",
@@ -31,7 +36,7 @@ Deno.serve(async (req) => {
   const origin = req.headers.get("origin");
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(origin) });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405, origin);
-  if (origin && origin !== APP_ORIGIN) return json({ error: "Origin tidak diizinkan." }, 403, origin);
+  if (origin && !ALLOWED_ORIGINS.has(origin)) return json({ error: "Origin tidak diizinkan." }, 403, origin);
 
   let body: any;
   try { body = await req.json(); } catch {
