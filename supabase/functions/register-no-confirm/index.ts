@@ -2,9 +2,14 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const APP_ORIGIN = "https://web-fzalmajid.vercel.app";
+const ALLOWED_ORIGINS = new Set([
+  APP_ORIGIN,
+  "https://web-sigma-nine-23.vercel.app",
+  "https://web-git-main-fzalmajid.vercel.app",
+]);
 
 function cors(origin: string | null) {
-  const allowed = origin === APP_ORIGIN ? origin : APP_ORIGIN;
+  const allowed = origin && ALLOWED_ORIGINS.has(origin) ? origin : APP_ORIGIN;
   return {
     "Access-Control-Allow-Origin": allowed,
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -31,7 +36,7 @@ Deno.serve(async (req) => {
   const origin = req.headers.get("origin");
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(origin) });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405, origin);
-  if (origin && origin !== APP_ORIGIN) return json({ error: "Origin tidak diizinkan." }, 403, origin);
+  if (origin && !ALLOWED_ORIGINS.has(origin)) return json({ error: "Origin tidak diizinkan." }, 403, origin);
 
   let body: any;
   try {
@@ -77,6 +82,10 @@ Deno.serve(async (req) => {
     sha256("email:" + email),
   ]);
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const staleBefore = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+  // Best-effort bounded housekeeping; signup should not fail only because cleanup fails.
+  await admin.from("auth_signup_rate_limits").delete().lt("created_at", staleBefore);
 
   const [ipWindow, emailWindow] = await Promise.all([
     admin.from("auth_signup_rate_limits")
