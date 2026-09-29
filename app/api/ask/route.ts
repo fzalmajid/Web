@@ -13,7 +13,7 @@ import {
   ExternalAiError,
   type ExternalAiAttachment,
 } from "@/lib/externalAi";
-import { annotateBibliographicWorks, buildKnowledgeContext, diversifyKnowledgeSources, fuseHybridKnowledge, prioritizeQuestionRelevantSources, getScopeKnowledge, getSelectedKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
+import { annotateBibliographicWorks, buildKnowledgeContext, detectPrintedPageRange, diversifyKnowledgeSources, fuseHybridKnowledge, prioritizeQuestionRelevantSources, getScopeKnowledge, getSelectedKnowledge, searchDirectRawKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
 import {
   AI_MODEL_CATALOG,
   modelPlanForSelection,
@@ -656,7 +656,9 @@ function buildPrompt({
     "- Sumber yang hanya menyebut topik secara sepintas tidak perlu dipakai. Lebih baik sedikit sumber yang sangat relevan daripada banyak sumber yang lemah/tidak cocok.",
     "- Jangan mengabaikan handbook/referensi utama hanya karena materi kuliah lain memakai istilah yang lebih mirip dengan pertanyaan.",
     "- Untuk daftar pustaka/sitasi Database, gunakan hanya sumber yang benar-benar dipakai untuk mendukung isi jawaban dan hadir pada konteks Database; jangan mengarang atau mengganti judul sumber.",
-    "- Jika konteks Database memuat label HALAMAN PDF, angka itu adalah nomor halaman file PDF sumber. Untuk pertanyaan halaman/lokasi monografi, gunakan metadata halaman tersebut dan jangan menebak nomor halaman.",
+    "- Jika konteks Database memuat HALAMAN CETAK dan HALAMAN PDF, bedakan keduanya. Untuk pertanyaan halaman cetak, gunakan HALAMAN CETAK; HALAMAN PDF adalah posisi fisik di file dan bisa berbeda.",
+    "- Untuk permintaan kutipan/copy-paste, monografi, nomor halaman, atau klaim yang secara eksplisit harus berasal dari file/referensi Database tertentu: JANGAN mengisi kekosongan dengan pengetahuan internal AI. Jika bukti literal dari sumber itu tidak ada pada konteks Database/RAW, katakan tidak ditemukan pada sumber yang berhasil dibaca.",
+    "- Jangan pernah menyimpulkan sebuah halaman/istilah tidak ada hanya karena embedding tidak mengembalikannya. Context Database sudah melalui lexical/direct RAW fallback; gunakan bukti yang diberikan dan jangan mengarang alasan teknis tentang indeks.",
     "- Jika user meminta memasukkan/menyimpan sesuatu ke Database, jangan pernah mengklaim bahwa penyimpanan sudah dilakukan. Jawab isi pertanyaannya seperlunya; aplikasi akan meminta konfirmasi lewat tombol Simpan ke Database.",
   ];
 
@@ -684,7 +686,7 @@ function buildPrompt({
   }
 
   if (useDatabase && useAi) {
-    rules.push('- Bila fakta penting berasal dari pengetahuan internal model, tandai sebagai "Pengetahuan AI" bila perlu.');
+    rules.push('- Pengetahuan internal AI boleh menambah penjelasan umum hanya jika tidak sedang diminta sebagai kutipan/lokasi/fakta dari sumber Database tertentu. Jangan memakai Pengetahuan AI untuk menebak isi, kutipan, atau halaman sumber yang dipilih user.');
   }
 
   if (artifactFormat) {
@@ -762,6 +764,9 @@ function databaseLookupTerms(question: string) {
     parasetamol: ["paracetamol","acetaminophen","acetaminofen"],
     acetaminophen: ["paracetamol","parasetamol"],
     acetaminofen: ["paracetamol","parasetamol"],
+    dipyridamole: ["dipiridamol","dipyridamol","dipiridamole"],
+    dipyridamol: ["dipiridamol","dipyridamole"],
+    dipiridamol: ["dipyridamole","dipyridamol"],
   };
   return Array.from(new Set(words.flatMap((word) => [word, ...(synonym[word] || [])])));
 }
@@ -799,11 +804,19 @@ function formatDatabaseLookup(question: string, rows: any[]) {
       }
       const startAt = Math.max(0, (at >= 0 ? at : 0) - 135);
       const snippet = raw.slice(startAt, Math.min(raw.length, startAt + 380)).trim();
-      const pageLabel = row.source_page_start
+      const printed = row.printed_page_start
+        ? { start: row.printed_page_start, end: row.printed_page_end || row.printed_page_start }
+        : detectPrintedPageRange(raw);
+      const pdfLabel = row.source_page_start
         ? "Halaman PDF " + row.source_page_start +
           (row.source_page_end && row.source_page_end !== row.source_page_start
             ? "–" + row.source_page_end : "")
         : "Bagian isi";
+      const printedLabel = printed.start
+        ? " · halaman cetak " + printed.start +
+          (printed.end && printed.end !== printed.start ? "–" + printed.end : "")
+        : "";
+      const pageLabel = pdfLabel + printedLabel;
       parts.push("- " + pageLabel +
         (snippet ? " — " + (startAt ? "…" : "") + snippet +
           (startAt + 380 < raw.length ? "…" : "") : ""));
@@ -909,56 +922,93 @@ export async function POST(req: NextRequest) {
       /^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(question.trim());
 
     if (useDatabase && !casualAiQuestion) {
-      // Semantic indexing is an optional ranking layer. A partial/cold index
-      // must never block lexical/RAW retrieval or delay the selected AI model.
+      // Retrieval order for source-bound questions:
+      // direct RAW/exact/fuzzy -> lexical FTS -> E5 semantic -> broad fallback.
+      // E5 is useful for ranking, but it is never allowed to be the only path to a selected file.
       try {
-      const lexical = hasExplicitDatabaseSources
-        ? await searchSelectedKnowledge(
-            supabase,
-            databaseSearchQuery,
-            sourceNodeIds,
-            sourceFileIds,
-            searchLimit
-          )
-        : await searchScopeKnowledge(supabase, databaseSearchQuery, scopeNodeId, searchLimit);
-
-      // Independent embedding worker: no Gemini call or Gemini credits here.
-      // Folder and file filters are rechecked by RLS-protected database SQL.
-      const semantic = await searchSemanticKnowledge(
-        supabase, databaseSearchQuery, scopeNodeId,
-        sourceNodeIds, sourceFileIds, hasExplicitDatabaseSources, searchLimit,
-        body.semanticEmbedding
-      );
-      semanticStatus = semantic.status;
-      semanticModel = semantic.model;
-      data = fuseHybridKnowledge(lexical, semantic.rows, 120, question.trim(), semantic.model || "");
-
-      const broadDatabaseQuestion =
-        /\b(ringkas|rangkum|overview|gambaran|jelaskan materi|apa isi|pelajari semua|seluruh materi)\b/i.test(
-          question.trim()
-        );
-      if (!data.length && broadDatabaseQuestion) {
-        data = hasExplicitDatabaseSources
-          ? await getSelectedKnowledge(
+        const lexicalPromise = hasExplicitDatabaseSources
+          ? searchSelectedKnowledge(
               supabase,
+              databaseSearchQuery,
               sourceNodeIds,
               sourceFileIds,
-              fallbackLimit
+              searchLimit
             )
-          : await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
-      }
-      // First identify the *published work* (edition/year), not just the PDF.
-      // Multiple file chunks/copies of one edition become one bibliography unit.
-      data = await annotateBibliographicWorks(supabase, data);
-      // First relevant excerpt from each bibliographic work, then further pages.
-      data = diversifyKnowledgeSources(
-        prioritizeQuestionRelevantSources(data, question.trim()),
-        contextSourceLimit, 3
-      );
+          : searchScopeKnowledge(supabase, databaseSearchQuery, scopeNodeId, searchLimit);
+
+        const directPromise = hasExplicitDatabaseSources
+          ? searchDirectRawKnowledge(
+              supabase,
+              question.trim(),
+              scopeNodeId,
+              sourceNodeIds,
+              sourceFileIds,
+              Math.min(48, searchLimit)
+            )
+          : Promise.resolve([]);
+
+        const [lexical, direct] = await Promise.all([lexicalPromise, directPromise]);
+        const directIds = new Set(direct.map((row) => row.id));
+        const lexicalWithDirectFirst = [
+          ...direct,
+          ...lexical.filter((row) => !directIds.has(row.id)),
+        ];
+
+        // Independent embedding worker: no Gemini call or Gemini credits here.
+        // Folder and file filters are rechecked by RLS-protected database SQL.
+        const semantic = await searchSemanticKnowledge(
+          supabase, databaseSearchQuery, scopeNodeId,
+          sourceNodeIds, sourceFileIds, hasExplicitDatabaseSources, searchLimit,
+          body.semanticEmbedding
+        );
+        semanticStatus = semantic.status;
+        semanticModel = semantic.model;
+        data = fuseHybridKnowledge(
+          lexicalWithDirectFirst,
+          semantic.rows,
+          120,
+          question.trim(),
+          semantic.model || ""
+        );
+
+        // If the normal index layers found nothing in a broader scope, scan RAW text directly
+        // before concluding that the requested material is absent.
+        if (!data.length && !hasExplicitDatabaseSources) {
+          data = await searchDirectRawKnowledge(
+            supabase,
+            question.trim(),
+            scopeNodeId,
+            sourceNodeIds,
+            sourceFileIds,
+            Math.min(48, searchLimit)
+          );
+        }
+
+        const broadDatabaseQuestion =
+          /\b(ringkas|rangkum|overview|gambaran|jelaskan materi|apa isi|pelajari semua|seluruh materi)\b/i.test(
+            question.trim()
+          );
+        if (!data.length && broadDatabaseQuestion) {
+          data = hasExplicitDatabaseSources
+            ? await getSelectedKnowledge(
+                supabase,
+                sourceNodeIds,
+                sourceFileIds,
+                fallbackLimit
+              )
+            : await getScopeKnowledge(supabase, scopeNodeId, fallbackLimit);
+        }
+        // First identify the *published work* (edition/year), not just the PDF.
+        // Multiple file chunks/copies of one edition become one bibliography unit.
+        data = await annotateBibliographicWorks(supabase, data);
+        // First relevant excerpt from each bibliographic work, then further pages.
+        data = diversifyKnowledgeSources(
+          prioritizeQuestionRelevantSources(data, question.trim()),
+          contextSourceLimit, 3
+        );
       } catch (databaseError: any) {
-        // Fail closed for every model. Previously the catch continued to GPT/
-        // Gemini with an empty Database, spent credits, and invented the false
-        // impression that a partial or unavailable index grounded the answer.
+        // Fail closed for every model. Never spend credits on an answer that claims
+        // to be grounded in a Database source when retrieval itself failed.
         console.warn("[DATABASE_RETRIEVAL_UNAVAILABLE]", {
           code: String(databaseError?.code || "unknown").slice(0, 30),
           stage: "retrieval",
@@ -1108,12 +1158,21 @@ export async function POST(req: NextRequest) {
         const key = String(m.bibliographic_work_id || m.source_file_id || m.id);
         const pageStart = Number(m.source_page_start) || null;
         const pageEnd = Number(m.source_page_end) || pageStart;
+        const rawForPages = String(m.raw_content || m.content || "");
+        const printed = m.printed_page_start
+          ? { start: m.printed_page_start, end: m.printed_page_end || m.printed_page_start }
+          : detectPrintedPageRange(rawForPages);
         const existing = sourceByWork.get(key);
         if (existing) {
           if (pageStart) {
             const range = pageEnd && pageEnd !== pageStart
               ? pageStart + "–" + pageEnd : String(pageStart);
             if (!existing.page_ranges.includes(range)) existing.page_ranges.push(range);
+          }
+          if (printed.start) {
+            const printedRange = printed.end && printed.end !== printed.start
+              ? printed.start + "–" + printed.end : String(printed.start);
+            if (!existing.printed_page_ranges.includes(printedRange)) existing.printed_page_ranges.push(printedRange);
           }
           continue;
         }
@@ -1130,6 +1189,12 @@ export async function POST(req: NextRequest) {
           page_end: pageEnd,
           page_ranges: pageStart ? [
             pageEnd && pageEnd !== pageStart ? pageStart + "–" + pageEnd : String(pageStart)
+          ] : [],
+          printed_page_start: printed.start,
+          printed_page_end: printed.end,
+          printed_page_ranges: printed.start ? [
+            printed.end && printed.end !== printed.start
+              ? printed.start + "–" + printed.end : String(printed.start)
           ] : []
         });
       }
