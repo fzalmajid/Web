@@ -16,6 +16,8 @@ export type KnowledgeSource = {
   bibliographic_work_title?: string;
   bibliographic_edition?: string | null;
   bibliographic_year?: string | null;
+  printed_page_start?: number | null;
+  printed_page_end?: number | null;
 };
 
 type BibliographyHint = {
@@ -137,6 +139,149 @@ export async function annotateBibliographicWorks(
   });
 }
 
+
+const DIRECT_SEARCH_STOPWORDS = new Set([
+  "yang","dan","atau","dari","untuk","dengan","tentang","secara","detail","tolong","saya","aku",
+  "mau","ingin","cari","carikan","temukan","lokasi","dimana","mana","dalam","file","folder",
+  "database","sumber","materi","monografi","monograph","halaman","berapa","page","find","locate",
+  "show","search","copy","paste","sebutkan","cek","lagi","the","and","for","with","from","about"
+]);
+
+function directSearchTerms(question: string): string[] {
+  const base = Array.from(new Set(
+    (question.toLowerCase().match(/[a-z0-9À-ÿ]{4,}/gi) || [])
+      .filter((term) => !DIRECT_SEARCH_STOPWORDS.has(term))
+  ));
+  const synonyms: Record<string, string[]> = {
+    pct: ["paracetamol","parasetamol","acetaminophen","acetaminofen"],
+    paracetamol: ["parasetamol","acetaminophen","acetaminofen"],
+    parasetamol: ["paracetamol","acetaminophen","acetaminofen"],
+    acetaminophen: ["paracetamol","parasetamol","acetaminofen"],
+    acetaminofen: ["paracetamol","parasetamol","acetaminophen"],
+    dipyridamole: ["dipiridamol","dipyridamol","dipiridamole"],
+    dipyridamol: ["dipiridamol","dipyridamole"],
+    dipiridamol: ["dipyridamole","dipyridamol"],
+  };
+  const expanded = new Set<string>();
+  for (const term of base) {
+    expanded.add(term);
+    for (const synonym of synonyms[term] || []) expanded.add(synonym);
+    if (term.length >= 8) {
+      const noFinalE = term.replace(/e$/i, "");
+      const yToI = term.replace(/y/g, "i");
+      const yToINoFinalE = yToI.replace(/e$/i, "");
+      for (const variant of [noFinalE, yToI, yToINoFinalE]) {
+        if (variant.length >= 6) expanded.add(variant);
+      }
+    }
+  }
+  return [...expanded]
+    .filter((term) => /^[a-z0-9À-ÿ_-]+$/i.test(term))
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 8);
+}
+
+export function detectPrintedPageRange(raw: string): { start: number | null; end: number | null } {
+  const pages: number[] = [];
+  const text = String(raw || "");
+  const marker = /\[Halaman\s+\d+\][\s\S]{0,220}?-\s*(\d{1,4})\s*-/gi;
+  let match: RegExpExecArray | null;
+  while ((match = marker.exec(text)) !== null) {
+    const page = Number(match[1]);
+    if (Number.isFinite(page) && page > 0 && page < 5000) pages.push(page);
+  }
+  if (!pages.length) return { start: null, end: null };
+  return { start: Math.min(...pages), end: Math.max(...pages) };
+}
+
+async function resolveSelectedNodeIds(
+  supabase: SupabaseClient,
+  scopeNodeId: string | null,
+  sourceNodeIds: string[]
+): Promise<string[] | null> {
+  const roots = sourceNodeIds.length ? sourceNodeIds : scopeNodeId ? [scopeNodeId] : [];
+  if (!roots.length) return null;
+  const { data, error } = await supabase.from("study_nodes").select("id,parent_id");
+  if (error || !Array.isArray(data)) return roots;
+  const result = [...new Set(roots)];
+  for (let cursor = 0; cursor < result.length; cursor++) {
+    const parent = result[cursor];
+    for (const node of data as any[]) {
+      const id = String(node.id || "");
+      if (node.parent_id === parent && id && !result.includes(id)) result.push(id);
+    }
+  }
+  return result;
+}
+
+/**
+ * Direct RAW fallback for source-bound questions. This deliberately does not depend on
+ * browser E5 readiness. It searches the actual OCR/raw bodies, then scores the returned
+ * chunks by exact phrase/term coverage. It is the final retrieval layer before we ever
+ * tell the model that a selected source does not contain the requested material.
+ */
+export async function searchDirectRawKnowledge(
+  supabase: SupabaseClient,
+  question: string,
+  scopeNodeId: string | null,
+  sourceNodeIds: string[],
+  sourceFileIds: string[],
+  limit = 40
+): Promise<KnowledgeSource[]> {
+  const terms = directSearchTerms(question);
+  if (!terms.length) return [];
+  const nodeIds = await resolveSelectedNodeIds(supabase, scopeNodeId, sourceNodeIds);
+  const byId = new Map<string, KnowledgeSource>();
+
+  async function runTerm(term: string, fileOnly: boolean) {
+    let query = supabase
+      .from("knowledge_entries")
+      .select("id,node_id,title,category,content,raw_content,source_type,source_file_id,source_page_start,source_page_end")
+      .or("raw_content.ilike.%" + term + "%,content.ilike.%" + term + "%,title.ilike.%" + term + "%")
+      .limit(Math.min(80, Math.max(20, limit * 2)));
+
+    if (fileOnly && sourceFileIds.length) query = query.in("source_file_id", sourceFileIds);
+    else if (nodeIds?.length) query = query.in("node_id", nodeIds);
+
+    const { data, error } = await query;
+    if (error || !Array.isArray(data)) return;
+    for (const row of data as any[]) {
+      if (sourceFileIds.length && !fileOnly && !sourceFileIds.includes(String(row.source_file_id || ""))) continue;
+      const raw = String(row.raw_content || row.content || "");
+      const printed = detectPrintedPageRange(raw);
+      const current = byId.get(String(row.id));
+      const score =
+        (raw.toLowerCase().includes(question.toLowerCase().trim()) ? 500000 : 0) +
+        terms.reduce((total, candidate) => {
+          const normalized = raw.toLowerCase();
+          const occurrences = normalized.split(candidate).length - 1;
+          return total + (occurrences > 0 ? 25000 + Math.min(occurrences, 8) * 2500 + candidate.length * 25 : 0);
+        }, 0);
+      if (!current || score > Number(current.score || 0)) {
+        byId.set(String(row.id), {
+          ...(row as KnowledgeSource),
+          raw_content: raw,
+          score,
+          printed_page_start: printed.start,
+          printed_page_end: printed.end,
+        });
+      }
+    }
+  }
+
+  // A selected file is the strongest scope. Search it directly so an unready semantic
+  // model can never cause the app to miss text that is visibly present in that file.
+  for (const term of terms.slice(0, 5)) {
+    if (sourceFileIds.length) await runTerm(term, true);
+    else await runTerm(term, false);
+    if (byId.size >= limit * 2) break;
+  }
+
+  return [...byId.values()]
+    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+    .slice(0, Math.max(1, limit));
+}
+
 async function hydrateRawContent(
   supabase: SupabaseClient,
   rows: KnowledgeSource[]
@@ -171,6 +316,10 @@ async function hydrateRawContent(
       source_type: (hydrated?.sourceType as KnowledgeSource["source_type"]) || row.source_type || null,
       source_page_start: hydrated?.pageStart ?? row.source_page_start ?? null,
       source_page_end: hydrated?.pageEnd ?? row.source_page_end ?? null,
+      ...(() => {
+        const printed = detectPrintedPageRange(hydrated?.raw || row.raw_content || row.content || "");
+        return { printed_page_start: printed.start, printed_page_end: printed.end };
+      })(),
     };
   });
 }
@@ -552,12 +701,21 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000,
     seenSources.add(sourceKey);
     if (!body) break;
 
-    const pageLabel =
+    const printed = row.printed_page_start
+      ? { start: row.printed_page_start, end: row.printed_page_end || row.printed_page_start }
+      : detectPrintedPageRange(raw);
+    const pdfLabel =
       row.source_page_start && row.source_page_end
         ? row.source_page_start === row.source_page_end
           ? ` | HALAMAN PDF ${row.source_page_start}`
           : ` | HALAMAN PDF ${row.source_page_start}-${row.source_page_end}`
         : "";
+    const printedLabel = printed.start
+      ? printed.start === printed.end
+        ? ` | HALAMAN CETAK ${printed.start}`
+        : ` | HALAMAN CETAK ${printed.start}-${printed.end}`
+      : "";
+    const pageLabel = pdfLabel + printedLabel;
     const sourceId = row.source_file_id || row.id;
     const publication = row.bibliographic_work_title || row.title;
     const workId = row.bibliographic_work_id || sourceId;
