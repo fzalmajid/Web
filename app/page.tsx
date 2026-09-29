@@ -1,6 +1,6 @@
 "use client";
 
-// Production UI baseline: Choose Model + AI / Database / Web + Plugin center.
+// Production UI baseline: Choose Model + AI / Reference / Web + Plugin center.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
@@ -6029,7 +6029,7 @@ function StudyPage({
               placeholder='Contoh: "Saya mau fokus mempelajari aspek CPOB 2024 saja." Kosongkan jika ingin mempelajari seluruh materi dari folder terpilih.'
             />
             <small className="muted">
-              Instruksi ini dipakai bersama sumber AI / Database / Web yang dipilih di bar bawah.
+              Instruksi ini dipakai bersama sumber AI / Reference / Web yang dipilih di bar bawah.
             </small>
           </label>
 
@@ -10444,7 +10444,7 @@ function BottomAskBar({
     const ordered: AiSourceKind[] = ["ai", "database", "web"];
     const labels: Record<AiSourceKind, string> = {
       ai: "AI",
-      database: "Database",
+      database: "Reference",
       web: "Web",
     };
     return ordered.filter((item) => value.includes(item)).map((item) => labels[item]).join(" + ");
