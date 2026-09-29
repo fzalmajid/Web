@@ -10204,3 +10204,43 @@ summary{
     height:31px;
   }
 }
+
+
+/* Floating add button: upper-right content position, clear of both rails */
+.bigPlus{
+  top:calc(64px + clamp(16px,2vw,22px))!important;
+  right:clamp(18px,3vw,40px)!important;
+  bottom:auto!important;
+  z-index:26!important;
+  width:56px!important;
+  height:56px!important;
+  font-size:1.85rem!important;
+  box-shadow:0 12px 28px rgba(185,66,104,.26)!important;
+}
+
+@media(max-width:899px){
+  .bigPlus{
+    top:max(
+      74px,
+      calc(env(safe-area-inset-top) + 66px)
+    )!important;
+    right:max(14px,env(safe-area-inset-right))!important;
+    bottom:auto!important;
+    width:52px!important;
+    height:52px!important;
+    font-size:1.72rem!important;
+  }
+}
+
+@media(max-width:430px){
+  .bigPlus{
+    top:max(
+      70px,
+      calc(env(safe-area-inset-top) + 62px)
+    )!important;
+    right:max(12px,env(safe-area-inset-right))!important;
+    width:50px!important;
+    height:50px!important;
+    font-size:1.65rem!important;
+  }
+}
