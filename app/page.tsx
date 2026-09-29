@@ -835,6 +835,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [chatRequestVersion, setChatRequestVersion] = useState(0);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const [sidebarAccountOpen, setSidebarAccountOpen] = useState(false);
+  const loadGenerationRef = useRef(0);
 
   useEffect(() => {
     void loadAll();
@@ -927,6 +928,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }
 
   async function loadAll() {
+    const generation = ++loadGenerationRef.current;
+
     // Fast path: render the explorer from lightweight structure/metadata first.
     // Do not make 4k+ knowledge-entry bodies and multi-megabyte RAW text block folder/file paint.
     const [nodesResult, fileMetaResult, recordingMetaResult] = await Promise.all([
@@ -947,6 +950,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         .eq("user_id", user.id)
         .order("created_at", { ascending: false }),
     ]);
+
+    if (generation !== loadGenerationRef.current) return;
 
     const nextNodes = (nodesResult.data || []) as StudyNode[];
     setNodes(nextNodes);
@@ -1013,6 +1018,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         .eq("user_id", user.id)
         .order("created_at", { ascending: false }),
     ]).then((result) => {
+      if (generation !== loadGenerationRef.current) return;
+
       const manualById = new Map(
         ((result[1].data || []) as KnowledgeEntry[]).map((entry) => [entry.id, entry])
       );
