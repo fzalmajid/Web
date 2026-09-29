@@ -11105,3 +11105,173 @@ summary{
   overflow-wrap:normal!important;
   word-break:keep-all!important;
 }
+
+
+/* Full mobile/desktop parity audit pass — 2026-09-30 */
+/*
+  Preserve information and component identity on phones.
+  Narrow screens reflow; they do not silently remove controls that desktop shows.
+*/
+@media(max-width:767px){
+  :root{
+    --rb-topbar-h:max(96px,calc(env(safe-area-inset-top) + 88px));
+  }
+
+  .topbar{
+    min-height:var(--rb-topbar-h)!important;
+    display:flex!important;
+    flex-wrap:wrap!important;
+    align-content:center!important;
+    justify-content:space-between!important;
+    gap:5px 8px!important;
+    padding:
+      max(7px,env(safe-area-inset-top))
+      max(7px,env(safe-area-inset-right))
+      7px
+      max(7px,env(safe-area-inset-left))!important;
+  }
+
+  /* First row: hamburger + new chat + full RB identity. */
+  .topbarStart{
+    flex:1 1 100%!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+    justify-content:flex-start!important;
+    overflow:visible!important;
+  }
+  .topbarStart .brandButton{
+    width:auto!important;
+    min-width:0!important;
+    max-width:none!important;
+    gap:7px!important;
+  }
+  .topbarStart .brandButton>span:last-child{
+    display:inline!important;
+    min-width:0!important;
+    max-width:min(180px,calc(100vw - 150px))!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+  }
+
+  /* Second row: keep the same desktop controls instead of deleting them. */
+  .headerActions{
+    flex:1 1 100%!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+    display:flex!important;
+    flex-wrap:nowrap!important;
+    align-items:center!important;
+    justify-content:flex-end!important;
+    gap:4px!important;
+    overflow:visible!important;
+  }
+  .headerActions>*{
+    flex:0 1 auto!important;
+    min-width:0!important;
+  }
+  .userPill{
+    display:inline-block!important;
+    max-width:82px!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    font-size:.68rem!important;
+  }
+  .aiCreditPill{
+    display:inline-flex!important;
+    max-width:92px!important;
+    min-height:32px!important;
+    padding:5px 7px!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    font-size:.64rem!important;
+  }
+  .themeTrigger{
+    min-height:32px!important;
+    padding:5px 7px!important;
+    gap:4px!important;
+  }
+  .themeTrigger small{
+    display:inline!important;
+    max-width:54px!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    font-size:.62rem!important;
+  }
+  .headerActions>.ghost{
+    min-height:32px!important;
+    padding:5px 8px!important;
+    font-size:.68rem!important;
+    white-space:nowrap!important;
+  }
+  .themeMenu{
+    top:calc(var(--rb-topbar-h) + 6px)!important;
+  }
+
+  /* Chat history uses the same 258px rail geometry and shadow as desktop.
+     The mobile scrim remains because it is an interaction aid, not a redesign. */
+  .leftChatSidebar.open{
+    width:min(258px,calc(100vw - 16px))!important;
+    max-width:258px!important;
+    padding:10px 10px 12px!important;
+    box-shadow:8px 10px 28px rgba(20,30,27,.06)!important;
+  }
+  .appShell.leftChatSidebarOpen .topbar::after{
+    content:""!important;
+    position:absolute!important;
+    left:0!important;
+    bottom:-1px!important;
+    width:min(258px,calc(100vw - 16px))!important;
+    height:2px!important;
+    background:color-mix(in srgb,var(--card) 97%,var(--soft))!important;
+    pointer-events:none!important;
+  }
+
+  /* Component geometry stays recognizably the same; only dimensions/columns adapt. */
+  .nodeCard{
+    border-radius:22px!important;
+  }
+  .explorerUnifiedCard,
+  .nodeCard.explorerUnifiedCard,
+  .compactExplorerDataCard{
+    border-radius:18px!important;
+  }
+  .backBtn,
+  .pageNav .backBtn{
+    border-radius:13px!important;
+  }
+
+  /* Keep answer/chat surface geometry identical to desktop. */
+  .aiAnswer,
+  .aiAnswer.aiChatRoom{
+    border-radius:20px!important;
+  }
+}
+
+/* Very narrow phones still retain every top-rail control. */
+@media(max-width:350px){
+  .aiCreditPill{
+    display:inline-flex!important;
+    max-width:82px!important;
+  }
+  .userPill{
+    display:inline-block!important;
+    max-width:68px!important;
+  }
+  .themeTrigger{
+    padding-left:6px!important;
+    padding-right:6px!important;
+  }
+  .themeTrigger small{
+    max-width:46px!important;
+  }
+  .headerActions>.ghost{
+    padding-left:6px!important;
+    padding-right:6px!important;
+  }
+}
