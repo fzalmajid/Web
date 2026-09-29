@@ -10244,3 +10244,62 @@ summary{
     font-size:1.65rem!important;
   }
 }
+
+
+/* Final source-toggle fit + upper-right add button */
+.aiSourceKindsInPicker .sourceToggleGroup{
+  width:min(100%,320px)!important;
+  max-width:100%!important;
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  align-items:stretch!important;
+  gap:4px!important;
+}
+.aiSourceKindsInPicker .sourceToggle{
+  width:100%!important;
+  min-width:0!important;
+  max-width:100%!important;
+  padding:6px 8px!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  text-align:center!important;
+}
+.gptComposer .sourceToggleGroup{
+  min-width:0!important;
+}
+.gptComposer .sourceToggle{
+  min-width:0!important;
+  max-width:100%!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+
+/* Keep the floating add action above the content, never behind the AI composer. */
+.bigPlus{
+  top:calc(64px + 18px)!important;
+  right:clamp(18px,3vw,40px)!important;
+  bottom:auto!important;
+  z-index:46!important;
+}
+@media(max-width:899px){
+  .bigPlus{
+    top:max(76px,calc(env(safe-area-inset-top) + 68px))!important;
+    right:max(14px,env(safe-area-inset-right))!important;
+    bottom:auto!important;
+  }
+}
+@media(max-width:430px){
+  .aiSourceKindsInPicker .sourceToggleGroup{
+    width:100%!important;
+  }
+  .aiSourceKindsInPicker .sourceToggle{
+    padding:6px 5px!important;
+    font-size:.64rem!important;
+  }
+  .bigPlus{
+    top:max(72px,calc(env(safe-area-inset-top) + 64px))!important;
+    right:max(12px,env(safe-area-inset-right))!important;
+  }
+}
