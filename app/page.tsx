@@ -976,7 +976,11 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             title={chatSidebarOpen ? "Sembunyikan riwayat chat" : "Tampilkan riwayat chat"}
             aria-expanded={chatSidebarOpen}
           >
-            ☰
+            <span className="topbarHamburgerIcon" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
           </button>
           <button
             type="button"
@@ -985,7 +989,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             title="New Chat"
             aria-label="New Chat"
           >
-            ＋
+            <span className="topbarPlusIcon" aria-hidden="true" />
           </button>
           <button className="brandButton" onClick={() => setCurrentId(null)}>
             <span className="brandMini">RB</span>
