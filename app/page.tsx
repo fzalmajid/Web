@@ -952,28 +952,41 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
     if (generation !== loadGenerationRef.current) return;
 
-    const nextNodes = (nodesResult.data || []) as StudyNode[];
-    setNodes(nextNodes);
-    setFiles(
-      (fileMetaResult.data || []).map((row: any) => ({
-        ...row,
-        raw_text: null,
-        structured_text: null,
-        corrections: [],
-      })) as SourceFile[]
-    );
-    setRecordings(
-      (recordingMetaResult.data || []).map((row: any) => ({
-        ...row,
-        transcript: null,
-        raw_transcript: null,
-        structured_transcript: null,
-        corrections: [],
-      })) as Recording[]
-    );
+    if (nodesResult.error) {
+      console.warn("[EXPLORER_NODES_LOAD_FAILED]", nodesResult.error.code || nodesResult.error.message);
+    } else {
+      const nextNodes = (nodesResult.data || []) as StudyNode[];
+      setNodes(nextNodes);
+      if (currentId && !nextNodes.some((item) => item.id === currentId)) {
+        setCurrentId(null);
+      }
+    }
 
-    if (currentId && !nextNodes.some((item) => item.id === currentId)) {
-      setCurrentId(null);
+    if (fileMetaResult.error) {
+      console.warn("[EXPLORER_FILES_LOAD_FAILED]", fileMetaResult.error.code || fileMetaResult.error.message);
+    } else {
+      setFiles(
+        (fileMetaResult.data || []).map((row: any) => ({
+          ...row,
+          raw_text: null,
+          structured_text: null,
+          corrections: [],
+        })) as SourceFile[]
+      );
+    }
+
+    if (recordingMetaResult.error) {
+      console.warn("[EXPLORER_RECORDINGS_LOAD_FAILED]", recordingMetaResult.error.code || recordingMetaResult.error.message);
+    } else {
+      setRecordings(
+        (recordingMetaResult.data || []).map((row: any) => ({
+          ...row,
+          transcript: null,
+          raw_transcript: null,
+          structured_transcript: null,
+          corrections: [],
+        })) as Recording[]
+      );
     }
 
     // Background hydration must stay lightweight. File/OCR entry bodies can total
@@ -1019,24 +1032,33 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     ]).then((result) => {
       if (generation !== loadGenerationRef.current) return;
 
-      const manualById = new Map(
-        ((result[1].data || []) as KnowledgeEntry[]).map((entry) => [entry.id, entry])
-      );
-      const lightweightEntries = (result[0].data || []).map((entry: any) => {
-        const manual = manualById.get(String(entry.id));
-        if (manual) return manual;
-        return {
-          ...entry,
-          content: "",
-          raw_content: null,
-        } as KnowledgeEntry;
-      });
-      setEntries(lightweightEntries as KnowledgeEntry[]);
-      setFiles((result[2].data || []) as SourceFile[]);
-      setRecordings((result[3].data || []) as Recording[]);
-      setCards((result[4].data || []) as Flashcard[]);
-      setQuizzes((result[5].data || []) as Quiz[]);
-      setTasks((result[6].data || []) as StudyTask[]);
+      if (!result[0].error && !result[1].error) {
+        const manualById = new Map(
+          ((result[1].data || []) as KnowledgeEntry[]).map((entry) => [entry.id, entry])
+        );
+        const lightweightEntries = (result[0].data || []).map((entry: any) => {
+          const manual = manualById.get(String(entry.id));
+          if (manual) return manual;
+          return {
+            ...entry,
+            content: "",
+            raw_content: null,
+          } as KnowledgeEntry;
+        });
+        setEntries(lightweightEntries as KnowledgeEntry[]);
+      } else {
+        console.warn("[EXPLORER_ENTRIES_HYDRATION_FAILED]");
+      }
+
+      if (!result[2].error) setFiles((result[2].data || []) as SourceFile[]);
+      else console.warn("[EXPLORER_FILES_HYDRATION_FAILED]");
+
+      if (!result[3].error) setRecordings((result[3].data || []) as Recording[]);
+      else console.warn("[EXPLORER_RECORDINGS_HYDRATION_FAILED]");
+
+      if (!result[4].error) setCards((result[4].data || []) as Flashcard[]);
+      if (!result[5].error) setQuizzes((result[5].data || []) as Quiz[]);
+      if (!result[6].error) setTasks((result[6].data || []) as StudyTask[]);
     });
   }
 
