@@ -7921,6 +7921,11 @@ body,
   max-width:258px!important;
 }
 
+/* Align the Chat heading with the visible hamburger strokes, not merely its 36px button box. */
+.leftChatPanelTitle{
+  padding-left:16px!important;
+}
+
 .bigPlus{
   top:76px!important;
 }
