@@ -8273,6 +8273,8 @@ function AiDatabaseSourcePicker({
         const status = await indexHfBatch(supabase, {
           maxVectors: 72,
           maxEntries: 8,
+          priorityNodeIds: nodeIds,
+          priorityFileIds: fileIds,
           shouldStop: () => stopVectorRef.current,
           onProgress: setVectorProgress
         });
