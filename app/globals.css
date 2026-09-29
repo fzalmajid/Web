@@ -7821,7 +7821,7 @@ body,
   display:flex!important;
   align-items:center!important;
   justify-content:space-between!important;
-  padding:0 16px 0 7px!important;
+  padding:0 16px 0 10px!important;
   gap:10px!important;
   border-bottom:1px solid var(--line)!important;
   background:color-mix(in srgb,var(--card) 96%,transparent)!important;
@@ -7921,9 +7921,18 @@ body,
   max-width:258px!important;
 }
 
-/* Desktop alignment: hamburger stroke and Chat title both start at x=17px. */
+/* Desktop left axis: account avatar, hamburger glyph, Chat heading and history content all start at x=20px. */
 .leftChatPanelTitle{
-  padding-left:7px!important;
+  padding-left:10px!important;
+}
+.leftChatHistoryMain{
+  padding-left:10px!important;
+}
+.leftChatHistory>small{
+  padding-left:10px!important;
+}
+.leftChatEmpty{
+  padding-left:10px!important;
 }
 
 .bigPlus{
