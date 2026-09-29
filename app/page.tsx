@@ -692,22 +692,52 @@ function Auth() {
   async function continueWithGoogle() {
     setOauthBusy(true);
     setMessage("");
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: AUTH_REDIRECT_URL,
-        queryParams: {
-          prompt: "select_account",
-        },
-      },
-    });
-    if (error) {
-      setMessage(
-        error.message +
-        (error.message.toLowerCase().includes("provider")
-          ? " Aktifkan provider Google di Supabase Auth dan pasang Google OAuth Client ID/Secret."
-          : "")
-      );
+    try {
+      await loadGoogleIdentityScript();
+      const google = (window as any).google;
+      if (!google?.accounts?.oauth2?.initTokenClient) {
+        throw new Error("Google Identity Services tidak tersedia.");
+      }
+
+      const accessToken = await new Promise<string>((resolve, reject) => {
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_OAUTH_CLIENT_ID,
+          scope: "openid email profile",
+          include_granted_scopes: true,
+          callback: (response: any) => {
+            if (response?.error || !response?.access_token) {
+              reject(new Error(response?.error_description || "Login Google tidak diberikan."));
+              return;
+            }
+            resolve(String(response.access_token));
+          },
+          error_callback: () => reject(new Error("Jendela login Google ditutup atau gagal dibuka.")),
+        });
+        client.requestAccessToken({ prompt: "select_account" });
+      });
+
+      const response = await supabase.functions.invoke("auth-google-token", {
+        body: { accessToken },
+      });
+      const tokenHash = String(response.data?.tokenHash || "");
+      const verificationType = String(response.data?.verificationType || "magiclink");
+      if (response.error || response.data?.error || !tokenHash) {
+        throw new Error(
+          String(
+            response.data?.error ||
+            response.error?.message ||
+            "Google berhasil terhubung, tetapi sesi Ruang Belajar tidak dapat dibuat."
+          )
+        );
+      }
+
+      const verified = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: verificationType as any,
+      });
+      if (verified.error) throw verified.error;
+    } catch (error: any) {
+      setMessage(error?.message || "Gagal masuk dengan Google.");
       setOauthBusy(false);
     }
   }
