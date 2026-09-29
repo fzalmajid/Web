@@ -10010,3 +10010,197 @@ summary{
     width:calc(100% - 12px)!important;
   }
 }
+
+
+/* Pistol shell: top rail + attached chat history grip */
+.topbar{
+  min-height:64px;
+  box-sizing:border-box;
+  z-index:100;
+}
+.topbarStart{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.topbarChatToggle,
+.topbarNewChat{
+  flex:0 0 auto;
+  width:38px;
+  height:38px;
+  display:grid;
+  place-items:center;
+  padding:0;
+  border:0;
+  border-radius:10px;
+  background:transparent;
+  color:var(--ink);
+  cursor:pointer;
+  line-height:1;
+}
+.topbarChatToggle{
+  font-size:1.05rem;
+}
+.topbarNewChat{
+  font-size:1.28rem;
+  font-weight:500;
+}
+.topbarChatToggle:hover,
+.topbarNewChat:hover,
+.topbarChatToggle[aria-expanded="true"]{
+  background:var(--soft);
+}
+.topbarStart .brandButton{
+  min-width:0;
+  margin-left:2px;
+}
+.topbarStart .brandMini{
+  flex:0 0 auto;
+}
+
+/* Closed = only the controls in the horizontal top rail remain. */
+.leftChatSidebar.collapsed{
+  display:none!important;
+}
+
+/* Open = vertical history panel attached directly under the top rail. */
+.leftChatSidebar.open{
+  display:flex!important;
+  position:fixed;
+  left:0!important;
+  top:64px!important;
+  bottom:0!important;
+  z-index:90!important;
+  width:258px!important;
+  max-width:258px!important;
+  height:auto!important;
+  padding:10px 10px 12px!important;
+  gap:0!important;
+  border:0!important;
+  border-right:1px solid var(--line)!important;
+  border-radius:0!important;
+  background:color-mix(in srgb,var(--card) 97%,var(--soft))!important;
+  box-shadow:8px 10px 28px rgba(20,30,27,.06)!important;
+  backdrop-filter:none!important;
+  overflow:hidden!important;
+}
+.leftChatPanelTitle{
+  flex:0 0 auto;
+  min-height:42px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:3px 7px 8px;
+  border-bottom:1px solid var(--line);
+}
+.leftChatPanelTitle strong{
+  font-size:.88rem;
+}
+.leftChatPanelTitle small{
+  color:var(--muted);
+  font-size:.58rem;
+  font-weight:900;
+  letter-spacing:.11em;
+}
+.leftChatSidebar.open .leftChatHistory{
+  width:100%;
+  min-height:0;
+  flex:1 1 auto;
+  gap:7px;
+}
+.leftChatSidebar.open .leftChatHistoryList{
+  padding-top:4px;
+}
+
+/* Visually join the horizontal rail and the vertical history rail. */
+.appShell.leftChatSidebarOpen .topbar{
+  box-shadow:0 1px 0 var(--line);
+}
+.appShell.leftChatSidebarOpen .topbarStart{
+  position:relative;
+}
+.appShell.leftChatSidebarOpen .topbarStart::after{
+  content:"";
+  position:absolute;
+  left:calc(-1 * clamp(14px,4vw,42px));
+  right:-10px;
+  bottom:-13px;
+  height:13px;
+  background:color-mix(in srgb,var(--card) 97%,var(--soft));
+  pointer-events:none;
+}
+
+@media(max-width:899px){
+  .topbar{
+    min-height:58px;
+  }
+  .topbarStart{
+    gap:2px;
+  }
+  .topbarChatToggle,
+  .topbarNewChat{
+    width:34px;
+    height:34px;
+    border-radius:9px;
+  }
+  .topbarChatToggle{
+    font-size:1rem;
+  }
+  .topbarNewChat{
+    font-size:1.15rem;
+  }
+  .leftChatSidebar.open{
+    top:max(58px,calc(env(safe-area-inset-top) + 50px))!important;
+    width:min(82vw,300px)!important;
+    max-width:300px!important;
+    box-shadow:14px 12px 36px rgba(20,30,27,.18)!important;
+  }
+  .appShell.leftChatSidebarOpen .topbarStart::after{
+    display:none;
+  }
+}
+
+@media(max-width:767px){
+  .topbar{
+    padding:
+      max(8px,env(safe-area-inset-top))
+      max(8px,env(safe-area-inset-right))
+      8px
+      max(6px,env(safe-area-inset-left))!important;
+  }
+  .topbarStart{
+    flex:0 1 auto;
+    overflow:hidden;
+  }
+  .topbarStart .brandButton{
+    gap:6px;
+  }
+  .topbarStart .brandMini{
+    width:32px;
+    height:32px;
+    border-radius:10px;
+  }
+  .topbarStart .brandButton>span:last-child{
+    max-width:104px;
+  }
+  .headerActions{
+    flex:1 1 auto!important;
+  }
+}
+
+@media(max-width:430px){
+  .topbarChatToggle,
+  .topbarNewChat{
+    width:32px;
+    height:32px;
+  }
+  .topbarStart .brandButton>span:last-child{
+    display:none!important;
+  }
+  .topbarStart .brandMini{
+    width:31px;
+    height:31px;
+  }
+}
