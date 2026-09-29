@@ -9630,21 +9630,46 @@ function BottomAskBar({
     window.addEventListener("pointerup", end, { once: true });
   }
 
-  function scopedLocalEntries() {
+  async function scopedLocalEntries(query: string, limit = 60) {
     const hasExplicit = selectedSourceNodeIds.length > 0 || selectedSourceFileIds.length > 0;
+    const rpc = hasExplicit
+      ? await supabase.rpc("search_knowledge_selected", {
+          search_query: query,
+          result_limit: limit,
+          source_node_ids: selectedSourceNodeIds,
+          source_file_ids: selectedSourceFileIds,
+        })
+      : await supabase.rpc("search_knowledge", {
+          search_query: query,
+          result_limit: limit,
+          scope_node_id: scopeNodeId,
+        });
+
+    if (!rpc.error && Array.isArray(rpc.data) && rpc.data.length) {
+      return (rpc.data as any[]).map((entry) => ({
+        ...entry,
+        raw_content: entry.raw_content || entry.content || "",
+      })) as KnowledgeEntry[];
+    }
+
+    // Manual notes are still fully hydrated in browser state. Keep them as a
+    // zero-network fallback if the indexed RPC is temporarily unavailable.
+    const manual = entries.filter((entry) =>
+      entry.source_type === "manual" && String(entry.raw_content || entry.content || "").trim()
+    );
     if (hasExplicit) {
       const nodeIds = new Set<string>();
       for (const nodeId of selectedSourceNodeIds) {
         for (const id of collectSubtreeIds(nodes, nodeId)) nodeIds.add(id);
       }
       const fileIds = new Set(selectedSourceFileIds);
-      return entries.filter(
+      return manual.filter(
         (item) => nodeIds.has(item.node_id) || (!!item.source_file_id && fileIds.has(item.source_file_id))
       );
     }
-    if (!scopeNodeId) return entries;
+    if (!scopeNodeId) return manual;
     const ids = collectSubtreeIds(nodes, scopeNodeId);
-    return entries.filter((item) => ids.includes(item.node_id));
+    return manual.filter((item) => ids.includes(item.node_id));
   }
 
   function databaseQueryTerms(query: string) {
@@ -9658,6 +9683,9 @@ function BottomAskBar({
       paracetamol:["parasetamol","acetaminophen","acetaminofen"],
       parasetamol:["paracetamol","acetaminophen","acetaminofen"],
       acetaminophen:["paracetamol","parasetamol"],
+      dipyridamole:["dipiridamol","dipyridamol","dipiridamole"],
+      dipyridamol:["dipiridamol","dipyridamole"],
+      dipiridamol:["dipyridamole","dipyridamol"],
       eksipien:["excipient","excipients"],
       excipient:["eksipien","excipients"],
     };
@@ -9734,7 +9762,8 @@ function BottomAskBar({
 
   async function answerLocally(query: string) {
     const words = databaseQueryTerms(query);
-    const ranked = scopedLocalEntries()
+    const localEntries = await scopedLocalEntries(query, 48);
+    const ranked = localEntries
       .map((entry) => ({ entry, score: contentSearchScore(entry, query, words) }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
@@ -9781,7 +9810,8 @@ function BottomAskBar({
 
   async function localAiDatabaseContext(query: string) {
     const words = databaseQueryTerms(query);
-    const ranked = scopedLocalEntries()
+    const localEntries = await scopedLocalEntries(query, 80);
+    const ranked = localEntries
       .map((entry) => ({ entry, score: contentSearchScore(entry, query, words) }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
