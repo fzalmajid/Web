@@ -616,7 +616,7 @@ function Auth() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [resendBusy, setResendBusy] = useState(false);
+  const [oauthBusy, setOauthBusy] = useState(false);
 
   function signupPasswordError(value: string) {
     if (value.length < 6) return "Password minimal 6 karakter.";
@@ -656,42 +656,41 @@ function Auth() {
     const result =
       mode === "login"
         ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({
-            email,
-            password,
-            options: { emailRedirectTo: AUTH_REDIRECT_URL },
-          });
+        : await supabase.auth.signUp({ email, password });
 
-    if (result.error) setMessage(result.error.message);
-    else if (mode === "signup" && !result.data.session) {
-      setMessage("Akun dibuat. Klik link verifikasi di email; akun akan langsung terverifikasi dan kembali ke Ruang Belajar.");
+    if (result.error) {
+      setMessage(result.error.message);
+    } else if (mode === "signup" && !result.data.session) {
+      setMessage(
+        "Pendaftaran diterima, tetapi konfigurasi Supabase masih mewajibkan konfirmasi email. " +
+        "Ruang Belajar tidak memakai flow verifikasi email; nonaktifkan Confirm email pada Auth > Providers > Email."
+      );
     }
 
     setBusy(false);
   }
 
-  async function resendVerification() {
-    const target = email.trim();
-    if (!target) {
-      setMessage("Masukkan email akun yang ingin diverifikasi.");
-      return;
-    }
-
-    setResendBusy(true);
+  async function continueWithGoogle() {
+    setOauthBusy(true);
     setMessage("");
-    const { error } = await supabase.auth.resend({
-      type: "signup",
-      email: target,
-      options: { emailRedirectTo: AUTH_REDIRECT_URL },
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: AUTH_REDIRECT_URL,
+        queryParams: {
+          prompt: "select_account",
+        },
+      },
     });
-    setResendBusy(false);
-
     if (error) {
-      setMessage(error.message);
-      return;
+      setMessage(
+        error.message +
+        (error.message.toLowerCase().includes("provider")
+          ? " Aktifkan provider Google di Supabase Auth dan pasang Google OAuth Client ID/Secret."
+          : "")
+      );
+      setOauthBusy(false);
     }
-
-    setMessage("Email verifikasi baru sudah dikirim. Gunakan email TERBARU; link lama bisa masih mengarah ke localhost.");
   }
 
   return (
@@ -702,10 +701,26 @@ function Auth() {
         <h1>Ruang Belajar</h1>
         <p className="muted">Susun ruang belajar bertingkat, rekam pertemuan, simpan database, lalu tanyakan ke AI.</p>
 
+        <button
+          className="authGoogleButton"
+          type="button"
+          disabled={busy || oauthBusy}
+          onClick={() => void continueWithGoogle()}
+        >
+          <span className="authGoogleMark" aria-hidden="true">G</span>
+          <span>{oauthBusy ? "Menghubungkan Google..." : mode === "login" ? "Masuk dengan Google" : "Daftar dengan Google"}</span>
+        </button>
+
+        <div className="authDivider" aria-hidden="true">
+          <span />
+          <small>atau gunakan email</small>
+          <span />
+        </div>
+
         <form onSubmit={submit} className="stack">
           <label>
             Email
-            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </label>
           <label>
             Password
@@ -718,21 +733,25 @@ function Auth() {
               onChange={(e) => setPassword(e.target.value)}
             />
             {mode === "signup" && (
-              <small className="muted">Minimal 6 karakter. Password yang pernah bocor tidak dapat digunakan.</small>
+              <small className="muted">Minimal 6 karakter. Setelah dibuat, akun seharusnya langsung masuk tanpa verifikasi email.</small>
             )}
           </label>
-          <button className="primary" disabled={busy}>
+          <button className="primary" disabled={busy || oauthBusy}>
             {busy ? "Memproses..." : mode === "login" ? "Masuk" : "Buat akun"}
           </button>
         </form>
 
         {message && <div className="notice">{message}</div>}
 
-        <button className="textBtn" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
+        <button
+          className="textBtn"
+          type="button"
+          onClick={() => {
+            setMessage("");
+            setMode(mode === "login" ? "signup" : "login");
+          }}
+        >
           {mode === "login" ? "Belum punya akun? Daftar" : "Sudah punya akun? Masuk"}
-        </button>
-        <button className="textBtn" type="button" disabled={resendBusy} onClick={resendVerification}>
-          {resendBusy ? "Mengirim..." : "Kirim ulang email verifikasi"}
         </button>
       </section>
     </main>
