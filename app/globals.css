@@ -9755,3 +9755,258 @@ summary{
 :root[data-theme="dark"] .modelRecoveryChoices button{
   background:var(--card);
 }
+
+
+/* Unified desktop/mobile shell: same UI, responsive sizing only */
+.leftChatSidebar.collapsed{
+  left:8px;
+  top:72px;
+  bottom:auto;
+  width:auto;
+  max-width:none;
+  min-width:0;
+  height:auto;
+  min-height:0;
+  flex-direction:row;
+  align-items:center;
+  gap:4px;
+  padding:4px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:color-mix(in srgb,var(--card) 94%,transparent);
+  box-shadow:0 8px 24px rgba(20,30,27,.10);
+  backdrop-filter:blur(12px);
+  overflow:visible;
+}
+.leftChatSidebar.collapsed .leftChatSidebarTop{
+  min-height:0;
+  justify-content:flex-start;
+}
+.leftChatSidebar.collapsed .leftChatSidebarToggle,
+.leftChatSidebar.collapsed .leftChatNewButton{
+  width:40px;
+  min-width:40px;
+  height:40px;
+  min-height:40px;
+  margin:0;
+  padding:0;
+  align-self:auto;
+  justify-content:center;
+  border-radius:11px;
+}
+.leftChatSidebar.open{
+  left:0;
+  top:64px;
+  bottom:0;
+  width:258px;
+  max-width:none;
+  height:auto;
+  flex-direction:column;
+  align-items:stretch;
+  gap:10px;
+  padding:12px 10px;
+  border:0;
+  border-right:1px solid var(--line);
+  border-radius:0;
+  background:color-mix(in srgb,var(--card) 97%,var(--soft));
+  box-shadow:8px 0 28px rgba(20,30,27,.05);
+  backdrop-filter:none;
+  overflow:hidden;
+}
+
+@media(max-width:899px){
+  .leftChatSidebar.collapsed{
+    left:max(6px,env(safe-area-inset-left));
+    top:max(64px,calc(env(safe-area-inset-top) + 56px));
+    width:auto;
+    max-width:none;
+    height:auto;
+    padding:4px;
+    flex-direction:row;
+    box-shadow:0 8px 22px rgba(20,30,27,.12);
+  }
+  .leftChatSidebar.collapsed .leftChatSidebarToggle,
+  .leftChatSidebar.collapsed .leftChatNewButton{
+    width:38px;
+    min-width:38px;
+    height:38px;
+    min-height:38px;
+  }
+  .leftChatSidebar.open{
+    left:0;
+    top:max(58px,calc(env(safe-area-inset-top) + 50px));
+    bottom:0;
+    width:min(82vw,300px);
+    max-width:300px;
+    padding:12px 10px;
+    border-radius:0;
+    box-shadow:16px 0 40px rgba(20,30,27,.18);
+  }
+  .leftChatMobileScrim{
+    inset:max(58px,calc(env(safe-area-inset-top) + 50px)) 0 0 0;
+  }
+}
+
+@media(max-width:767px){
+  /* Header keeps the desktop structure; only spacing and control sizes shrink. */
+  .topbar{
+    display:flex!important;
+    grid-template-columns:none!important;
+    justify-content:space-between!important;
+    align-items:center!important;
+    gap:8px!important;
+    min-height:58px;
+  }
+  .headerActions{
+    flex:1 1 auto;
+    min-width:0;
+    justify-content:flex-end;
+  }
+
+  /* The AI composer is the same desktop component, simply scaled to the viewport. */
+  .gptComposer.bottomAsk{
+    left:50%!important;
+    right:auto!important;
+    transform:translateX(-50%)!important;
+    bottom:max(var(--rb-composer-bottom,16px),env(safe-area-inset-bottom))!important;
+    width:min(920px,calc(100% - 16px))!important;
+    max-width:920px!important;
+    max-height:min(52dvh,430px)!important;
+    overflow:visible!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) 46px!important;
+    gap:6px 8px!important;
+    padding:5px 8px calc(8px + env(safe-area-inset-bottom))!important;
+    border-radius:22px!important;
+  }
+  .composerDragHandle{
+    display:grid!important;
+    place-items:center;
+  }
+  .askTopRow{
+    display:flex!important;
+    grid-template-columns:none!important;
+    align-items:center!important;
+    justify-content:flex-end!important;
+    gap:6px!important;
+    min-width:0;
+    padding:0 3px!important;
+  }
+  .askTopControls{
+    width:100%!important;
+    min-width:0!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:flex-end!important;
+    flex-wrap:nowrap!important;
+    gap:5px!important;
+    overflow-x:auto;
+    overflow-y:visible;
+    scrollbar-width:none;
+  }
+  .askTopControls::-webkit-scrollbar{
+    display:none;
+  }
+  .askTopRow .askScope{
+    width:auto!important;
+    min-width:58px;
+    max-width:28vw!important;
+    flex:1 1 auto;
+    padding:0!important;
+    font-size:.66rem!important;
+  }
+  .chooseSourcesTrigger{
+    min-width:104px!important;
+    max-width:124px!important;
+    min-height:36px;
+    padding:4px 7px!important;
+  }
+  .aiModeSelect.compact .chooseModelTrigger{
+    min-width:108px!important;
+    max-width:126px!important;
+    padding:4px 7px!important;
+  }
+
+  .askInputRow{
+    display:grid!important;
+    grid-template-columns:36px 38px minmax(0,1fr) 42px!important;
+    align-items:end!important;
+    gap:5px!important;
+  }
+  .gptComposer .askAttach{
+    width:36px!important;
+    height:36px!important;
+  }
+  .gptComposer .askMic{
+    width:38px!important;
+    height:38px!important;
+  }
+  .gptComposer .askInputRow textarea{
+    min-width:0!important;
+    min-height:42px!important;
+    max-height:118px!important;
+    padding:10px 11px!important;
+    border-radius:14px!important;
+  }
+  .gptComposer .askInputRow .sendAsk{
+    width:42px!important;
+    height:42px!important;
+  }
+
+  /* Chat room follows the measured composer height, matching desktop behavior. */
+  .aiAnswer.aiChatRoom{
+    left:50%!important;
+    right:auto!important;
+    top:auto!important;
+    bottom:var(--rb-ai-answer-bottom,150px)!important;
+    transform:translateX(-50%)!important;
+    width:min(920px,calc(100% - 16px))!important;
+    max-width:920px!important;
+    max-height:min(68dvh,760px)!important;
+    border-radius:20px!important;
+  }
+  .aiChatMessages{
+    padding:12px!important;
+    gap:12px!important;
+  }
+  .aiChatMessage{
+    max-width:min(86%,760px)!important;
+  }
+  .aiAnswerHead{
+    padding:11px 13px!important;
+  }
+}
+
+@media(max-width:420px){
+  .leftChatSidebar.collapsed{
+    gap:3px;
+    padding:3px;
+    border-radius:13px;
+  }
+  .leftChatSidebar.collapsed .leftChatSidebarToggle,
+  .leftChatSidebar.collapsed .leftChatNewButton{
+    width:36px;
+    min-width:36px;
+    height:36px;
+    min-height:36px;
+  }
+  .gptComposer.bottomAsk{
+    width:calc(100% - 12px)!important;
+    padding-left:6px!important;
+    padding-right:6px!important;
+  }
+  .askTopRow .askScope{
+    max-width:24vw!important;
+  }
+  .chooseSourcesTrigger{
+    min-width:96px!important;
+    max-width:112px!important;
+  }
+  .aiModeSelect.compact .chooseModelTrigger{
+    min-width:100px!important;
+    max-width:116px!important;
+  }
+  .aiAnswer.aiChatRoom{
+    width:calc(100% - 12px)!important;
+  }
+}
