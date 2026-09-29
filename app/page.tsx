@@ -759,6 +759,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [activeSidebarChatId, setActiveSidebarChatId] = useState<string | null>(null);
   const [chatRequestVersion, setChatRequestVersion] = useState(0);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
+  const [sidebarAccountOpen, setSidebarAccountOpen] = useState(false);
 
   useEffect(() => {
     void loadAll();
@@ -971,7 +972,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           <button
             type="button"
             className="topbarChatToggle"
-            onClick={() => setChatSidebarOpen((value) => !value)}
+            onClick={() => {
+              setSidebarAccountOpen(false);
+              setChatSidebarOpen((value) => !value);
+            }}
             aria-label={chatSidebarOpen ? "Sembunyikan riwayat chat" : "Tampilkan riwayat chat"}
             title={chatSidebarOpen ? "Sembunyikan riwayat chat" : "Tampilkan riwayat chat"}
             aria-expanded={chatSidebarOpen}
@@ -991,17 +995,16 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           >
             <span className="topbarPlusIcon" aria-hidden="true" />
           </button>
-          <button className="brandButton" onClick={() => setCurrentId(null)}>
-            <span className="brandMini">RB</span>
-            <span>Ruang Belajar</span>
-          </button>
         </div>
-        <div className="headerActions">
-          <AiCreditBadge />
-          <ThemePicker value={theme} onChange={onThemeChange} />
-          <span className="userPill">{user.email}</span>
-          <button className="ghost" onClick={() => supabase.auth.signOut()}>Keluar</button>
-        </div>
+        <button
+          type="button"
+          className="brandButton topbarBrandButton"
+          onClick={() => setCurrentId(null)}
+          aria-label="Ruang Belajar"
+          title="Ruang Belajar"
+        >
+          <span className="brandMini">RB</span>
+        </button>
       </header>
 
       <aside
@@ -1069,6 +1072,70 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                 <span className="leftChatEmpty">Belum ada chat.</span>
               )}
             </div>
+          </div>
+        )}
+
+        {chatSidebarOpen && (
+          <div className="leftChatAccountArea">
+            {sidebarAccountOpen && (
+              <div className="leftChatAccountMenu" role="menu">
+                <div className="leftChatAccountIdentity">
+                  <span className="leftChatAccountAvatar" aria-hidden="true">
+                    {(user.email || "A").slice(0, 1).toUpperCase()}
+                  </span>
+                  <span>
+                    <strong>{user.email?.split("@")[0] || "Akun"}</strong>
+                    <small>{user.email}</small>
+                  </span>
+                </div>
+
+                <div className="leftChatAccountUsage">
+                  <small>PEMAKAIAN AI</small>
+                  <AiCreditBadge />
+                </div>
+
+                <button
+                  type="button"
+                  className="leftChatAccountAction"
+                  onClick={() => {
+                    setSidebarAccountOpen(false);
+                    setSettingsOpen(true);
+                  }}
+                >
+                  <span>Plugin &amp; AI</span>
+                  <b aria-hidden="true">›</b>
+                </button>
+
+                <div className="leftChatThemeSetting">
+                  <span>Tema</span>
+                  <ThemePicker value={theme} onChange={onThemeChange} />
+                </div>
+
+                <button
+                  type="button"
+                  className="leftChatAccountAction leftChatSignOut"
+                  onClick={() => supabase.auth.signOut()}
+                >
+                  Keluar
+                </button>
+              </div>
+            )}
+
+            <button
+              type="button"
+              className={sidebarAccountOpen ? "leftChatAccountButton active" : "leftChatAccountButton"}
+              onClick={() => setSidebarAccountOpen((value) => !value)}
+              aria-expanded={sidebarAccountOpen}
+            >
+              <span className="leftChatAccountAvatar" aria-hidden="true">
+                {(user.email || "A").slice(0, 1).toUpperCase()}
+              </span>
+              <span className="leftChatAccountCopy">
+                <strong>Akun</strong>
+                <small>{user.email}</small>
+              </span>
+              <span className="leftChatAccountChevron" aria-hidden="true" />
+            </button>
           </div>
         )}
       </aside>
