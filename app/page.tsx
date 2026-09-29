@@ -617,6 +617,18 @@ function Auth() {
   const [busy, setBusy] = useState(false);
   const [oauthBusy, setOauthBusy] = useState(false);
 
+  async function edgeInvokeMessage(error: any, data: any, fallback: string) {
+    if (data?.error) return String(data.error);
+    const context = error?.context;
+    if (context && typeof context.json === "function") {
+      try {
+        const payload = await context.json();
+        if (payload?.error) return String(payload.error);
+      } catch {}
+    }
+    return String(error?.message || fallback);
+  }
+
   function signupPasswordError(value: string) {
     if (value.length < 6) return "Password minimal 6 karakter.";
     return "";
@@ -664,13 +676,11 @@ function Auth() {
     });
 
     if (registration.error || registration.data?.error) {
-      setMessage(
-        String(
-          registration.data?.error ||
-          registration.error?.message ||
-          "Gagal membuat akun."
-        )
-      );
+      setMessage(await edgeInvokeMessage(
+        registration.error,
+        registration.data,
+        "Gagal membuat akun."
+      ));
       setBusy(false);
       return;
     }
@@ -721,13 +731,11 @@ function Auth() {
       const tokenHash = String(response.data?.tokenHash || "");
       const verificationType = String(response.data?.verificationType || "magiclink");
       if (response.error || response.data?.error || !tokenHash) {
-        throw new Error(
-          String(
-            response.data?.error ||
-            response.error?.message ||
-            "Google berhasil terhubung, tetapi sesi Ruang Belajar tidak dapat dibuat."
-          )
-        );
+        throw new Error(await edgeInvokeMessage(
+          response.error,
+          response.data,
+          "Google berhasil terhubung, tetapi sesi Ruang Belajar tidak dapat dibuat."
+        ));
       }
 
       const verified = await supabase.auth.verifyOtp({
