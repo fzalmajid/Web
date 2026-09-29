@@ -712,6 +712,13 @@ function buildPrompt({
 function expandPharmacyQuery(question: string) {
   let expanded = question;
 
+  // Cross-language/pharmacopoeial spelling variants must survive even when
+  // browser E5 is cold. This broadens both FTS and semantic query text.
+  expanded = expanded
+    .replace(/\bdipyridamole\b/gi, "dipyridamole dipiridamol dipyridamol")
+    .replace(/\bdipyridamol\b/gi, "dipyridamol dipiridamol dipyridamole")
+    .replace(/\bdipiridamol\b/gi, "dipiridamol dipyridamole dipyridamol");
+
   // "PCT" is contextual: expand only when the surrounding request is clearly
   // about paracetamol/medicine.
   if (
