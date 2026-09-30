@@ -9033,3 +9033,39 @@ body,
     border-radius:11px!important;
   }
 }
+
+
+/* FRIENDS MODAL VIEWPORT — never collide with the fixed top bar */
+.friendCenterBackdrop{
+  align-items:flex-start!important;
+  justify-content:center!important;
+  padding:84px 16px 18px!important;
+  overflow:hidden!important;
+}
+.friendCenterSheet{
+  width:min(620px,calc(100vw - 32px))!important;
+  max-height:calc(100dvh - 102px)!important;
+  margin:0 auto!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+.friendCenterSheet>.sheetHead{
+  position:sticky;
+  top:0;
+  z-index:6;
+  margin:-24px -24px 14px;
+  padding:24px 24px 12px;
+  background:var(--card);
+  border-bottom:1px solid var(--line);
+}
+
+@media (max-width:760px){
+  .friendCenterBackdrop{
+    padding:76px 10px 12px!important;
+  }
+  .friendCenterSheet{
+    width:100%!important;
+    max-height:calc(100dvh - 88px)!important;
+  }
+}
