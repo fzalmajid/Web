@@ -197,7 +197,7 @@ export async function annotateBibliographicWorks(
       bibliographic_pages: metadata.pages || null,
       bibliographic_doi: metadata.doi || null,
       bibliographic_isbn: metadata.isbn || null,
-      bibliographic_url: metadata.url || hint.file_name && null,
+      bibliographic_url: metadata.url || null,
       bibliographic_metadata_status: stored?.status || "unreviewed",
     };
   });
