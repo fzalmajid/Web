@@ -9800,3 +9800,142 @@ body,
     padding-right:0;
   }
 }
+
+
+/* FINAL CARD SCALE — profile room card is the single source of truth */
+:root{
+  --rb-room-card-h:112px;
+  --rb-room-card-radius:18px;
+  --rb-room-card-pad:18px;
+  --rb-room-card-icon:48px;
+  --rb-room-card-gap:14px;
+}
+
+.socialRoomCard,
+.folderPage .nodeCard.explorerUnifiedCard{
+  height:var(--rb-room-card-h)!important;
+  min-height:var(--rb-room-card-h)!important;
+  max-height:var(--rb-room-card-h)!important;
+  border-radius:var(--rb-room-card-radius)!important;
+  box-sizing:border-box!important;
+  overflow:visible!important;
+}
+
+.socialRoomOpen,
+.folderPage .nodeCard.explorerUnifiedCard .nodeOpen{
+  width:100%!important;
+  height:100%!important;
+  min-height:0!important;
+  display:grid!important;
+  grid-template-columns:var(--rb-room-card-icon) minmax(0,1fr)!important;
+  align-items:center!important;
+  gap:var(--rb-room-card-gap)!important;
+  padding:var(--rb-room-card-pad) 46px var(--rb-room-card-pad) var(--rb-room-card-pad)!important;
+  border-radius:inherit!important;
+  box-sizing:border-box!important;
+}
+
+.socialRoomIcon,
+.folderPage .nodeCard.explorerUnifiedCard .nodeIcon{
+  width:var(--rb-room-card-icon)!important;
+  height:var(--rb-room-card-icon)!important;
+  min-width:var(--rb-room-card-icon)!important;
+  min-height:var(--rb-room-card-icon)!important;
+  border-radius:14px!important;
+  font-size:1.45rem!important;
+  display:grid!important;
+  place-items:center!important;
+}
+
+.socialRoomCopy,
+.folderPage .nodeCard.explorerUnifiedCard .nodeOpen>div{
+  min-width:0!important;
+  display:grid!important;
+  gap:4px!important;
+}
+
+.socialRoomCard small,
+.folderPage .nodeCard.explorerUnifiedCard .nodeOpen small{
+  margin:0!important;
+  font-size:.62rem!important;
+  font-weight:850!important;
+  line-height:1.15!important;
+  text-transform:uppercase!important;
+  letter-spacing:.06em!important;
+}
+
+.socialRoomCard strong,
+.folderPage .nodeCard.explorerUnifiedCard .nodeOpen h3{
+  margin:0!important;
+  min-width:0!important;
+  font-size:.88rem!important;
+  line-height:1.25!important;
+  font-weight:850!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+  display:block!important;
+}
+
+.socialRoomDots,
+.folderPage .nodeCard.explorerUnifiedCard .nodeTools{
+  top:8px!important;
+  right:8px!important;
+  bottom:auto!important;
+}
+.folderPage .nodeCard.explorerUnifiedCard .nodeTools button{
+  min-width:30px!important;
+  min-height:30px!important;
+  padding:2px 7px!important;
+  border-radius:9px!important;
+}
+
+/* Empty photo control: neutral gray, not black. */
+.avatarCropViewport.emptyPhoto{
+  background:#e5e8e7!important;
+  color:#66706c!important;
+  border:1px solid #cfd5d2!important;
+  cursor:pointer!important;
+}
+.avatarCropViewport.emptyPhoto:hover{
+  background:#dde2df!important;
+}
+.avatarCropEmptyState{
+  position:absolute;
+  inset:0;
+  display:grid;
+  place-items:center;
+  pointer-events:none;
+}
+.avatarCropEmptyState small{
+  font-size:.82rem;
+  font-weight:850;
+  color:#66706c;
+}
+.avatarZoomControl.disabled{
+  opacity:.48;
+}
+
+@media (max-width:760px){
+  :root{
+    --rb-room-card-h:88px;
+    --rb-room-card-pad:14px;
+    --rb-room-card-icon:42px;
+    --rb-room-card-gap:12px;
+  }
+  .socialRoomCard,
+  .folderPage .nodeCard.explorerUnifiedCard{
+    height:var(--rb-room-card-h)!important;
+    min-height:var(--rb-room-card-h)!important;
+    max-height:var(--rb-room-card-h)!important;
+  }
+  .socialRoomOpen,
+  .folderPage .nodeCard.explorerUnifiedCard .nodeOpen{
+    padding-right:44px!important;
+  }
+  .socialRoomIcon,
+  .folderPage .nodeCard.explorerUnifiedCard .nodeIcon{
+    border-radius:12px!important;
+    font-size:1.25rem!important;
+  }
+}
