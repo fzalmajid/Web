@@ -3847,8 +3847,8 @@ function AddSheet({
       <section className="addSheet explorerAddSheet" onMouseDown={(e) => e.stopPropagation()}>
         <div className="sheetHead">
           <div>
-            <p className="eyebrow">TAMBAH</p>
-            <h2>{parent ? "Tambahkan ke " + parent.title : "Buat dari +"}</h2>
+            <p className="eyebrow">UPLOAD</p>
+            <h2>{parent ? "Upload ke " + parent.title : "Upload ke Ruang Belajar"}</h2>
           </div>
           <button className="closeBtn" onClick={onClose}>×</button>
         </div>
@@ -9527,7 +9527,7 @@ function CustomizeSheet({
       <section className="addSheet customizeSheet" onMouseDown={(e) => e.stopPropagation()}>
         <div className="sheetHead">
           <div>
-            <p className="eyebrow">CUSTOMIZE</p>
+            <p className="eyebrow">TAMPILAN</p>
             <h2>Sesuaikan tampilan</h2>
           </div>
           <button className="closeBtn" onClick={onClose}>×</button>
