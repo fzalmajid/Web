@@ -914,6 +914,10 @@ export function FriendCenter({
   const [actionBusy, setActionBusy] = useState("");
   const [autoAccept, setAutoAccept] = useState(Boolean(ownProfile?.auto_accept_friends));
 
+  useEffect(() => {
+    setAutoAccept(Boolean(ownProfile?.auto_accept_friends));
+  }, [ownProfile?.auto_accept_friends]);
+
   async function refreshConnections() {
     const { data, error } = await supabase
       .from("friend_connections")
