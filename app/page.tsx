@@ -5794,7 +5794,7 @@ function DatabaseAudioRecorder({
 }: {
   session: Session;
   user: User;
-  node: StudyNode;
+  node: StudyNode | null;
   onChange: () => void;
 }) {
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -5953,7 +5953,8 @@ function DatabaseAudioRecorder({
     const mimeType = normalizeAudioMime(blob.type || "audio/webm");
     const subtype = mimeType.split("/")[1]?.split(";")[0] || "webm";
     const ext = subtype === "mp4" || subtype === "m4a" ? "m4a" : subtype;
-    const path = user.id + "/database/" + node.id + "/" + crypto.randomUUID() + "." + ext;
+    const nodeId = node?.id || null;
+    const path = user.id + "/database/" + (nodeId || "home") + "/" + crypto.randomUUID() + "." + ext;
     const title = "Rekaman - " + new Date().toLocaleString("id-ID");
     const duration = Math.max(1, Math.round((Date.now() - startedRef.current) / 1000));
 
@@ -5968,7 +5969,7 @@ function DatabaseAudioRecorder({
       .from("recordings")
       .insert({
         user_id: user.id,
-        node_id: node.id,
+        node_id: nodeId,
         title,
         file_path: path,
         mime_type: mimeType,
@@ -5997,7 +5998,7 @@ function DatabaseAudioRecorder({
         filePath: path,
         mimeType,
         purpose: "recording",
-        contextNodeId: node.id,
+        contextNodeId: nodeId,
         browserTranscript: browserDraft,
         aiMode: legacyModeForSelection(transcriptionSelection),
       }),
@@ -6013,7 +6014,7 @@ function DatabaseAudioRecorder({
         .from("knowledge_entries")
         .insert({
           user_id: user.id,
-          node_id: node.id,
+          node_id: nodeId,
           title,
           category: "Rekaman audio",
           content: raw,
@@ -6042,8 +6043,8 @@ function DatabaseAudioRecorder({
     transcriptRef.current = "";
     setStatus(
       raw
-        ? "Rekaman + transkrip mentah sudah masuk folder. Belum dirapikan atau dikoreksi."
-        : "Audio sudah masuk folder. Transkrip belum tersedia; audio tetap bisa didengar ulang."
+        ? "Rekaman + transkrip mentah sudah masuk ke lokasi ini. Belum dirapikan atau dikoreksi."
+        : "Audio sudah masuk ke lokasi ini. Transkrip belum tersedia; audio tetap bisa didengar ulang."
     );
     onChange();
   }
