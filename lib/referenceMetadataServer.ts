@@ -97,6 +97,89 @@ export async function lookupMendeleyCatalog(metadata: ReferenceMetadata) {
   };
 }
 
+
+function mapCrossrefItem(item: any): ReferenceMetadata {
+  const authors = Array.isArray(item?.author)
+    ? item.author.map((author: any) =>
+        [author?.given, author?.family].filter(Boolean).join(" ").trim()
+      ).filter(Boolean)
+    : [];
+  const issued = item?.issued?.["date-parts"]?.[0]?.[0] ||
+    item?.published?.["date-parts"]?.[0]?.[0] ||
+    item?.created?.["date-parts"]?.[0]?.[0] || null;
+  const title = Array.isArray(item?.title) ? item.title[0] : item?.title;
+  const container = Array.isArray(item?.["container-title"]) ? item["container-title"][0] : item?.["container-title"];
+  const isbn = Array.isArray(item?.ISBN) ? item.ISBN[0] : null;
+  const type = item?.type === "journal-article" ? "journal_article" :
+    item?.type === "book-chapter" ? "chapter" :
+    /book|monograph/i.test(String(item?.type || "")) ? "book" : "other";
+  const metadata: ReferenceMetadata = {
+    title: title || null,
+    authors,
+    year: Number(issued) || null,
+    publisher: item?.publisher || null,
+    type,
+    container_title: container || null,
+    volume: item?.volume || null,
+    issue: item?.issue || null,
+    pages: item?.page || null,
+    doi: item?.DOI || null,
+    isbn: isbn || null,
+    url: item?.URL || null,
+    provenance: {},
+  };
+  for (const key of ["title","authors","year","publisher","type","container_title","volume","issue","pages","doi","isbn","url"]) {
+    const value = (metadata as any)[key];
+    if (Array.isArray(value) ? value.length : value) {
+      (metadata.provenance as any)[key] = {
+        source: "crossref",
+        confidence: key === "doi" || key === "isbn" ? 0.99 : 0.93,
+      };
+    }
+  }
+  return metadata;
+}
+
+async function lookupCrossref(metadata: ReferenceMetadata) {
+  if (!metadata.title || metadata.type === "lecture_slides" || metadata.type === "report" || metadata.type === "webpage") return null;
+  try {
+    if (metadata.doi) {
+      const doi = metadata.doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "");
+      const response = await fetch("https://api.crossref.org/works/" + encodeURIComponent(doi), {
+        headers: { "User-Agent": "RuangBelajar/1.0 (metadata validation)" },
+        cache: "no-store",
+      });
+      if (!response.ok) return null;
+      const payload = await response.json().catch(() => null) as any;
+      const item = payload?.message;
+      return item ? { metadata: mapCrossrefItem(item), similarity: 1 } : null;
+    }
+    if (!["journal_article","chapter","book"].includes(String(metadata.type || ""))) return null;
+    const url = new URL("https://api.crossref.org/works");
+    url.searchParams.set("query.bibliographic", metadata.title);
+    url.searchParams.set("rows", "5");
+    url.searchParams.set("select", "DOI,title,author,issued,published,created,publisher,type,container-title,volume,issue,page,ISBN,URL");
+    const response = await fetch(url, {
+      headers: { "User-Agent": "RuangBelajar/1.0 (metadata validation)" },
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const payload = await response.json().catch(() => null) as any;
+    const items = payload?.message?.items;
+    if (!Array.isArray(items) || !items.length) return null;
+    const ranked = items
+      .map((item: any) => ({
+        item,
+        similarity: titleSimilarity(metadata.title || "", String(Array.isArray(item?.title) ? item.title[0] : item?.title || "")),
+      }))
+      .sort((a: any,b: any) => b.similarity - a.similarity);
+    if (!ranked[0] || ranked[0].similarity < 0.86) return null;
+    return { metadata: mapCrossrefItem(ranked[0].item), similarity: ranked[0].similarity };
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveReferenceMetadata(input: {
   fileName: string;
   mimeType?: string | null;
@@ -118,6 +201,11 @@ export async function resolveReferenceMetadata(input: {
     metadata = mergeReferenceMetadata(metadata, mendeley.metadata, "mendeley", 0.78);
   }
 
+  const crossref = mendeley ? null : await lookupCrossref(metadata);
+  if (crossref) {
+    metadata = mergeReferenceMetadata(metadata, crossref.metadata, "crossref", 0.86);
+  }
+
   const confidenceValues = Object.values(metadata.provenance || {}).map((item) => Number(item.confidence) || 0);
   const confidence = confidenceValues.length
     ? confidenceValues.reduce((sum,n) => sum+n,0) / confidenceValues.length
@@ -127,5 +215,7 @@ export async function resolveReferenceMetadata(input: {
     confidence,
     mendeleyMatched: Boolean(mendeley),
     mendeleySimilarity: mendeley?.similarity || null,
+    crossrefMatched: Boolean(crossref),
+    crossrefSimilarity: crossref?.similarity || null,
   };
 }
