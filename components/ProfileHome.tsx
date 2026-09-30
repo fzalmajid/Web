@@ -109,43 +109,7 @@ export default function ProfileHome({
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [roomMenuId, setRoomMenuId] = useState<string | null>(null);
-  const [recommendations, setRecommendations] = useState<UserProfile[]>([]);
-  const [recommendationBusy, setRecommendationBusy] = useState("");
 
-  async function refreshRecommendations() {
-    if (!ownProfile) {
-      setRecommendations([]);
-      return;
-    }
-
-    const [connectionResult, profileResult] = await Promise.all([
-      supabase
-        .from("friend_connections")
-        .select("requester_id,addressee_id,status")
-        .or("requester_id.eq." + me + ",addressee_id.eq." + me),
-      supabase
-        .from("user_profiles")
-        .select("*")
-        .neq("user_id", me)
-        .not("last_active_at", "is", null)
-        .order("last_active_at", { ascending: false, nullsFirst: false })
-        .limit(16),
-    ]);
-
-    if (profileResult.error) return;
-
-    const blocked = new Set<string>();
-    for (const row of (connectionResult.data || []) as Array<Pick<FriendConnection, "requester_id" | "addressee_id" | "status">>) {
-      if (row.status === "declined") continue;
-      blocked.add(row.requester_id === me ? row.addressee_id : row.requester_id);
-    }
-
-    setRecommendations(
-      ((profileResult.data || []) as UserProfile[])
-        .filter((item) => !blocked.has(item.user_id))
-        .slice(0, 4)
-    );
-  }
 
   async function refreshProfile() {
     const [profileResult, statsResult] = await Promise.all([
@@ -203,18 +167,8 @@ export default function ProfileHome({
     setRelationship(ownProfile ? "self" : "none");
     setConnection(null);
     void refreshProfile();
-    if (ownProfile) void refreshRecommendations();
-    else setRecommendations([]);
   }, [ownerUserId, me, ownProfile, ownFallbackProfile]);
 
-  async function sendSuggestedRequest(userId: string) {
-    setRecommendationBusy(userId);
-    const { error } = await supabase.rpc("send_friend_request", { p_target_user_id: userId });
-    setRecommendationBusy("");
-    if (error) return alert(error.message);
-    await refreshRecommendations();
-    onProfileChanged?.();
-  }
 
   async function sendRequest() {
     setBusy(true);
@@ -336,38 +290,6 @@ export default function ProfileHome({
         {ownProfile && <button type="button" className="primary socialAddRoom" onClick={onAddRoom}>+ Ruang Belajar</button>}
       </div>
 
-      {ownProfile && recommendations.length > 0 && (
-        <section className="socialSuggestions">
-          <div className="socialSuggestionsHead">
-            <div>
-              <p className="eyebrow">REKOMENDASI</p>
-              <h2>Teman belajar yang mungkin kamu kenal</h2>
-            </div>
-            <button type="button" className="textBtn" onClick={() => setFriendsOpen(true)}>Cari lainnya</button>
-          </div>
-          <div className="socialSuggestionGrid">
-            {recommendations.map((person) => (
-              <article className="socialSuggestionCard" key={person.user_id}>
-                <button type="button" className="socialSuggestionMain" onClick={() => onOpenProfile(person.user_id)}>
-                  <ProfileAvatar profile={person} />
-                  <span>
-                    <strong>{person.display_name || person.username}</strong>
-                    <small>@{person.username}</small>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="ghost socialSuggestionAdd"
-                  disabled={recommendationBusy === person.user_id}
-                  onClick={() => void sendSuggestedRequest(person.user_id)}
-                >
-                  {recommendationBusy === person.user_id ? "Mengirim..." : "Tambah"}
-                </button>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
 
       {canReadReference ? (
         rooms.length ? (
@@ -579,6 +501,7 @@ function FriendCenter({
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserProfile[]>([]);
+  const [recommendations, setRecommendations] = useState<UserProfile[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState("");
   const [autoAccept, setAutoAccept] = useState(Boolean(ownProfile?.auto_accept_friends));
@@ -593,13 +516,34 @@ function FriendCenter({
 
     const rows = (data || []) as FriendConnection[];
     setConnections(rows);
+
+    const connectedIds = new Set(
+      rows
+        .filter((row) => row.status !== "declined")
+        .map((row) => row.requester_id === me ? row.addressee_id : row.requester_id)
+    );
+
     const ids = Array.from(new Set(rows.flatMap((row) => [row.requester_id, row.addressee_id]).filter((id) => id !== me)));
     if (!ids.length) {
       setProfiles({});
-      return;
+    } else {
+      const { data: profileRows } = await supabase.from("user_profiles").select("*").in("user_id", ids);
+      setProfiles(Object.fromEntries(((profileRows || []) as UserProfile[]).map((item) => [item.user_id, item])));
     }
-    const { data: profileRows } = await supabase.from("user_profiles").select("*").in("user_id", ids);
-    setProfiles(Object.fromEntries(((profileRows || []) as UserProfile[]).map((item) => [item.user_id, item])));
+
+    const { data: suggestionRows } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .neq("user_id", me)
+      .not("last_active_at", "is", null)
+      .order("last_active_at", { ascending: false, nullsFirst: false })
+      .limit(16);
+
+    setRecommendations(
+      ((suggestionRows || []) as UserProfile[])
+        .filter((item) => !connectedIds.has(item.user_id))
+        .slice(0, 6)
+    );
   }
 
   useEffect(() => {
@@ -734,6 +678,30 @@ function FriendCenter({
           />
           {searchBusy && <small>Mencari...</small>}
         </div>
+
+        {!query.trim() && recommendations.length > 0 && (
+          <div className="socialPeopleSection socialRecommendationSection">
+            <h3>Rekomendasi teman <span>{recommendations.length}</span></h3>
+            <div className="socialRecommendationList">
+              {recommendations.map((person) => (
+                <PersonRow
+                  key={person.user_id}
+                  person={person}
+                  trailing={
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={actionBusy === person.user_id}
+                      onClick={() => void send(person.user_id)}
+                    >
+                      {actionBusy === person.user_id ? "Mengirim..." : "Tambah"}
+                    </button>
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {!!query.trim() && (
           <div className="socialPeopleSection">
