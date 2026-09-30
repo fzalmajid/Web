@@ -33,6 +33,13 @@ async function mendeleyToken() {
   return token;
 }
 
+export async function testMendeleyCatalogConnection() {
+  const configured = mendeleyConfigured();
+  if (!configured) return { configured: false, reachable: false };
+  const token = await mendeleyToken();
+  return { configured: true, reachable: Boolean(token) };
+}
+
 function mapMendeleyDocument(doc: any): ReferenceMetadata {
   const authors = Array.isArray(doc?.authors)
     ? doc.authors.map((author: any) =>
