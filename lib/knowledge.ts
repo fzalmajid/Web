@@ -161,6 +161,9 @@ function directSearchTerms(question: string): string[] {
     dipyridamole: ["dipiridamol","dipyridamol","dipiridamole"],
     dipyridamol: ["dipiridamol","dipyridamole"],
     dipiridamol: ["dipyridamole","dipyridamol"],
+    disolusi: ["dissolution"],
+    dissolution: ["disolusi"],
+    bpom: ["pengawas","makanan"],
   };
   const expanded = new Set<string>();
   for (const term of base) {
@@ -616,7 +619,19 @@ export function fuseHybridKnowledge(
     const row = lexical[index];
     if (!String(row.raw_content || row.content || "").trim()) continue;
     const prior = merged.get(row.id);
-    const weight = 1.2 / (60 + index + 1);
+
+    // Lexical/RAW evidence must remain authoritative even when this entry has
+    // not finished Hugging Face indexing yet. Previously the fusion reduced
+    // every lexical hit to almost the same small rank-only weight, while an
+    // already-embedded source could receive a second semantic weight and jump
+    // above a much stronger exact FTS match. That made pending E5 entries look
+    // invisible despite being fully searchable in RAW/FTS.
+    const lexicalScore = Math.max(0, Number(row.score) || 0);
+    const lexicalConfidence = Math.min(1, lexicalScore / 100000);
+    const weight =
+      1.65 / (60 + index + 1) +
+      lexicalConfidence * 0.018;
+
     merged.set(row.id, {
       row: prior?.row || row,
       weight: (prior?.weight || 0) + weight
@@ -640,7 +655,10 @@ export function fuseHybridKnowledge(
     if (!prior && namedPct && !chunkHasPct && !excipientIntent && !(analyticalIntent && analyticalEvidence)) continue;
     const minimumOnlySemantic = semanticModel === "intfloat/multilingual-e5-small" ? 0.85 : 0.82;
     if (!prior && (Number(row.score) || 0) < minimumOnlySemantic * 100000) continue;
-    const weight = 1.0 / (60 + index + 1);
+    // Semantic search refines ranking; it must not become an indexing gate.
+    // Keep its contribution below a strong lexical/RAW match so unfinished
+    // multilingual-E5 entries can still be selected and cited immediately.
+    const weight = 0.72 / (60 + index + 1);
     merged.set(row.id, {
       // The vector chunk is the precise semantic evidence; preserve it instead
       // of hydrating the entire document, especially for multi-megabyte RAW.
@@ -669,8 +687,12 @@ export function prioritizeQuestionRelevantSources(
   const needsAnalyticalTheory =
     /\b(dasar teori|laporan praktikum|praktikum|penetapan kadar|assay)\b/i.test(question) &&
     /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible)\b/i.test(question);
+  const needsDissolution =
+    /\b(disolusi|dissolution|uji\s+disolusi)\b/i.test(question);
+  const needsBpom =
+    /\b(bpom|badan\s+pengawas\s+obat(?:\s+dan)?\s+makanan)\b/i.test(question);
 
-  if (!needsExcipients && !needsAnalyticalTheory) return rows;
+  if (!needsExcipients && !needsAnalyticalTheory && !needsDissolution && !needsBpom) return rows;
 
   const excipientEvidence =
     /\b(excipients?|pengisi|pengikat|penghancur|pelicin|diluent|binder|disintegrant|lubricant|glidant|filler|microcrystalline cellulose|lactose|povidone|starch|magnesium stearate|croscarmellose|crospovidone)\b/i;
@@ -679,6 +701,10 @@ export function prioritizeQuestionRelevantSources(
     /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible|beer[\s-]?lambert|absorbansi|absorbance|transmitansi|transmittance|panjang gelombang|wavelength|kurva kalibrasi|calibration curve|molar absorptivity|absorptivitas)\b/i;
   const quantitativeEvidence =
     /\b(kadar|assay|quantitative|kuantitatif|concentration|konsentrasi|standard curve|kurva baku|kurva kalibrasi|calibration curve)\b/i;
+  const dissolutionEvidence =
+    /\b(disolusi|dissolution|dissolution test|uji\s+disolusi|apparatus\s+[12]|basket|paddle|dayung|keranjang)\b/i;
+  const bpomEvidence =
+    /\b(bpom|badan\s+pengawas\s+obat(?:\s+dan)?\s+makanan|pengawas\s+obat\s+dan\s+makanan)\b/i;
 
   const scored = rows.map((row) => {
     const title = String(row.title || "").toLowerCase();
@@ -710,6 +736,23 @@ export function prioritizeQuestionRelevantSources(
       else if (hasAnalytical) relevance += 18000;
       else if (hasAnalyte) relevance += 10000;
       if (hasQuantitative) relevance += 7000;
+    }
+
+    if (needsDissolution) {
+      const hasDissolution = dissolutionEvidence.test(raw) || dissolutionEvidence.test(title);
+      if (hasDissolution) relevance += 32000;
+      if (/pedoman.*disolusi|uji.*disolusi.*tanya.*jawab/i.test(title)) relevance += 18000;
+    }
+
+    if (needsBpom) {
+      const hasBpom = bpomEvidence.test(raw) || bpomEvidence.test(title);
+      if (hasBpom) relevance += 36000;
+      // A regulatory dissolution guide that explicitly matches the dissolution
+      // intent remains relevant even when the acronym on the scanned cover was
+      // not OCRed cleanly.
+      if (needsDissolution && /pedoman.*disolusi|uji.*disolusi.*tanya.*jawab/i.test(title)) {
+        relevance += 14000;
+      }
     }
 
     return { ...row, score: relevance };
