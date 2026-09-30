@@ -147,7 +147,9 @@ export function inferReferenceMetadata(input: {
   }
 
   const bpom = /BADAN\s+(?:POM|PENGAWAS\s+OBAT\s+DAN\s+MAKANAN)(?:\s+REPUBLIK\s+INDONESIA)?/i.test(first800);
-  if (bpom) {
+  // A cited/mentioned institution inside lecture slides is not the slide author.
+  // Only attribute BPOM when the document itself is not already identified as lecture material.
+  if (bpom && !isSlides) {
     setCandidate(meta, "corporate_author", "Badan Pengawas Obat dan Makanan Republik Indonesia", "document", 0.99,
       "Corporate author tercetak pada halaman awal.");
     setCandidate(meta, "publisher", "Badan Pengawas Obat dan Makanan Republik Indonesia", "document", 0.95,
