@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { sealMendeleySession, setMendeleySessionCookie } from "@/lib/mendeleySessionServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,8 +19,14 @@ function safeEqual(a: string, b: string) {
   }
 }
 
-function finish(url: URL, status: "success" | "failed", reason?: string) {
-  const redirect = new URL("/", url.origin);
+function finish(url: URL, status: "success" | "failed", reason?: string, returnTo = "/") {
+  let redirect: URL;
+  try {
+    const candidate = new URL(returnTo || "/", url.origin);
+    redirect = candidate.origin === url.origin ? candidate : new URL("/", url.origin);
+  } catch {
+    redirect = new URL("/", url.origin);
+  }
   redirect.searchParams.set("mendeley", status);
   if (reason) redirect.searchParams.set("mendeley_reason", reason);
   const response = NextResponse.redirect(redirect);
@@ -61,12 +68,15 @@ export async function GET(req: NextRequest) {
     return finish(req.nextUrl, "failed", "invalid_state_signature");
   }
 
+  let returnTo = "/";
   try {
     const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
     const age = Date.now() - Number(decoded?.ts || 0);
     if (!Number.isFinite(age) || age < 0 || age > 10 * 60 * 1000) {
       return finish(req.nextUrl, "failed", "expired_state");
     }
+    const requested = String(decoded?.returnTo || "/");
+    returnTo = requested.startsWith("/") && !requested.startsWith("//") ? requested : "/";
   } catch {
     return finish(req.nextUrl, "failed", "invalid_state_payload");
   }
@@ -102,11 +112,21 @@ export async function GET(req: NextRequest) {
       "failed",
       tokenResponse.status === 401 ? "secret_rejected_on_code_exchange" :
       tokenResponse.status === 400 ? "invalid_grant_or_redirect" :
-      "token_exchange_failed_" + tokenResponse.status
+      "token_exchange_failed_" + tokenResponse.status,
+      returnTo
     );
   }
 
-  // Diagnostic only: deliberately do not expose or persist OAuth tokens yet.
-  // Success proves the registered Application ID + redirect URI + secret are all valid.
-  return finish(req.nextUrl, "success", "authorization_code_exchange_ok");
+  const sealed = sealMendeleySession({
+    accessToken,
+    refreshToken: String(tokenJson?.refresh_token || "") || null,
+    expiresAt: Date.now() + Math.max(300, Number(tokenJson?.expires_in) || 3600) * 1000,
+  });
+  if (!sealed) {
+    return finish(req.nextUrl, "failed", "session_encryption_failed", returnTo);
+  }
+
+  const response = finish(req.nextUrl, "success", "authorization_code_exchange_ok", returnTo);
+  setMendeleySessionCookie(response, sealed);
+  return response;
 }
