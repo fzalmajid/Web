@@ -3404,17 +3404,27 @@ function FolderTreePicker({
       {open && (
         <div className="folderTreePanel">
           {allowHome ? (
-            <button
-              type="button"
-              className={homeSelected ? "folderTreeHome selected" : "folderTreeHome"}
-              onClick={() => {
-                onChange("__home__");
-                setOpen(false);
-              }}
-            >
-              <span>⌂</span>
-              <strong>Home</strong>
-            </button>
+            <div className={homeSelected ? "folderTreeRow folderTreeHomeRow selected" : "folderTreeRow folderTreeHomeRow"}>
+              <button
+                type="button"
+                className="folderTreeToggle"
+                aria-label="Home"
+                disabled
+              >
+                ·
+              </button>
+              <button
+                type="button"
+                className="folderTreeChoice"
+                onClick={() => {
+                  onChange("__home__");
+                  setOpen(false);
+                }}
+              >
+                <span>⌂</span>
+                <strong>Home</strong>
+              </button>
+            </div>
           ) : (
             <div className="folderTreeHome">
               <span>⌂</span>
@@ -9745,12 +9755,22 @@ function BottomAskBar({
   }, [open, busy, chatMessages]);
 
   useEffect(() => {
-    if (!askVoiceDbId && askVoiceDatabases[0]) setAskVoiceDbId(askVoiceDatabases[0].id);
-  }, [askVoiceDatabases, askVoiceDbId]);
+    if (askVoiceDbId) return;
+    const currentFolderId =
+      scopeNodeId && askVoiceDatabases.some((item) => item.id === scopeNodeId)
+        ? scopeNodeId
+        : "__home__";
+    setAskVoiceDbId(currentFolderId);
+  }, [askVoiceDatabases, askVoiceDbId, scopeNodeId]);
 
   useEffect(() => {
-    if (!attachmentDbId && askVoiceDatabases[0]) setAttachmentDbId(askVoiceDatabases[0].id);
-  }, [askVoiceDatabases, attachmentDbId]);
+    if (attachmentDbId) return;
+    const currentFolderId =
+      scopeNodeId && askVoiceDatabases.some((item) => item.id === scopeNodeId)
+        ? scopeNodeId
+        : "__home__";
+    setAttachmentDbId(currentFolderId);
+  }, [askVoiceDatabases, attachmentDbId, scopeNodeId]);
 
   useEffect(() => {
     return () => {
@@ -9919,8 +9939,7 @@ function BottomAskBar({
     if (settings.aiSelection?.model) setAiSelection(settings.aiSelection as AiSelection);
   }
 
-  function startNewChat() {
-    if (busy) return;
+  function closeChatRoom() {
     setActiveChatId(null);
     setChatMessages([]);
     onActiveChatChange(null);
@@ -9932,6 +9951,11 @@ function BottomAskBar({
     setWarning("");
     setModelRecovery(null);
     setOpen(false);
+  }
+
+  function startNewChat() {
+    if (busy) return;
+    closeChatRoom();
   }
 
   function firstUrl(value: string) {
@@ -9950,7 +9974,11 @@ function BottomAskBar({
       .slice()
       .sort((a, b) => b.title.length - a.title.length)
       .find((item) => lower.includes(item.title.toLowerCase()));
-    return exact?.id || attachmentDbId || askVoiceDatabases[0]?.id || "";
+    const currentFolderId =
+      scopeNodeId && askVoiceDatabases.some((item) => item.id === scopeNodeId)
+        ? scopeNodeId
+        : "__home__";
+    return exact?.id || attachmentDbId || currentFolderId;
   }
 
   async function prepareAskLink(rawUrl: string) {
@@ -9994,18 +10022,21 @@ function BottomAskBar({
 
   async function savePendingLinkToDatabase() {
     if (!pendingLink || !attachmentDbId) return;
-    const target = askVoiceDatabases.find((item) => item.id === attachmentDbId);
-    if (!target) return;
+    const saveToHome = attachmentDbId === "__home__";
+    const target = saveToHome ? null : askVoiceDatabases.find((item) => item.id === attachmentDbId);
+    if (!saveToHome && !target) return;
+    const targetNodeId = target?.id || null;
+    const targetLabel = target?.title || "Home";
 
     setLinkBusy(true);
-    setLinkStatus("Menyimpan link RAW ke folder...");
+    setLinkStatus("Menyimpan link RAW ke Database...");
     const response = await fetch("/api/import-link", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: "Bearer " + session.access_token,
       },
-      body: JSON.stringify({ nodeId: target.id, url: pendingLink.url }),
+      body: JSON.stringify({ nodeId: targetNodeId, url: pendingLink.url }),
     });
     const result = await response.json().catch(() => ({}));
     setLinkBusy(false);
@@ -10016,20 +10047,23 @@ function BottomAskBar({
     }
 
     setPendingLink(null);
-    setLinkStatus("Link RAW sudah masuk folder: " + target.title + ".");
+    setLinkStatus("Link RAW sudah masuk Database: " + targetLabel + ".");
     onChange();
   }
 
   async function saveQuestionTextToDatabase() {
     const text = String(pendingTextSave || question).trim();
     if (!text || !attachmentDbId) return;
-    const target = askVoiceDatabases.find((item) => item.id === attachmentDbId);
-    if (!target) return;
+    const saveToHome = attachmentDbId === "__home__";
+    const target = saveToHome ? null : askVoiceDatabases.find((item) => item.id === attachmentDbId);
+    if (!saveToHome && !target) return;
+    const targetNodeId = target?.id || null;
+    const targetLabel = target?.title || "Home";
 
     setAttachmentBusy(true);
     const { error } = await supabase.from("knowledge_entries").insert({
       user_id: session.user.id,
-      node_id: target.id,
+      node_id: targetNodeId,
       title: "Catatan dari AI Bar - " + new Date().toLocaleString("id-ID"),
       category: "Teks dari AI Bar",
       content: text,
@@ -10040,7 +10074,7 @@ function BottomAskBar({
 
     if (error) return alert(error.message);
     setPendingTextSave(null);
-    setAttachmentStatus("Teks sudah masuk folder: " + target.title + ".");
+    setAttachmentStatus("Teks sudah masuk Database: " + targetLabel + ".");
     onChange();
   }
 
@@ -10724,8 +10758,11 @@ function BottomAskBar({
 
   async function savePendingVoiceToDatabase() {
     if (!pendingVoice || !askVoiceDbId) return;
-    const target = askVoiceDatabases.find((item) => item.id === askVoiceDbId);
-    if (!target) return;
+    const saveToHome = askVoiceDbId === "__home__";
+    const target = saveToHome ? null : askVoiceDatabases.find((item) => item.id === askVoiceDbId);
+    if (!saveToHome && !target) return;
+    const targetNodeId = target?.id || null;
+    const targetLabel = target?.title || "Home";
 
     setAskVoiceBusy(true);
     const editedText = question.trim() || pendingVoice.transcript.trim();
@@ -10736,7 +10773,7 @@ function BottomAskBar({
         .from("knowledge_entries")
         .insert({
           user_id: session.user.id,
-          node_id: target.id,
+          node_id: targetNodeId,
           title: pendingVoice.title,
           category: "Pertanyaan suara",
           content: editedText,
@@ -10756,7 +10793,7 @@ function BottomAskBar({
     const { error } = await supabase
       .from("recordings")
       .update({
-        node_id: target.id,
+        node_id: targetNodeId,
         knowledge_entry_id: entryId,
         transcript: editedText || pendingVoice.transcript || null,
         raw_transcript: pendingVoice.transcript || editedText || null,
@@ -10768,7 +10805,7 @@ function BottomAskBar({
     if (error) return alert(error.message);
 
     setPendingVoice(null);
-    setAskVoiceStatus("Audio dan transkrip sudah masuk folder: " + target.title + ".");
+    setAskVoiceStatus("Audio dan transkrip sudah masuk Database: " + targetLabel + ".");
     onChange();
   }
 
@@ -11203,15 +11240,18 @@ function BottomAskBar({
       ? savedChats.find((item) => item.id === activeChatId)?.scope_node_id || scopeNodeId
       : scopeNodeId;
 
-    const history = chatMessages
-      .slice(-24)
-      .map((message) => ({ role: message.role, content: message.content.slice(0, 12000) }));
+    const history = activeChatId
+      ? chatMessages
+          .slice(-24)
+          .map((message) => ({ role: message.role, content: message.content.slice(0, 12000) }))
+      : [];
 
+    const startingNewConversation = !activeChatId;
     let conversationId = activeChatId;
     try {
       if (!conversationId) conversationId = await createStoredChat(asked);
       const storedUser = await saveStoredMessage(conversationId, "user", asked);
-      setChatMessages((list) => [...list, storedUser]);
+      setChatMessages((list) => startingNewConversation ? [storedUser] : [...list, storedUser]);
       setQuestion("");
     } catch (error: any) {
       alert(error?.message || "Chat belum dapat disimpan.");
@@ -11382,7 +11422,7 @@ function BottomAskBar({
               </small>
               <strong>{activeChatTitle}</strong>
             </div>
-            <button type="button" onClick={() => setOpen(false)} aria-label="Tutup chat">×</button>
+            <button type="button" onClick={closeChatRoom} aria-label="Tutup chat">×</button>
           </div>
 
           <div className="aiChatMessages" ref={chatScrollRef}>
@@ -11633,6 +11673,7 @@ function BottomAskBar({
                   onChange={setAskVoiceDbId}
                   allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
                   placeholder="Pilih folder"
+                  allowHome
                 />
                 <button
                   type="button"
@@ -11710,6 +11751,7 @@ function BottomAskBar({
                     onChange={setAttachmentDbId}
                     allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
                     placeholder="Pilih folder"
+                    allowHome
                   />
                   <button
                     type="button"
@@ -11747,6 +11789,7 @@ function BottomAskBar({
                 onChange={setAttachmentDbId}
                 allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
                 placeholder="Pilih folder"
+                allowHome
               />
               <button
                 type="button"
