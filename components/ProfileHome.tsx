@@ -310,15 +310,33 @@ export default function ProfileHome({
         </div>
       </div>
 
-      <div className={activeFolder ? "socialRoomsHead socialRoomsHeadNested" : "socialRoomsHead socialRoomsHeadHome"}>
+      <div className="socialRoomsHead socialRoomsHeadUnified">
         <div>
-          {activeFolder ? (
-            <>
-              <div className="profileFolderBreadcrumb" aria-label="Lokasi folder">
+          {!ownProfile && !activeFolder && <p className="eyebrow">PROFIL TEMAN</p>}
+          <div className="profileFolderBreadcrumb profileHomeBreadcrumb" aria-label="Lokasi folder">
+            <button
+              type="button"
+              data-rb-drop-target="__root__"
+              onClick={onBackToRooms}
+              onDragOver={(event) => {
+                if (!ownProfile || !onBreadcrumbDrop) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(event) => {
+                if (!ownProfile || !onBreadcrumbDrop) return;
+                onBreadcrumbDrop(event, null);
+              }}
+            >
+              Home
+            </button>
+            {activeFolder && [...activeFolderPath, { id: activeFolder.id, title: activeFolder.title }].map((item) => (
+              <span key={item.id}>
+                <b>/</b>
                 <button
                   type="button"
-                  data-rb-drop-target="__root__"
-                  onClick={onBackToRooms}
+                  data-rb-drop-target={item.id}
+                  onClick={() => onOpenFolderPath?.(item.id)}
                   onDragOver={(event) => {
                     if (!ownProfile || !onBreadcrumbDrop) return;
                     event.preventDefault();
@@ -326,57 +344,14 @@ export default function ProfileHome({
                   }}
                   onDrop={(event) => {
                     if (!ownProfile || !onBreadcrumbDrop) return;
-                    onBreadcrumbDrop(event, null);
+                    onBreadcrumbDrop(event, item.id);
                   }}
                 >
-                  Home
+                  {item.title}
                 </button>
-                {[...activeFolderPath, { id: activeFolder.id, title: activeFolder.title }].map((item) => (
-                  <span key={item.id}>
-                    <b>/</b>
-                    <button
-                      type="button"
-                      data-rb-drop-target={item.id}
-                      onClick={() => onOpenFolderPath?.(item.id)}
-                      onDragOver={(event) => {
-                        if (!ownProfile || !onBreadcrumbDrop) return;
-                        event.preventDefault();
-                        event.dataTransfer.dropEffect = "move";
-                      }}
-                      onDrop={(event) => {
-                        if (!ownProfile || !onBreadcrumbDrop) return;
-                        onBreadcrumbDrop(event, item.id);
-                      }}
-                    >
-                      {item.title}
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              {!ownProfile && <p className="eyebrow">PROFIL TEMAN</p>}
-              <div className="profileFolderBreadcrumb profileHomeBreadcrumb" aria-label="Lokasi folder">
-                <button
-                  type="button"
-                  data-rb-drop-target="__root__"
-                  onClick={onBackToRooms}
-                  onDragOver={(event) => {
-                    if (!ownProfile || !onBreadcrumbDrop) return;
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(event) => {
-                    if (!ownProfile || !onBreadcrumbDrop) return;
-                    onBreadcrumbDrop(event, null);
-                  }}
-                >
-                  Home
-                </button>
-              </div>
-            </>
-          )}
+              </span>
+            ))}
+          </div>
         </div>
         {ownProfile && (
           <div className="socialRoomHeadActions">
