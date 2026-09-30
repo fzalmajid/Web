@@ -841,6 +841,13 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const loadGenerationRef = useRef(0);
 
   useEffect(() => {
+    setNodes([]);
+    setEntries([]);
+    setFiles([]);
+    setRecordings([]);
+    setCards([]);
+    setQuizzes([]);
+    setTasks([]);
     void loadAll();
   }, [refreshKey, viewedOwnerId]);
 
@@ -1291,6 +1298,18 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                   <small>PEMAKAIAN AI</small>
                   <AiCreditBadge />
                 </div>
+
+                <button
+                  type="button"
+                  className="leftChatAccountAction"
+                  onClick={() => {
+                    setSidebarAccountOpen(false);
+                    viewProfile(user.id);
+                  }}
+                >
+                  <span>Profil</span>
+                  <b aria-hidden="true">›</b>
+                </button>
 
                 <button
                   type="button"
