@@ -398,21 +398,21 @@ export default function ProfileHome({
 
 function AvatarCropEditor({
   src,
-  onCancel,
-  onApply,
+  onPick,
+  onCropReady,
 }: {
   src: string;
-  onCancel: () => void;
-  onApply: (blob: Blob) => void;
+  onPick: () => void;
+  onCropReady: (blob: Blob) => void;
 }) {
-  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLButtonElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const [viewport, setViewport] = useState(260);
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const cropTimerRef = useRef<number | null>(null);
+  const [viewport, setViewport] = useState(260);
   const [natural, setNatural] = useState({ w: 1, h: 1 });
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [busy, setBusy] = useState(false);
 
   const baseScale = Math.max(viewport / natural.w, viewport / natural.h);
   const scale = baseScale * zoom;
@@ -430,7 +430,7 @@ function AvatarCropEditor({
       x: Math.max(-maxX, Math.min(maxX, current.x)),
       y: Math.max(-maxY, Math.min(maxY, current.y)),
     }));
-  }, [zoom, natural.w, natural.h, viewport]);
+  }, [zoom, natural.w, natural.h, viewport, maxX, maxY]);
 
   useEffect(() => {
     const element = viewportRef.current;
@@ -442,51 +442,64 @@ function AvatarCropEditor({
     return () => observer.disconnect();
   }, []);
 
-  async function applyCrop() {
+  useEffect(() => {
+    if (!src) return;
     const img = imgRef.current;
-    if (!img) return;
-    setBusy(true);
-    const left = (viewport - drawW) / 2 + clamped.x;
-    const top = (viewport - drawH) / 2 + clamped.y;
-    const sourceX = Math.max(0, -left / scale);
-    const sourceY = Math.max(0, -top / scale);
-    const sourceSize = viewport / scale;
-    const canvas = document.createElement("canvas");
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      setBusy(false);
-      return;
-    }
-    ctx.drawImage(
-      img,
-      sourceX,
-      sourceY,
-      Math.min(sourceSize, natural.w - sourceX),
-      Math.min(sourceSize, natural.h - sourceY),
-      0,
-      0,
-      512,
-      512
-    );
-    canvas.toBlob((blob) => {
-      setBusy(false);
-      if (blob) onApply(blob);
-    }, "image/jpeg", 0.9);
-  }
+    if (!img || !img.complete || natural.w <= 1 || natural.h <= 1) return;
+
+    if (cropTimerRef.current) window.clearTimeout(cropTimerRef.current);
+    cropTimerRef.current = window.setTimeout(() => {
+      const liveImg = imgRef.current;
+      if (!liveImg) return;
+
+      const left = (viewport - drawW) / 2 + clamped.x;
+      const top = (viewport - drawH) / 2 + clamped.y;
+      const sourceX = Math.max(0, -left / scale);
+      const sourceY = Math.max(0, -top / scale);
+      const sourceSize = viewport / scale;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(
+        liveImg,
+        sourceX,
+        sourceY,
+        Math.min(sourceSize, natural.w - sourceX),
+        Math.min(sourceSize, natural.h - sourceY),
+        0,
+        0,
+        512,
+        512
+      );
+      canvas.toBlob((blob) => {
+        if (blob) onCropReady(blob);
+      }, "image/jpeg", 0.9);
+    }, 120);
+
+    return () => {
+      if (cropTimerRef.current) window.clearTimeout(cropTimerRef.current);
+    };
+  }, [src, viewport, drawW, drawH, clamped.x, clamped.y, scale, natural.w, natural.h, onCropReady]);
 
   return (
-    <div className="avatarCropPanel">
-      <div
+    <div className="avatarCropPanel profilePhotoInlinePanel">
+      <button
         ref={viewportRef}
-        className="avatarCropViewport"
+        type="button"
+        className={src ? "avatarCropViewport hasPhoto" : "avatarCropViewport emptyPhoto"}
+        onClick={() => {
+          if (!src) onPick();
+        }}
         onPointerDown={(event) => {
+          if (!src) return;
           dragRef.current = { x: event.clientX, y: event.clientY, ox: clamped.x, oy: clamped.y };
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
-          if (!dragRef.current) return;
+          if (!src || !dragRef.current) return;
           const nextX = dragRef.current.ox + event.clientX - dragRef.current.x;
           const nextY = dragRef.current.oy + event.clientY - dragRef.current.y;
           setOffset({
@@ -496,28 +509,39 @@ function AvatarCropEditor({
         }}
         onPointerUp={() => { dragRef.current = null; }}
         onPointerCancel={() => { dragRef.current = null; }}
+        aria-label={src ? "Atur posisi foto profil" : "Pilih foto dari perangkat"}
       >
-        <img
-          ref={imgRef}
-          src={src}
-          alt="Atur posisi foto profil"
-          draggable={false}
-          onLoad={(event) => {
-            const img = event.currentTarget;
-            setNatural({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
-            setOffset({ x: 0, y: 0 });
-            setZoom(1);
-          }}
-          style={{
-            width: drawW,
-            height: drawH,
-            left: (viewport - drawW) / 2 + clamped.x,
-            top: (viewport - drawH) / 2 + clamped.y,
-          }}
-        />
-        <span className="avatarCropGuide" aria-hidden="true" />
-      </div>
-      <label className="avatarZoomControl">
+        {src ? (
+          <>
+            <img
+              ref={imgRef}
+              src={src}
+              alt=""
+              draggable={false}
+              onLoad={(event) => {
+                const img = event.currentTarget;
+                setNatural({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+                setOffset({ x: 0, y: 0 });
+                setZoom(1);
+              }}
+              style={{
+                width: drawW,
+                height: drawH,
+                left: (viewport - drawW) / 2 + clamped.x,
+                top: (viewport - drawH) / 2 + clamped.y,
+              }}
+            />
+            <span className="avatarCropGuide" aria-hidden="true" />
+          </>
+        ) : (
+          <span className="avatarCropEmptyState">
+            <b>＋</b>
+            <small>Pilih foto</small>
+          </span>
+        )}
+      </button>
+
+      <label className={src ? "avatarZoomControl" : "avatarZoomControl disabled"}>
         <span>Zoom</span>
         <input
           type="range"
@@ -525,16 +549,16 @@ function AvatarCropEditor({
           max="3"
           step="0.01"
           value={zoom}
+          disabled={!src}
           onChange={(event) => setZoom(Number(event.target.value))}
         />
       </label>
-      <small className="muted">Geser foto dengan drag, lalu zoom sampai bagian yang ingin ditampilkan pas di lingkaran.</small>
-      <div className="avatarCropActions">
-        <button type="button" className="ghost" disabled={busy} onClick={onCancel}>Batal</button>
-        <button type="button" className="primary" disabled={busy} onClick={() => void applyCrop()}>
-          {busy ? "Memproses..." : "Gunakan foto"}
-        </button>
-      </div>
+
+      <small className="muted">
+        {src
+          ? "Geser foto di dalam lingkaran dan atur zoom. Hasilnya baru tersimpan setelah klik Simpan profil."
+          : "Klik lingkaran abu-abu untuk memilih foto dari perangkat. Foto belum berubah sampai Simpan profil ditekan."}
+      </small>
     </div>
   );
 }
@@ -702,7 +726,6 @@ function EditProfileSheet({
                 className={avatarEditorMode === "photo" ? "profileAvatarOption active" : "profileAvatarOption"}
                 onClick={() => {
                   setAvatarEditorMode("photo");
-                  fileInputRef.current?.click();
                 }}
               >
                 <span>🖼️</span>
@@ -761,22 +784,16 @@ function EditProfileSheet({
             </div>
           )}
 
-          {cropSrc && (
+          {avatarEditorMode === "photo" && photoOptionsOpen && (
             <AvatarCropEditor
               src={cropSrc}
-              onCancel={() => {
-                if (cropSrc.startsWith("blob:")) URL.revokeObjectURL(cropSrc);
-                setCropSrc("");
-              }}
-              onApply={(blob) => {
-                if (avatarPreview.startsWith("blob:")) URL.revokeObjectURL(avatarPreview);
-                const preview = URL.createObjectURL(blob);
+              onPick={() => fileInputRef.current?.click()}
+              onCropReady={(blob) => {
                 setPendingAvatarBlob(blob);
-                setAvatarPreview(preview);
-                if (cropSrc.startsWith("blob:")) URL.revokeObjectURL(cropSrc);
-                setCropSrc("");
-                setAvatarEditorMode("photo");
-                setPhotoOptionsOpen(false);
+                setAvatarPreview((previous) => {
+                  if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+                  return URL.createObjectURL(blob);
+                });
               }}
             />
           )}
@@ -792,7 +809,7 @@ function EditProfileSheet({
             <small className="muted">{bio.length}/220</small>
           </label>
           {errorText && <div className="notice">{errorText}</div>}
-          <button type="button" className="primary" disabled={busy || Boolean(cropSrc)} onClick={() => void save()}>
+          <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
             {busy ? "Menyimpan..." : "Simpan profil"}
           </button>
         </div>
