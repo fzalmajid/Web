@@ -168,3 +168,27 @@
 .leftChatItemMenu button.danger{
   color:var(--danger)!important;
 }
+
+
+/* CHAT HISTORY HEIGHT — use the whole drawer before scrolling.
+   The history list grows through all free space above the fixed account footer;
+   its scrollbar appears only when chat rows genuinely exceed that space. */
+.leftChatSidebar.open .leftChatHistory{
+  display:flex!important;
+  flex-direction:column!important;
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow:hidden!important;
+}
+.leftChatSidebar.open .leftChatPanelTitle{
+  flex:0 0 auto!important;
+}
+.leftChatSidebar.open .leftChatHistoryList{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  height:auto!important;
+  max-height:none!important;
+  overflow-y:auto!important;
+  align-content:start!important;
+  scrollbar-gutter:auto!important;
+}
