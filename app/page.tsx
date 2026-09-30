@@ -8987,37 +8987,43 @@ function AiDatabaseSourcePicker({
               <small className="muted">Tanya AI membaca folder dan isi Reference teman yang sedang dibuka. Reference ini hanya-baca dan tidak diindeks ulang oleh akun kamu.</small>
             </div>
           ) : (
-          <div className="aiDatabaseSourceTools" style={{ flexWrap: "wrap", gap: 8 }}>
-            <strong>🧠 Hugging Face · Machine Learning Ruang Belajar</strong>
-            <small className="muted">
-              Embedding multilingual E5 dipreload dan di-cache di browser. WebGPU dipakai
-              bila tersedia, lalu fallback ke WASM. Indexing berjalan per batch dan tidak
-              pernah menahan jawaban Local, Gemini, GPT, atau Claude; tanpa kredit LLM
-              dan tanpa HF_TOKEN.
-            </small>
-            <small className="muted">
-              {vectorStatus
-                ? vectorStatus.indexedVectors + " vektor / " +
-                  vectorStatus.indexedEntries + " entri selesai. " +
-                  (vectorStatus.pendingEntries === 0
-                    ? "Semua entri RAW/OCR yang memenuhi syarat sudah diindeks."
-                    : vectorStatus.pendingEntries + " entri belum selesai.")
-                : "Memeriksa jumlah vektor yang benar-benar tersimpan..."}
-            </small>
-            {files.some((file) => file.processing_status !== "ready") && (
-              <small className="muted" role="status">
-                {files.filter((file) => file.processing_status !== "ready").length}
-                {" file belum siap. File processing/error tidak dipakai AI sampai selesai diproses atau di-retry."}
+          <details className="aiEmbeddingDetails">
+            <summary>
+              <span>
+                <strong>🧠 Machine Learning</strong>
+                <small>
+                  {vectorStatus
+                    ? vectorStatus.indexedVectors + " vektor · " +
+                      (vectorStatus.pendingEntries === 0
+                        ? "indeks selesai"
+                        : vectorStatus.pendingEntries + " entri tersisa")
+                    : "Memeriksa indeks..."}
+                </small>
+              </span>
+              <b>Detail</b>
+            </summary>
+            <div className="aiEmbeddingDetailsBody">
+              <small className="muted">
+                Embedding multilingual E5 berjalan lokal di browser memakai WebGPU bila tersedia,
+                lalu fallback ke WASM. Proses indeks tidak menahan jawaban AI.
               </small>
-            )}
-            <button type="button" className="ghost" onClick={runVectorBackfill}>
-              {vectorRunning ? "Hentikan sementara" :
-                vectorStatus?.pendingEntries === 0 ? "Indeks selesai" :
-                vectorStatus && vectorStatus.indexedVectors > 0 ? "Lanjutkan indeks" : "Indeks seluruh Database"}
-            </button>
-            {vectorProgress && <small className="muted" role="status">{vectorProgress}</small>}
-            {vectorError && <small role="alert">{vectorError}</small>}
-          </div>
+              {files.some((file) => file.processing_status !== "ready") && (
+                <small className="muted" role="status">
+                  {files.filter((file) => file.processing_status !== "ready").length}
+                  {" file belum siap dan tidak dipakai sampai pemrosesan selesai."}
+                </small>
+              )}
+              <div className="aiEmbeddingActions">
+                <button type="button" className="ghost" onClick={runVectorBackfill}>
+                  {vectorRunning ? "Hentikan sementara" :
+                    vectorStatus?.pendingEntries === 0 ? "Indeks selesai" :
+                    vectorStatus && vectorStatus.indexedVectors > 0 ? "Lanjutkan indeks" : "Indeks Database"}
+                </button>
+                {vectorProgress && <small className="muted" role="status">{vectorProgress}</small>}
+                {vectorError && <small role="alert">{vectorError}</small>}
+              </div>
+            </div>
+          </details>
           )}
 
           {sources && onSourcesChange && (
@@ -9472,17 +9478,18 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
           {prefs.style !== "none" && (
             <>
               {officialGuide && (
-                <div className="citationOfficialGuide">
+                <details className="citationOfficialGuide">
+                  <summary>Pedoman sitasi resmi</summary>
                   <a href={officialGuide.url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>
-                    Pedoman resmi: {officialGuide.name} ↗
+                    {officialGuide.name} ↗
                   </a>
                   {officialGuide.secondaryUrl && (
                     <a href={officialGuide.secondaryUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>
                       Panduan bibliografi NLM ↗
                     </a>
                   )}
-                  <small>Akurasi sitasi bergantung pada metadata sumber yang benar-benar tersedia dan terverifikasi.</small>
-                </div>
+                  <small>Akurasi sitasi bergantung pada metadata sumber yang tersedia dan terverifikasi.</small>
+                </details>
               )}
               <div className="citationOutputTitle">Tampilkan sebagai</div>
               <div className="citationOutputChoices">
