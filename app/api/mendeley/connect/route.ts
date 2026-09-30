@@ -26,10 +26,14 @@ export async function GET(req: NextRequest) {
 
   const now = Date.now();
   const nonce = randomBytes(18).toString("base64url");
+  const requestedReturnTo = String(req.nextUrl.searchParams.get("returnTo") || "/");
+  const returnTo = requestedReturnTo.startsWith("/") && !requestedReturnTo.startsWith("//")
+    ? requestedReturnTo
+    : "/";
   const payloadObject = {
     ts: now,
     nonce,
-    returnTo: req.nextUrl.searchParams.get("returnTo") || "/",
+    returnTo,
   };
   const payload = base64url(JSON.stringify(payloadObject));
   const state = payload + "." + sign(payload, clientSecret);
