@@ -3,6 +3,7 @@
 // Production UI baseline: Choose Model + AI / Reference / Web + Plugin center.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
@@ -3141,12 +3142,17 @@ function ExplorerActionMenu({
   const recording = menu.item.kind === "recording" ? recordings.find((row) => row.id === menu.item.id) : null;
   const canDownload = Boolean((file && file.source_kind !== "link") || recording);
 
-  return (
-    <div className="contextDismissLayer" onMouseDown={onClose}>
+  const menuNode = (
+    <div className="contextDismissLayer" onMouseDown={onClose} onContextMenu={(event) => event.preventDefault()}>
       <div
         className="explorerContextMenu"
-        style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 260) }}
+        role="menu"
+        style={{
+          left: Math.max(8, Math.min(menu.x, window.innerWidth - 216)),
+          top: Math.max(8, Math.min(menu.y, window.innerHeight - 258)),
+        }}
         onMouseDown={(event) => event.stopPropagation()}
+        onContextMenu={(event) => event.preventDefault()}
       >
         <button type="button" onClick={onPreview}>Preview</button>
         {(file || entry) && <button type="button" onClick={onRename}>Ubah nama</button>}
@@ -3158,6 +3164,8 @@ function ExplorerActionMenu({
       </div>
     </div>
   );
+
+  return typeof document === "undefined" ? null : createPortal(menuNode, document.body);
 }
 
 function ExplorerPreviewModal({
