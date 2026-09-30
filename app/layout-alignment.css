@@ -211,3 +211,12 @@
 .profileFolderBreadcrumb [data-rb-drop-target]:hover{
   background:var(--soft)!important;
 }
+
+
+/* ACTIVE FOLDER BREADCRUMB — folder identity lives in Home / ... path now. */
+.socialRoomsHeadNested{
+  align-items:center!important;
+}
+.socialRoomsHeadNested .profileFolderBreadcrumb{
+  margin-bottom:0!important;
+}
