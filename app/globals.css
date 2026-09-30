@@ -9663,3 +9663,140 @@ body,
     max-height:calc(100dvh - 165px)!important;
   }
 }
+
+
+/* PROFILE-FIRST CONSISTENCY — profile page is the visual reference */
+.friendCenterSheet>.friendCenterHeader{
+  position:sticky!important;
+  top:0!important;
+  width:100%!important;
+  margin:0 0 14px!important;
+  padding:0 0 12px!important;
+  box-sizing:border-box!important;
+  background:var(--card)!important;
+  border-bottom:1px solid var(--line)!important;
+}
+.friendCenterHeader>div{
+  min-width:0;
+}
+.friendCenterHeader .closeBtn{
+  flex:0 0 auto;
+}
+
+/* Folder page uses the same rhythm, scale and action language as the profile page. */
+.folderPage .explorerFolderHeader{
+  align-items:flex-end!important;
+  gap:18px!important;
+  margin:0 0 16px!important;
+  padding:10px 8px 18px!important;
+  border-bottom:1px solid var(--line);
+}
+.explorerFolderIdentity{
+  min-width:0;
+  flex:1 1 auto;
+}
+.folderPage .explorerFolderHeader .eyebrow{
+  margin-bottom:5px!important;
+  font-size:.64rem!important;
+}
+.folderPage .folderHeroTitle{
+  gap:9px!important;
+  margin:0!important;
+  font-size:clamp(1.35rem,2vw,1.72rem)!important;
+  line-height:1.16!important;
+  letter-spacing:-.02em!important;
+}
+.folderPage .folderHeroEmoji{
+  width:48px;
+  height:48px;
+  display:grid;
+  place-items:center;
+  flex:0 0 48px;
+  border-radius:14px;
+  background:var(--soft);
+  font-size:1.45rem!important;
+}
+.folderPage .explorerHint{
+  max-width:760px!important;
+  margin:8px 0 0!important;
+  font-size:.72rem!important;
+  line-height:1.5!important;
+}
+.explorerFolderHeaderActions{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+.explorerFolderHeaderActions .customizeTop,
+.explorerFolderHeaderActions .explorerHeaderAdd{
+  min-height:34px!important;
+  margin:0!important;
+  padding:7px 10px!important;
+  border-radius:10px!important;
+  font-size:.68rem!important;
+}
+.explorerFolderHeaderActions .explorerHeaderAdd{
+  white-space:nowrap;
+}
+
+/* Folder cards follow the same grid/gutters as profile room cards. */
+.folderPage .explorerNodeGrid{
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:12px!important;
+  padding:0 8px!important;
+}
+.folderPage .nodeCard.explorerUnifiedCard{
+  min-height:112px!important;
+  border-radius:18px!important;
+}
+.folderPage .nodeCard.explorerUnifiedCard .nodeOpen{
+  min-height:110px!important;
+}
+.folderPage .explorerItems{
+  padding-left:8px;
+  padding-right:8px;
+}
+
+/* The old oversized floating + is no longer part of folder navigation. */
+.folderPage>.bigPlus{
+  display:none!important;
+}
+
+@media (max-width:980px){
+  .folderPage .explorerNodeGrid{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+}
+
+@media (max-width:760px){
+  .friendCenterSheet>.friendCenterHeader{
+    margin:0 0 12px!important;
+    padding:0 0 10px!important;
+  }
+  .folderPage .explorerFolderHeader{
+    align-items:flex-start!important;
+    padding:7px 0 14px!important;
+  }
+  .folderPage .folderHeroEmoji{
+    width:42px;
+    height:42px;
+    flex-basis:42px;
+    border-radius:12px;
+    font-size:1.25rem!important;
+  }
+  .folderPage .folderHeroTitle{
+    font-size:1.18rem!important;
+  }
+  .explorerFolderHeaderActions{
+    align-self:flex-start;
+  }
+  .folderPage .explorerNodeGrid{
+    grid-template-columns:1fr!important;
+    padding:0!important;
+  }
+  .folderPage .explorerItems{
+    padding-left:0;
+    padding-right:0;
+  }
+}
