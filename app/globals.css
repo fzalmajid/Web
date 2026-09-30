@@ -10547,3 +10547,19 @@ body,
     min-width:0!important;
   }
 }
+
+
+/* 2026-09-30: identical Home/folder profile header shell */
+.socialRoomsHeadUnified{
+  align-items:flex-end!important;
+  gap:16px!important;
+  padding-top:18px!important;
+}
+.socialRoomsHeadUnified .profileFolderBreadcrumb{
+  margin-bottom:0!important;
+}
+@media (max-width:760px){
+  .socialRoomsHeadUnified{
+    align-items:flex-start!important;
+  }
+}
