@@ -1,0 +1,83 @@
+/* PROFILE ↔ AI COMPOSER GEOMETRY LOCK — 2026-09-30
+   Loaded after globals.css on purpose. The legacy desktop composer rule uses
+   .gptComposer.bottomAsk { max-width:980px !important }, so this file uses
+   stronger selectors to make the profile and fixed AI composer share one grid. */
+
+@media (min-width:900px){
+  .appShell{
+    --rb-workspace-max-w:1120px;
+    --rb-workspace-outer-gutter:46px;
+    --rb-workspace-inner-edge:8px;
+    --rb-workspace-ai-max-w:1104px;
+  }
+
+  /* Sidebar closed:
+     profile avatar left edge = composer left edge
+     profile action/Teman right edge = composer right edge */
+  .appShell.leftChatSidebarCollapsed .pageShell{
+    width:min(var(--rb-workspace-max-w),calc(100vw - 92px))!important;
+    max-width:var(--rb-workspace-max-w)!important;
+    margin-left:auto!important;
+    margin-right:auto!important;
+    left:0!important;
+    box-sizing:border-box!important;
+  }
+
+  .appShell.leftChatSidebarCollapsed .pageShell>.socialProfilePage,
+  .appShell.leftChatSidebarCollapsed .pageShell>.friendFolderPage{
+    width:100%!important;
+    max-width:100%!important;
+    margin-left:0!important;
+    margin-right:0!important;
+  }
+
+  .appShell.leftChatSidebarCollapsed .gptComposer.bottomAsk,
+  .appShell.leftChatSidebarCollapsed .aiAnswer{
+    left:50%!important;
+    width:min(var(--rb-workspace-ai-max-w),calc(100vw - 108px))!important;
+    max-width:var(--rb-workspace-ai-max-w)!important;
+    transform:translateX(-50%)!important;
+    box-sizing:border-box!important;
+  }
+
+  /* Sidebar open: compress profile/folders/composer as one workspace.
+     Composer stays exactly 16px narrower than pageShell, matching the profile's
+     8px inner inset on each side. */
+  .appShell.leftChatSidebarOpen{
+    --rb-topbar-h:60px;
+    --rb-workspace-left:var(--rb-left-rail-w);
+    --rb-workspace-center-shift:calc(var(--rb-left-rail-w) / 2);
+  }
+
+  .appShell.leftChatSidebarOpen .pageShell{
+    width:min(
+      var(--rb-workspace-max-w),
+      calc(100vw - var(--rb-left-rail-w) - 92px)
+    )!important;
+    max-width:var(--rb-workspace-max-w)!important;
+    margin-left:auto!important;
+    margin-right:auto!important;
+    left:var(--rb-workspace-center-shift)!important;
+    box-sizing:border-box!important;
+  }
+
+  .appShell.leftChatSidebarOpen .pageShell>.socialProfilePage,
+  .appShell.leftChatSidebarOpen .pageShell>.friendFolderPage{
+    width:100%!important;
+    max-width:100%!important;
+    margin-left:0!important;
+    margin-right:0!important;
+  }
+
+  .appShell.leftChatSidebarOpen .gptComposer.bottomAsk,
+  .appShell.leftChatSidebarOpen .aiAnswer{
+    left:calc(50% + var(--rb-workspace-center-shift))!important;
+    width:min(
+      var(--rb-workspace-ai-max-w),
+      calc(100vw - var(--rb-left-rail-w) - 108px)
+    )!important;
+    max-width:var(--rb-workspace-ai-max-w)!important;
+    transform:translateX(-50%)!important;
+    box-sizing:border-box!important;
+  }
+}
