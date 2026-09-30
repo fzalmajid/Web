@@ -872,12 +872,11 @@ function FriendCenter({
       .neq("user_id", me)
       .not("last_active_at", "is", null)
       .order("last_active_at", { ascending: false, nullsFirst: false })
-      .limit(16);
+      .limit(100);
 
     setRecommendations(
       ((suggestionRows || []) as UserProfile[])
         .filter((item) => !connectedIds.has(item.user_id))
-        .slice(0, 6)
     );
   }
 
@@ -1014,27 +1013,33 @@ function FriendCenter({
           {searchBusy && <small>Mencari...</small>}
         </div>
 
-        {!query.trim() && recommendations.length > 0 && (
+        {!query.trim() && (
           <div className="socialPeopleSection socialRecommendationSection">
             <h3>Rekomendasi teman <span>{recommendations.length}</span></h3>
-            <div className="socialRecommendationList">
-              {recommendations.map((person) => (
-                <PersonRow
-                  key={person.user_id}
-                  person={person}
-                  trailing={
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={actionBusy === person.user_id}
-                      onClick={() => void send(person.user_id)}
-                    >
-                      {actionBusy === person.user_id ? "Mengirim..." : "Tambah"}
-                    </button>
-                  }
-                />
-              ))}
-            </div>
+            {recommendations.length ? (
+              <div className="socialRecommendationList">
+                {recommendations.map((person) => (
+                  <PersonRow
+                    key={person.user_id}
+                    person={person}
+                    trailing={
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={actionBusy === person.user_id}
+                        onClick={() => void send(person.user_id)}
+                      >
+                        {actionBusy === person.user_id ? "Mengirim..." : "Tambah"}
+                      </button>
+                    }
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="muted socialRecommendationEmpty">
+                Belum ada rekomendasi baru. Akun yang sudah berteman atau sedang menunggu konfirmasi tidak ditampilkan di sini.
+              </p>
+            )}
           </div>
         )}
 
