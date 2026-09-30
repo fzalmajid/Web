@@ -20,6 +20,7 @@ type UserProfile = {
   avatar_emoji: string;
   onboarding_completed?: boolean;
   auto_accept_friends: boolean;
+  last_active_at?: string | null;
   created_at?: string;
 };
 
@@ -68,6 +69,8 @@ export default function ProfileHome({
   onOpenRoom,
   onOpenProfile,
   onAddRoom,
+  onCustomizeRoom,
+  onDeleteRoom,
   onAccessChange,
   onProfileChanged,
 }: {
@@ -77,6 +80,8 @@ export default function ProfileHome({
   onOpenRoom: (roomId: string) => void;
   onOpenProfile: (userId: string) => void;
   onAddRoom: () => void;
+  onCustomizeRoom?: (roomId: string) => void;
+  onDeleteRoom?: (roomId: string) => void;
   onAccessChange: (canReadReference: boolean) => void;
   onProfileChanged?: () => void;
 }) {
@@ -103,6 +108,44 @@ export default function ProfileHome({
   const [busy, setBusy] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [roomMenuId, setRoomMenuId] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<UserProfile[]>([]);
+  const [recommendationBusy, setRecommendationBusy] = useState("");
+
+  async function refreshRecommendations() {
+    if (!ownProfile) {
+      setRecommendations([]);
+      return;
+    }
+
+    const [connectionResult, profileResult] = await Promise.all([
+      supabase
+        .from("friend_connections")
+        .select("requester_id,addressee_id,status")
+        .or("requester_id.eq." + me + ",addressee_id.eq." + me),
+      supabase
+        .from("user_profiles")
+        .select("*")
+        .neq("user_id", me)
+        .not("last_active_at", "is", null)
+        .order("last_active_at", { ascending: false, nullsFirst: false })
+        .limit(16),
+    ]);
+
+    if (profileResult.error) return;
+
+    const blocked = new Set<string>();
+    for (const row of (connectionResult.data || []) as Array<Pick<FriendConnection, "requester_id" | "addressee_id" | "status">>) {
+      if (row.status === "declined") continue;
+      blocked.add(row.requester_id === me ? row.addressee_id : row.requester_id);
+    }
+
+    setRecommendations(
+      ((profileResult.data || []) as UserProfile[])
+        .filter((item) => !blocked.has(item.user_id))
+        .slice(0, 4)
+    );
+  }
 
   async function refreshProfile() {
     const [profileResult, statsResult] = await Promise.all([
@@ -160,7 +203,18 @@ export default function ProfileHome({
     setRelationship(ownProfile ? "self" : "none");
     setConnection(null);
     void refreshProfile();
+    if (ownProfile) void refreshRecommendations();
+    else setRecommendations([]);
   }, [ownerUserId, me, ownProfile, ownFallbackProfile]);
+
+  async function sendSuggestedRequest(userId: string) {
+    setRecommendationBusy(userId);
+    const { error } = await supabase.rpc("send_friend_request", { p_target_user_id: userId });
+    setRecommendationBusy("");
+    if (error) return alert(error.message);
+    await refreshRecommendations();
+    onProfileChanged?.();
+  }
 
   async function sendRequest() {
     setBusy(true);
@@ -282,23 +336,83 @@ export default function ProfileHome({
         {ownProfile && <button type="button" className="primary socialAddRoom" onClick={onAddRoom}>+ Ruang Belajar</button>}
       </div>
 
+      {ownProfile && recommendations.length > 0 && (
+        <section className="socialSuggestions">
+          <div className="socialSuggestionsHead">
+            <div>
+              <p className="eyebrow">REKOMENDASI</p>
+              <h2>Teman belajar yang mungkin kamu kenal</h2>
+            </div>
+            <button type="button" className="textBtn" onClick={() => setFriendsOpen(true)}>Cari lainnya</button>
+          </div>
+          <div className="socialSuggestionGrid">
+            {recommendations.map((person) => (
+              <article className="socialSuggestionCard" key={person.user_id}>
+                <button type="button" className="socialSuggestionMain" onClick={() => onOpenProfile(person.user_id)}>
+                  <ProfileAvatar profile={person} />
+                  <span>
+                    <strong>{person.display_name || person.username}</strong>
+                    <small>@{person.username}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="ghost socialSuggestionAdd"
+                  disabled={recommendationBusy === person.user_id}
+                  onClick={() => void sendSuggestedRequest(person.user_id)}
+                >
+                  {recommendationBusy === person.user_id ? "Mengirim..." : "Tambah"}
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {canReadReference ? (
         rooms.length ? (
           <div className="socialRoomGrid">
             {rooms.map((room) => (
-              <button
-                type="button"
+              <article
                 className="socialRoomCard"
                 data-color={room.card_color || "default"}
                 key={room.id}
-                onClick={() => onOpenRoom(room.id)}
               >
-                <span className="socialRoomIcon">{room.emoji || "📁"}</span>
-                <span>
-                  <small>Ruang Belajar</small>
-                  <strong>{room.title}</strong>
-                </span>
-              </button>
+                <button
+                  type="button"
+                  className="socialRoomOpen"
+                  onClick={() => {
+                    setRoomMenuId(null);
+                    onOpenRoom(room.id);
+                  }}
+                >
+                  <span className="socialRoomIcon">{room.emoji || "📁"}</span>
+                  <span className="socialRoomCopy">
+                    <small>Ruang Belajar</small>
+                    <strong>{room.title}</strong>
+                  </span>
+                </button>
+                {ownProfile && (
+                  <>
+                    <button
+                      type="button"
+                      className="socialRoomDots"
+                      aria-label={"Opsi " + room.title}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setRoomMenuId((current) => current === room.id ? null : room.id);
+                      }}
+                    >...</button>
+                    {roomMenuId === room.id && (
+                      <div className="socialRoomMenu">
+                        <button type="button" onClick={() => { setRoomMenuId(null); onOpenRoom(room.id); }}>Buka</button>
+                        {onCustomizeRoom && <button type="button" onClick={() => { setRoomMenuId(null); onCustomizeRoom(room.id); }}>Sesuaikan</button>}
+                        {onDeleteRoom && <button type="button" className="dangerMenuItem" onClick={() => { setRoomMenuId(null); onDeleteRoom(room.id); }}>Hapus</button>}
+                      </div>
+                    )}
+                  </>
+                )}
+              </article>
             ))}
           </div>
         ) : (
