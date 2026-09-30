@@ -1454,7 +1454,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           />
         ) : (
           <>
-        {current && (
+        {current && !isFolderLikeNode(current) && (
           <div className="pageNav explorerPathNav">
             <div className="crumbs explorerPathBar" aria-label="Lokasi folder">
               <button
@@ -1520,7 +1520,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           </div>
         )}
 
-        {!current ? (
+        {(!current || isFolderLikeNode(current)) && (
           <ProfileHome
             session={session}
             ownerUserId={viewedOwnerId}
@@ -1547,35 +1547,51 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             onProfileChanged={refresh}
             openFriendsRequest={profileFriendsRequest}
             openEditRequest={profileEditRequest}
+            activeFolder={current && isFolderLikeNode(current) ? {
+              id: current.id,
+              title: current.title,
+              emoji: current.emoji,
+              card_color: current.card_color,
+            } : null}
+            activeFolderPath={current && isFolderLikeNode(current)
+              ? path.slice(0, -1).map((item) => ({ id: item.id, title: item.title }))
+              : []}
+            onBackToRooms={() => setCurrentId(null)}
+            onUploadActive={() => setAddOpen(true)}
+            activeContent={current && isFolderLikeNode(current)
+              ? (
+                viewingOwnProfile ? (
+                  <FolderPage
+                    session={session}
+                    user={user}
+                    current={current}
+                    children={children}
+                    nodes={nodes}
+                    entries={entries}
+                    files={files}
+                    recordings={recordings}
+                    onOpen={setCurrentId}
+                    onAdd={() => setAddOpen(true)}
+                    onCustomize={setCustomizeNode}
+                    onDelete={removeNode}
+                    onChange={refresh}
+                    embedded
+                  />
+                ) : (
+                  <FriendFolderPage
+                    current={current}
+                    children={children}
+                    entries={entries}
+                    files={files}
+                    recordings={recordings}
+                    onOpen={setCurrentId}
+                    embedded
+                  />
+                )
+              )
+              : null}
           />
-        ) : isFolderLikeNode(current) ? (
-          viewingOwnProfile ? (
-            <FolderPage
-              session={session}
-              user={user}
-              current={current}
-              children={children}
-              nodes={nodes}
-              entries={entries}
-              files={files}
-              recordings={recordings}
-              onOpen={setCurrentId}
-              onAdd={() => setAddOpen(true)}
-              onCustomize={setCustomizeNode}
-              onDelete={removeNode}
-              onChange={refresh}
-            />
-          ) : (
-            <FriendFolderPage
-              current={current}
-              children={children}
-              entries={entries}
-              files={files}
-              recordings={recordings}
-              onOpen={setCurrentId}
-            />
-          )
-        ) : null}
+        )}
 
         {current?.node_type === "recording" && (
           <RecordingPage
@@ -2340,6 +2356,7 @@ function FolderPage({
   onCustomize,
   onDelete,
   onChange,
+  embedded = false,
 }: {
   session: Session;
   user: User;
@@ -2354,6 +2371,7 @@ function FolderPage({
   onCustomize: (node: StudyNode) => void;
   onDelete: (node: StudyNode) => void;
   onChange: () => void;
+  embedded?: boolean;
 }) {
   const [dropActive, setDropActive] = useState(false);
   const [dropBusy, setDropBusy] = useState(false);
@@ -2650,7 +2668,7 @@ function FolderPage({
 
   return (
     <section
-      className={dropActive ? "folderPage explorerDropActive" : "folderPage"}
+      className={(embedded ? "folderPage embeddedFolderPage" : "folderPage") + (dropActive ? " explorerDropActive" : "")}
       onDragOver={(event) => {
         const acceptsRootMove = !current && event.dataTransfer?.types?.includes("application/x-rb-explorer-item");
         if (!current && !acceptsRootMove) return;
@@ -2662,26 +2680,28 @@ function FolderPage({
       }}
       onDrop={handlePageDrop}
     >
-      <div className="folderTitle folderTitleRow explorerFolderHeader">
-        <div className="explorerFolderIdentity">
-          <p className="eyebrow">{current ? "FOLDER BELAJAR" : "RUANG BELAJAR"}</p>
-          <h1 className="folderHeroTitle">
-            {current?.emoji && <span className="folderHeroEmoji" aria-hidden="true">{current.emoji}</span>}
-            <span>{current ? current.title : "Materi saya"}</span>
-          </h1>
+      {!embedded && (
+        <div className="folderTitle folderTitleRow explorerFolderHeader">
+          <div className="explorerFolderIdentity">
+            <p className="eyebrow">{current ? "FOLDER BELAJAR" : "RUANG BELAJAR"}</p>
+            <h1 className="folderHeroTitle">
+              {current?.emoji && <span className="folderHeroEmoji" aria-hidden="true">{current.emoji}</span>}
+              <span>{current ? current.title : "Materi saya"}</span>
+            </h1>
+            {current && (
+              <p className="muted explorerHint">
+                Folder ini sekaligus Database. Drop file/foto/audio di sini, atau gunakan Upload untuk file, link, teks, rekaman, subfolder, Study, Flashcard, Kuis, atau Tugas.
+              </p>
+            )}
+          </div>
           {current && (
-            <p className="muted explorerHint">
-              Folder ini sekaligus Database. Drop file/foto/audio di sini, atau gunakan Upload untuk file, link, teks, rekaman, subfolder, Study, Flashcard, Kuis, atau Tugas.
-            </p>
+            <div className="explorerFolderHeaderActions">
+              <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>
+              <button className="primary socialAddRoom explorerHeaderAdd" onClick={onAdd}>+ Upload</button>
+            </div>
           )}
         </div>
-        {current && (
-          <div className="explorerFolderHeaderActions">
-            <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>
-            <button className="primary socialAddRoom explorerHeaderAdd" onClick={onAdd}>+ Upload</button>
-          </div>
-        )}
-      </div>
+      )}
 
       {dropActive && (
         <div className="folderDropChip">
