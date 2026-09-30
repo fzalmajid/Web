@@ -80,6 +80,11 @@ export default function ProfileHome({
   onProfileChanged,
   openFriendsRequest = 0,
   openEditRequest = 0,
+  activeFolder = null,
+  activeFolderPath = [],
+  activeContent = null,
+  onBackToRooms,
+  onUploadActive,
 }: {
   session: Session;
   ownerUserId: string;
@@ -93,6 +98,11 @@ export default function ProfileHome({
   onProfileChanged?: () => void;
   openFriendsRequest?: number;
   openEditRequest?: number;
+  activeFolder?: SocialRoomCard | null;
+  activeFolderPath?: Array<{ id: string; title: string }>;
+  activeContent?: React.ReactNode;
+  onBackToRooms?: () => void;
+  onUploadActive?: () => void;
 }) {
   const me = session.user.id;
   const ownProfile = ownerUserId === me;
@@ -294,17 +304,46 @@ export default function ProfileHome({
         </div>
       </div>
 
-      <div className="socialRoomsHead">
+      <div className={activeFolder ? "socialRoomsHead socialRoomsHeadNested" : "socialRoomsHead"}>
         <div>
-          <p className="eyebrow">{ownProfile ? "PROFIL SAYA" : "PROFIL TEMAN"}</p>
-          <h2>Ruang Belajar</h2>
+          {activeFolder ? (
+            <>
+              <div className="profileFolderBreadcrumb" aria-label="Lokasi folder">
+                <button type="button" onClick={onBackToRooms}>Ruang Belajar</button>
+                {activeFolderPath.map((item, index) => (
+                  <span key={item.id}>
+                    <b>/</b>
+                    <span>{item.title}</span>
+                  </span>
+                ))}
+              </div>
+              <h2 className="profileActiveFolderTitle">
+                <span className="profileActiveFolderIcon">{activeFolder.emoji || "📁"}</span>
+                <span>{activeFolder.title}</span>
+              </h2>
+            </>
+          ) : (
+            <>
+              <p className="eyebrow">{ownProfile ? "PROFIL SAYA" : "PROFIL TEMAN"}</p>
+              <h2>Ruang Belajar</h2>
+            </>
+          )}
         </div>
-        {ownProfile && <button type="button" className="primary socialAddRoom" onClick={onAddRoom}>+ Upload</button>}
+        {ownProfile && (
+          <button
+            type="button"
+            className="primary socialAddRoom"
+            onClick={activeFolder ? onUploadActive : onAddRoom}
+          >
+            + Upload
+          </button>
+        )}
       </div>
 
-
       {canReadReference ? (
-        rooms.length ? (
+        activeContent ? (
+          <div className="socialEmbeddedFolder">{activeContent}</div>
+        ) : rooms.length ? (
           <div className="socialRoomGrid">
             {rooms.map((room) => (
               <article
