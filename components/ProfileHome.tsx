@@ -73,6 +73,8 @@ export default function ProfileHome({
   onDeleteRoom,
   onAccessChange,
   onProfileChanged,
+  openFriendsRequest = 0,
+  openEditRequest = 0,
 }: {
   session: Session;
   ownerUserId: string;
@@ -84,6 +86,8 @@ export default function ProfileHome({
   onDeleteRoom?: (roomId: string) => void;
   onAccessChange: (canReadReference: boolean) => void;
   onProfileChanged?: () => void;
+  openFriendsRequest?: number;
+  openEditRequest?: number;
 }) {
   const me = session.user.id;
   const ownProfile = ownerUserId === me;
@@ -168,6 +172,14 @@ export default function ProfileHome({
     setConnection(null);
     void refreshProfile();
   }, [ownerUserId, me, ownProfile, ownFallbackProfile]);
+
+  useEffect(() => {
+    if (ownProfile && openFriendsRequest > 0) setFriendsOpen(true);
+  }, [openFriendsRequest, ownProfile]);
+
+  useEffect(() => {
+    if (ownProfile && openEditRequest > 0) setEditOpen(true);
+  }, [openEditRequest, ownProfile]);
 
 
   async function sendRequest() {
