@@ -1,6 +1,8 @@
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { inferReferenceMetadata, mergeReferenceMetadata, titleSimilarity } from "@/lib/referenceMetadata";
 
+// Server-only Mendeley credentials are read from Vercel environment variables.
+// Never expose the client secret to the browser bundle.
 let cachedMendeley: { token: string; expiresAt: number } | null = null;
 
 export function mendeleyConfigured() {
