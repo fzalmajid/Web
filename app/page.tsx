@@ -1984,7 +1984,7 @@ type PdfImportProgress = {
 /** A page batch is one request so scanned/long PDFs do not time out in one giant OCR call. */
 async function importStoredRawFile(
   session: Session,
-  row: Pick<SourceFile, "id" | "file_path" | "file_name" | "mime_type" | "node_id">,
+  row: Pick<SourceFile, "id" | "file_path" | "file_name" | "mime_type"> & { node_id: string | null },
   selection: AiSelection,
   onProgress?: (progress: PdfImportProgress) => void,
   options?: { ocrPartPath?: string; pdfPageOffset?: number; pdfAppend?: boolean }
