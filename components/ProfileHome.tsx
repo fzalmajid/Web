@@ -11,7 +11,7 @@ export type SocialRoomCard = {
   card_color?: string | null;
 };
 
-type UserProfile = {
+export type UserProfile = {
   user_id: string;
   username: string;
   display_name: string;
@@ -612,14 +612,14 @@ function AvatarCropEditor({
   );
 }
 
-function EditProfileSheet({
+export function ProfileEditorPanel({
   profile,
-  onClose,
   onSaved,
+  submitLabel = "Simpan profil",
 }: {
   profile: UserProfile;
-  onClose: () => void;
   onSaved: () => void;
+  submitLabel?: string;
 }) {
   const [displayName, setDisplayName] = useState(profile.display_name || "");
   const [username, setUsername] = useState(profile.username || "");
@@ -720,148 +720,160 @@ function EditProfileSheet({
   }
 
   return (
-    <div className="sheetBackdrop" onMouseDown={() => !busy && onClose()}>
+    <div className="stack profileEditorPanel">
+      <div className="profilePhotoEditor">
+        <div
+          className="profilePhotoPreview"
+          style={!avatarPreview ? { background: avatarBgColor } : undefined}
+        >
+          {avatarPreview ? (
+            <img src={avatarPreview} alt="Foto profil" />
+          ) : (
+            <span>{avatarEmoji || "📚"}</span>
+          )}
+        </div>
+        <div className="profilePhotoEditorMain">
+          <strong>Foto profil</strong>
+          <small className="muted">Foto atau avatar emoji yang tampil di profil dan daftar teman.</small>
+          <button
+            type="button"
+            className="ghost profileChangePhotoButton"
+            onClick={() => {
+              setPhotoOptionsOpen((value) => !value);
+              if (photoOptionsOpen) setAvatarEditorMode(null);
+            }}
+          >
+            Ubah foto profil
+          </button>
+        </div>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        className="profilePhotoHiddenInput"
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        onChange={(event) => {
+          chooseImage(event.target.files?.[0]);
+          event.currentTarget.value = "";
+        }}
+      />
+
+      {photoOptionsOpen && (
+        <div className="profileAvatarOptions">
+          <button
+            type="button"
+            className={avatarEditorMode === "photo" ? "profileAvatarOption active" : "profileAvatarOption"}
+            onClick={() => setAvatarEditorMode("photo")}
+          >
+            <span>🖼️</span>
+            <div>
+              <strong>Foto</strong>
+              <small>Pilih gambar, lalu atur posisi dan zoom.</small>
+            </div>
+          </button>
+          <button
+            type="button"
+            className={avatarEditorMode === "emoji" ? "profileAvatarOption active" : "profileAvatarOption"}
+            onClick={openEmojiAvatarEditor}
+          >
+            <span>🙂</span>
+            <div>
+              <strong>Emoji</strong>
+              <small>Pilih emoji dan warna background.</small>
+            </div>
+          </button>
+        </div>
+      )}
+
+      {avatarEditorMode === "emoji" && photoOptionsOpen && (
+        <div className="profileEmojiEditor">
+          <div className="profileEmojiField">
+            <span className="profileEmojiLabel">Emoji</span>
+            <div className="profileEmojiGrid">
+              {STUDY_PROFILE_EMOJIS.map((emoji) => (
+                <button
+                  type="button"
+                  key={emoji}
+                  className={avatarEmoji === emoji ? "profileEmojiChoice active" : "profileEmojiChoice"}
+                  onClick={() => activateEmojiAvatar(emoji, avatarBgColor)}
+                  aria-label={"Pilih avatar " + emoji}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="profileColorField">
+            <span className="profileEmojiLabel">Warna background</span>
+            <div className="profileColorGrid">
+              {PROFILE_BG_COLORS.map((color) => (
+                <button
+                  type="button"
+                  key={color}
+                  className={avatarBgColor === color ? "profileColorChoice active" : "profileColorChoice"}
+                  style={{ background: color }}
+                  aria-label={"Pilih warna " + color}
+                  onClick={() => activateEmojiAvatar(avatarEmoji, color)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {avatarEditorMode === "photo" && photoOptionsOpen && (
+        <AvatarCropEditor
+          src={cropSrc}
+          onPick={() => fileInputRef.current?.click()}
+          onCropReady={(blob) => {
+            setPendingAvatarBlob(blob);
+            setAvatarPreview((previous) => {
+              if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+              return URL.createObjectURL(blob);
+            });
+          }}
+        />
+      )}
+
+      <label>Nama
+        <input value={displayName} maxLength={80} onChange={(e) => setDisplayName(e.target.value)} />
+      </label>
+      <label>Username
+        <div className="socialUsernameInput"><span>@</span><input value={username} maxLength={32} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ""))} /></div>
+      </label>
+      <label>Bio
+        <textarea rows={4} value={bio} maxLength={220} onChange={(e) => setBio(e.target.value)} />
+        <small className="muted">{bio.length}/220</small>
+      </label>
+      {errorText && <div className="notice">{errorText}</div>}
+      <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
+        {busy ? "Menyimpan..." : submitLabel}
+      </button>
+    </div>
+  );
+}
+
+function EditProfileSheet({
+  profile,
+  onClose,
+  onSaved,
+}: {
+  profile: UserProfile;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  return (
+    <div className="sheetBackdrop" onMouseDown={onClose}>
       <section className="addSheet socialEditSheet" onMouseDown={(event) => event.stopPropagation()}>
         <div className="sheetHead">
           <div>
             <p className="eyebrow">PROFIL</p>
             <h2>Edit profil</h2>
           </div>
-          <button className="closeBtn" type="button" disabled={busy} onClick={onClose}>×</button>
+          <button className="closeBtn" type="button" onClick={onClose}>×</button>
         </div>
-        <div className="stack">
-          <div className="profilePhotoEditor">
-            <div
-              className="profilePhotoPreview"
-              style={!avatarPreview ? { background: avatarBgColor } : undefined}
-            >
-              {avatarPreview ? (
-                <img src={avatarPreview} alt="Foto profil" />
-              ) : (
-                <span>{avatarEmoji || "📚"}</span>
-              )}
-            </div>
-            <div className="profilePhotoEditorMain">
-              <strong>Foto profil</strong>
-              <small className="muted">Foto atau avatar emoji yang tampil di profil, teman, dan bar akun.</small>
-              <button
-                type="button"
-                className="ghost profileChangePhotoButton"
-                onClick={() => {
-                  setPhotoOptionsOpen((value) => !value);
-                  if (photoOptionsOpen) setAvatarEditorMode(null);
-                }}
-              >
-                Ubah foto profil
-              </button>
-            </div>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            className="profilePhotoHiddenInput"
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={(event) => {
-              chooseImage(event.target.files?.[0]);
-              event.currentTarget.value = "";
-            }}
-          />
-
-          {photoOptionsOpen && (
-            <div className="profileAvatarOptions">
-              <button
-                type="button"
-                className={avatarEditorMode === "photo" ? "profileAvatarOption active" : "profileAvatarOption"}
-                onClick={() => {
-                  setAvatarEditorMode("photo");
-                }}
-              >
-                <span>🖼️</span>
-                <div>
-                  <strong>Foto</strong>
-                  <small>Upload gambar, lalu atur posisi dan zoom.</small>
-                </div>
-              </button>
-              <button
-                type="button"
-                className={avatarEditorMode === "emoji" ? "profileAvatarOption active" : "profileAvatarOption"}
-                onClick={openEmojiAvatarEditor}
-              >
-                <span>🙂</span>
-                <div>
-                  <strong>Emoji</strong>
-                  <small>Pilih emoji dan warna background.</small>
-                </div>
-              </button>
-            </div>
-          )}
-
-          {avatarEditorMode === "emoji" && photoOptionsOpen && (
-            <div className="profileEmojiEditor">
-              <div className="profileEmojiField">
-                <span className="profileEmojiLabel">Emoji</span>
-                <div className="profileEmojiGrid">
-                  {STUDY_PROFILE_EMOJIS.map((emoji) => (
-                    <button
-                      type="button"
-                      key={emoji}
-                      className={avatarEmoji === emoji ? "profileEmojiChoice active" : "profileEmojiChoice"}
-                      onClick={() => activateEmojiAvatar(emoji, avatarBgColor)}
-                      aria-label={"Pilih avatar " + emoji}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="profileColorField">
-                <span className="profileEmojiLabel">Warna background</span>
-                <div className="profileColorGrid">
-                  {PROFILE_BG_COLORS.map((color) => (
-                    <button
-                      type="button"
-                      key={color}
-                      className={avatarBgColor === color ? "profileColorChoice active" : "profileColorChoice"}
-                      style={{ background: color }}
-                      aria-label={"Pilih warna " + color}
-                      onClick={() => activateEmojiAvatar(avatarEmoji, color)}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {avatarEditorMode === "photo" && photoOptionsOpen && (
-            <AvatarCropEditor
-              src={cropSrc}
-              onPick={() => fileInputRef.current?.click()}
-              onCropReady={(blob) => {
-                setPendingAvatarBlob(blob);
-                setAvatarPreview((previous) => {
-                  if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
-                  return URL.createObjectURL(blob);
-                });
-              }}
-            />
-          )}
-
-          <label>Nama
-            <input value={displayName} maxLength={80} onChange={(e) => setDisplayName(e.target.value)} />
-          </label>
-          <label>Username
-            <div className="socialUsernameInput"><span>@</span><input value={username} maxLength={32} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ""))} /></div>
-          </label>
-          <label>Bio
-            <textarea rows={4} value={bio} maxLength={220} onChange={(e) => setBio(e.target.value)} />
-            <small className="muted">{bio.length}/220</small>
-          </label>
-          {errorText && <div className="notice">{errorText}</div>}
-          <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
-            {busy ? "Menyimpan..." : "Simpan profil"}
-          </button>
-        </div>
+        <ProfileEditorPanel profile={profile} onSaved={onSaved} />
       </section>
     </div>
   );
