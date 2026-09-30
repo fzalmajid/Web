@@ -2960,6 +2960,14 @@ function FolderPage({
               if (entry) void renameEntry(entry);
             }
           }}
+          onMetadata={() => {
+            const item = contextMenu.item;
+            closeContextMenu();
+            if (item.kind === "file") {
+              const file = files.find((row) => row.id === item.id);
+              if (file) setMetadataFile(file);
+            }
+          }}
           onCopy={() => copyItem(contextMenu.item)}
           onPaste={pasteIntoCurrent}
           onDownload={() => void downloadContextItem(contextMenu.item)}
@@ -2996,6 +3004,18 @@ function FolderPage({
                 }
               }
             : undefined}
+        />
+      )}
+
+      {metadataFile && (
+        <ReferenceMetadataModal
+          file={metadataFile}
+          session={session}
+          onClose={() => setMetadataFile(null)}
+          onSaved={() => {
+            setMetadataFile(null);
+            onChange();
+          }}
         />
       )}
 
@@ -3184,6 +3204,7 @@ function ExplorerActionMenu({
   onPreview,
   onCustomizeNode,
   onRename,
+  onMetadata,
   canEditContent,
   onEditContent,
   onCopy,
@@ -3200,6 +3221,7 @@ function ExplorerActionMenu({
   onPreview: () => void;
   onCustomizeNode: () => void;
   onRename: () => void;
+  onMetadata: () => void;
   canEditContent: boolean;
   onEditContent: () => void;
   onCopy: () => void;
@@ -3231,6 +3253,7 @@ function ExplorerActionMenu({
         ) : (
           <>
             {(file || entry) && <button type="button" onClick={onRename}>Ubah nama</button>}
+            {file && <button type="button" onClick={onMetadata}>Metadata referensi</button>}
             {canEditContent && <button type="button" onClick={onEditContent}>Edit isi</button>}
             <button type="button" onClick={onCopy}>Copy</button>
             {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
