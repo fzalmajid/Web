@@ -18,6 +18,7 @@ type UserProfile = {
   bio: string;
   avatar_url: string | null;
   avatar_emoji: string;
+  avatar_bg_color: string;
   onboarding_completed?: boolean;
   auto_accept_friends: boolean;
   last_active_at?: string | null;
@@ -25,6 +26,7 @@ type UserProfile = {
 };
 
 const STUDY_PROFILE_EMOJIS = ["📚","🧠","🎓","🔬","🧪","💡","✍️","🌱","🚀","🧩","📐","🩺"];
+const PROFILE_BG_COLORS = ["#10231d","#D55B82","#5B7FD5","#6A5BD5","#0E9AA7","#E57A1F","#6A8E3A","#4A5568","#8A5A44","#B14F7A","#2B6F6D","#B08A2E"];
 
 type FriendConnection = {
   id: string;
@@ -50,7 +52,10 @@ function initials(profile: UserProfile | null) {
 
 function ProfileAvatar({ profile, large = false }: { profile: UserProfile | null; large?: boolean }) {
   return (
-    <span className={large ? "socialAvatar socialAvatarLarge" : "socialAvatar"}>
+    <span
+      className={large ? "socialAvatar socialAvatarLarge" : "socialAvatar"}
+      style={!profile?.avatar_url ? { background: profile?.avatar_bg_color || "#10231d" } : undefined}
+    >
       {profile?.avatar_url ? (
         <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" />
       ) : profile?.avatar_emoji ? (
@@ -100,6 +105,7 @@ export default function ProfileHome({
     bio: "",
     avatar_url: null,
     avatar_emoji: "📚",
+    avatar_bg_color: "#10231d",
     onboarding_completed: false,
     auto_accept_friends: false,
   }), [me, emailLocal, fallbackUsername, session.user.user_metadata]);
@@ -534,10 +540,14 @@ function EditProfileSheet({
   const [username, setUsername] = useState(profile.username || "");
   const [bio, setBio] = useState(profile.bio || "");
   const [avatarEmoji, setAvatarEmoji] = useState(profile.avatar_emoji || "📚");
+  const [avatarBgColor, setAvatarBgColor] = useState(profile.avatar_bg_color || "#10231d");
   const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url || "");
   const [avatarPreview, setAvatarPreview] = useState(profile.avatar_url || "");
   const [pendingAvatarBlob, setPendingAvatarBlob] = useState<Blob | null>(null);
   const [cropSrc, setCropSrc] = useState("");
+  const [photoOptionsOpen, setPhotoOptionsOpen] = useState(false);
+  const [avatarEditorMode, setAvatarEditorMode] = useState<"photo" | "emoji" | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [errorText, setErrorText] = useState("");
 
@@ -565,6 +575,7 @@ function EditProfileSheet({
     setAvatarPreview("");
     setAvatarUrl("");
     setCropSrc("");
+    setAvatarEditorMode("emoji");
   }
 
   async function save() {
@@ -602,6 +613,7 @@ function EditProfileSheet({
         display_name: displayName.trim().slice(0, 80),
         bio: bio.trim().slice(0, 220),
         avatar_emoji: avatarEmoji || "📚",
+        avatar_bg_color: avatarBgColor,
         avatar_url: nextAvatarUrl || null,
         onboarding_completed: true,
         updated_at: new Date().toISOString(),
@@ -628,28 +640,108 @@ function EditProfileSheet({
         </div>
         <div className="stack">
           <div className="profilePhotoEditor">
-            <div className="profilePhotoPreview">
+            <div
+              className="profilePhotoPreview"
+              style={!avatarPreview ? { background: avatarBgColor } : undefined}
+            >
               {avatarPreview ? (
                 <img src={avatarPreview} alt="Foto profil" />
               ) : (
                 <span>{avatarEmoji || "📚"}</span>
               )}
             </div>
-            <div className="profilePhotoEditorActions">
-              <label className="ghost profilePhotoUpload">
-                Upload foto
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={(event) => {
-                    chooseImage(event.target.files?.[0]);
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </label>
-              <button type="button" className="ghost" onClick={useEmojiAvatar}>Pakai emoji</button>
+            <div className="profilePhotoEditorMain">
+              <strong>Foto profil</strong>
+              <small className="muted">Foto atau avatar emoji yang tampil di profil, teman, dan bar akun.</small>
+              <button
+                type="button"
+                className="ghost profileChangePhotoButton"
+                onClick={() => {
+                  setPhotoOptionsOpen((value) => !value);
+                  if (photoOptionsOpen) setAvatarEditorMode(null);
+                }}
+              >
+                Ubah foto profil
+              </button>
             </div>
           </div>
+
+          <input
+            ref={fileInputRef}
+            className="profilePhotoHiddenInput"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={(event) => {
+              chooseImage(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
+
+          {photoOptionsOpen && (
+            <div className="profileAvatarOptions">
+              <button
+                type="button"
+                className={avatarEditorMode === "photo" ? "profileAvatarOption active" : "profileAvatarOption"}
+                onClick={() => {
+                  setAvatarEditorMode("photo");
+                  fileInputRef.current?.click();
+                }}
+              >
+                <span>🖼️</span>
+                <div>
+                  <strong>Foto</strong>
+                  <small>Upload gambar, lalu atur posisi dan zoom.</small>
+                </div>
+              </button>
+              <button
+                type="button"
+                className={avatarEditorMode === "emoji" ? "profileAvatarOption active" : "profileAvatarOption"}
+                onClick={useEmojiAvatar}
+              >
+                <span>🙂</span>
+                <div>
+                  <strong>Emoji</strong>
+                  <small>Pilih emoji dan warna background.</small>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {avatarEditorMode === "emoji" && photoOptionsOpen && (
+            <div className="profileEmojiEditor">
+              <div className="profileEmojiField">
+                <span className="profileEmojiLabel">Emoji</span>
+                <div className="profileEmojiGrid">
+                  {STUDY_PROFILE_EMOJIS.map((emoji) => (
+                    <button
+                      type="button"
+                      key={emoji}
+                      className={avatarEmoji === emoji ? "profileEmojiChoice active" : "profileEmojiChoice"}
+                      onClick={() => setAvatarEmoji(emoji)}
+                      aria-label={"Pilih avatar " + emoji}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="profileColorField">
+                <span className="profileEmojiLabel">Warna background</span>
+                <div className="profileColorGrid">
+                  {PROFILE_BG_COLORS.map((color) => (
+                    <button
+                      type="button"
+                      key={color}
+                      className={avatarBgColor === color ? "profileColorChoice active" : "profileColorChoice"}
+                      style={{ background: color }}
+                      aria-label={"Pilih warna " + color}
+                      onClick={() => setAvatarBgColor(color)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {cropSrc && (
             <AvatarCropEditor
@@ -665,6 +757,8 @@ function EditProfileSheet({
                 setAvatarPreview(preview);
                 if (cropSrc.startsWith("blob:")) URL.revokeObjectURL(cropSrc);
                 setCropSrc("");
+                setAvatarEditorMode("photo");
+                setPhotoOptionsOpen(false);
               }}
             />
           )}
@@ -675,26 +769,6 @@ function EditProfileSheet({
           <label>Username
             <div className="socialUsernameInput"><span>@</span><input value={username} maxLength={32} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ""))} /></div>
           </label>
-          <div className="profileEmojiField">
-            <span className="profileEmojiLabel">Avatar emoji</span>
-            <div className="profileEmojiGrid">
-              {STUDY_PROFILE_EMOJIS.map((emoji) => (
-                <button
-                  type="button"
-                  key={emoji}
-                  className={avatarEmoji === emoji ? "profileEmojiChoice active" : "profileEmojiChoice"}
-                  onClick={() => {
-                    setAvatarEmoji(emoji);
-                    if (!avatarPreview) setAvatarPreview("");
-                  }}
-                  aria-label={"Pilih avatar " + emoji}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-            <small className="muted">Emoji dipakai saat kamu tidak memakai foto.</small>
-          </div>
           <label>Bio
             <textarea rows={4} value={bio} maxLength={220} onChange={(e) => setBio(e.target.value)} />
             <small className="muted">{bio.length}/220</small>
