@@ -37,9 +37,68 @@ async function mendeleyToken() {
 
 export async function testMendeleyCatalogConnection() {
   const configured = mendeleyConfigured();
-  if (!configured) return { configured: false, reachable: false };
-  const token = await mendeleyToken();
-  return { configured: true, reachable: Boolean(token) };
+  if (!configured) {
+    return {
+      configured: false,
+      reachable: false,
+      tokenStatus: null,
+      reason: "missing_environment",
+    };
+  }
+
+  const id = String(process.env.MENDELEY_CLIENT_ID || "");
+  const secret = String(process.env.MENDELEY_CLIENT_SECRET || "");
+  try {
+    const basic = Buffer.from(id + ":" + secret).toString("base64");
+    const response = await fetch("https://api.mendeley.com/oauth/token", {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + basic,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials&scope=all",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return {
+        configured: true,
+        reachable: false,
+        tokenStatus: response.status,
+        reason:
+          response.status === 401 ? "credentials_rejected" :
+          response.status === 400 ? "oauth_request_rejected" :
+          response.status >= 500 ? "mendeley_server_error" :
+          "token_request_failed",
+      };
+    }
+    const data = await response.json().catch(() => null) as any;
+    const token = String(data?.access_token || "");
+    if (!token) {
+      return {
+        configured: true,
+        reachable: false,
+        tokenStatus: response.status,
+        reason: "token_missing_in_response",
+      };
+    }
+    cachedMendeley = {
+      token,
+      expiresAt: Date.now() + Math.max(300, Number(data?.expires_in) || 3600) * 1000,
+    };
+    return {
+      configured: true,
+      reachable: true,
+      tokenStatus: response.status,
+      reason: "ok",
+    };
+  } catch {
+    return {
+      configured: true,
+      reachable: false,
+      tokenStatus: null,
+      reason: "network_error",
+    };
+  }
 }
 
 function mapMendeleyDocument(doc: any): ReferenceMetadata {
