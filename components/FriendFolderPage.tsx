@@ -78,19 +78,23 @@ export default function FriendFolderPage({
       {!!children.length && (
         <div className="socialRoomGrid friendSubfolderGrid">
           {children.map((node) => (
-            <button
-              type="button"
+            <article
               className="socialRoomCard"
               data-color={node.card_color || "default"}
               key={node.id}
-              onClick={() => onOpen(node.id)}
             >
-              <span className="socialRoomIcon">{node.emoji || "📁"}</span>
-              <span>
-                <small>Subfolder</small>
-                <strong>{node.title}</strong>
-              </span>
-            </button>
+              <button
+                type="button"
+                className="socialRoomOpen"
+                onClick={() => onOpen(node.id)}
+              >
+                <span className="socialRoomIcon">{node.emoji || "📁"}</span>
+                <span className="socialRoomCopy">
+                  <small>Subfolder</small>
+                  <strong>{node.title}</strong>
+                </span>
+              </button>
+            </article>
           ))}
         </div>
       )}
