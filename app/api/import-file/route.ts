@@ -158,7 +158,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     sourceFileId = String(body.sourceFileId || "");
     const filePath = String(body.filePath || "");
-    const nodeId = String(body.nodeId || "");
+    const nodeId = body.nodeId === null || body.nodeId === undefined || body.nodeId === ""
+      ? null
+      : String(body.nodeId);
     const fileName = String(body.fileName || "File");
     const mimeType = normalizeMime(String(body.mimeType || "application/octet-stream"));
     const aiMode = normalizeAiMode(body.aiMode);
@@ -179,7 +181,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Local diproses secara Local di perangkat dan tidak memanggil Gemini." }, { status: 400 });
     }
 
-    if (!sourceFileId || !filePath || !nodeId) {
+    if (!sourceFileId || !filePath) {
       return NextResponse.json({ error: "Data file tidak lengkap." }, { status: 400 });
     }
 
@@ -188,7 +190,12 @@ export async function POST(req: NextRequest) {
       .select("id,node_id,file_path,file_name,mime_type,raw_text,processing_page,processing_total_pages,processing_chunks,processing_chars")
       .eq("id", sourceFileId)
       .single();
-    if (rowError || !row || row.file_path !== filePath || row.node_id !== nodeId) {
+    if (
+      rowError ||
+      !row ||
+      row.file_path !== filePath ||
+      String(row.node_id || "") !== String(nodeId || "")
+    ) {
       return NextResponse.json({ error: "File tidak ditemukan." }, { status: 404 });
     }
 
