@@ -1073,6 +1073,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     setViewedOwnerId(ownerId);
     setCurrentId(null);
     setViewedOwnerReferenceAllowed(ownerId === user.id);
+    setActiveSidebarChatId(null);
+    setChatRequestVersion((value) => value + 1);
   }
   const current = currentId ? nodes.find((node) => node.id === currentId) || null : null;
   const children = nodes.filter((node) => node.parent_id === currentId);
@@ -8239,6 +8241,7 @@ function AiDatabaseSourcePicker({
   sources,
   onSourcesChange,
   selectionModel,
+  readOnlyReference = false,
 }: {
   nodes: StudyNode[];
   files: SourceFile[];
@@ -8250,6 +8253,7 @@ function AiDatabaseSourcePicker({
   sources?: AiSourceKind[];
   onSourcesChange?: (sources: AiSourceKind[]) => void;
   selectionModel?: AiModelId;
+  readOnlyReference?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -8272,7 +8276,7 @@ function AiDatabaseSourcePicker({
     if (disabled) setOpen(false);
   }, [disabled]);
 
-  const databaseRelevantForPrewarm = !sources || sources.includes("database");
+  const databaseRelevantForPrewarm = !readOnlyReference && (!sources || sources.includes("database"));
 
   useEffect(() => {
     // Do not let a 118 MB embedding model compete with the first explorer render.
@@ -8287,7 +8291,7 @@ function AiDatabaseSourcePicker({
   useEffect(() => () => { stopVectorRef.current = true; }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || readOnlyReference) return;
     let cancelled = false;
     getHfIndexStatus(supabase)
       .then((status) => {
@@ -8587,6 +8591,12 @@ function AiDatabaseSourcePicker({
             <button type="button" onClick={() => setOpen(false)}>×</button>
           </div>
 
+          {readOnlyReference ? (
+            <div className="aiDatabaseSourceTools socialSharedReferenceInfo">
+              <strong>👥 Reference teman</strong>
+              <small className="muted">Tanya AI membaca folder dan isi Reference teman yang sedang dibuka. Reference ini hanya-baca dan tidak diindeks ulang oleh akun kamu.</small>
+            </div>
+          ) : (
           <div className="aiDatabaseSourceTools" style={{ flexWrap: "wrap", gap: 8 }}>
             <strong>🧠 Hugging Face · Machine Learning Ruang Belajar</strong>
             <small className="muted">
@@ -8618,6 +8628,7 @@ function AiDatabaseSourcePicker({
             {vectorProgress && <small className="muted" role="status">{vectorProgress}</small>}
             {vectorError && <small role="alert">{vectorError}</small>}
           </div>
+          )}
 
           {sources && onSourcesChange && (
             <div className="aiSourceKindsInPicker">
@@ -9303,6 +9314,8 @@ function BottomAskBar({
   session,
   scopeNodeId,
   scopeName,
+  referenceOwnerId,
+  readOnlyReference = false,
   entries,
   files,
   nodes,
@@ -9315,6 +9328,8 @@ function BottomAskBar({
   session: Session;
   scopeNodeId: string | null;
   scopeName: string;
+  referenceOwnerId: string;
+  readOnlyReference?: boolean;
   entries: KnowledgeEntry[];
   files: SourceFile[];
   nodes: StudyNode[];
@@ -9413,6 +9428,13 @@ function BottomAskBar({
   }, [aiSelection.model]);
 
   useEffect(() => {
+    setSelectedSourceNodeIds([]);
+    setSelectedSourceFileIds([]);
+    setAnswer("");
+    setWarning("");
+  }, [referenceOwnerId]);
+
+  useEffect(() => {
     void refreshSavedChats();
   }, [session.user.id]);
 
@@ -9501,6 +9523,8 @@ function BottomAskBar({
           sources: selectedSources,
           sourceNodeIds: selectedSourceNodeIds,
           sourceFileIds: selectedSourceFileIds,
+          referenceOwnerId,
+          readOnlyReference,
           aiSelection,
           scopeName,
         },
@@ -9556,6 +9580,8 @@ function BottomAskBar({
           sources: selectedSources,
           sourceNodeIds: selectedSourceNodeIds,
           sourceFileIds: selectedSourceFileIds,
+          referenceOwnerId,
+          readOnlyReference,
           aiSelection: selectionOverride,
           scopeName,
         },
@@ -10926,7 +10952,7 @@ function BottomAskBar({
       !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(asked);
     if (needsGroundedDatabase) prewarmHfRetrieval(supabase);
 
-    if (aiSelection.model === "local") {
+    if (aiSelection.model === "local" && !readOnlyReference) {
       if (pendingAttachment?.rawText || pendingLink?.rawText) {
         const raw = [
           pendingAttachment?.rawText || "",
@@ -10956,7 +10982,7 @@ function BottomAskBar({
     ].filter(Boolean).join("\n\n---\n\n");
 
     let semanticEmbedding: { model: string; vector: number[] } | null = null;
-    if (needsGroundedDatabase) {
+    if (needsGroundedDatabase && !readOnlyReference) {
       try {
         semanticEmbedding = await maybeMultilingualQuery(
           supabase,
@@ -10974,6 +11000,7 @@ function BottomAskBar({
       scopeNodeId: conversationScopeId,
       sourceNodeIds: selectedSourceNodeIds,
       sourceFileIds: selectedSourceFileIds,
+      referenceOwnerId,
       aiMode,
       sources: selectedSources,
       attachmentTitle:
@@ -11163,6 +11190,7 @@ function BottomAskBar({
               sources={selectedSources}
               onSourcesChange={setSelectedSources}
               selectionModel={aiSelection.model}
+              readOnlyReference={readOnlyReference}
               onChange={(next) => {
                 setSelectedSourceNodeIds(next.nodeIds);
                 setSelectedSourceFileIds(next.fileIds);
