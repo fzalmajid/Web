@@ -879,18 +879,20 @@ function EditProfileSheet({
   );
 }
 
-function FriendCenter({
+export function FriendCenter({
   session,
   ownProfile,
   onClose,
   onOpenProfile,
   onProfileUpdated,
+  embedded = false,
 }: {
   session: Session;
   ownProfile: UserProfile | null;
   onClose: () => void;
   onOpenProfile: (userId: string) => void;
   onProfileUpdated: () => void;
+  embedded?: boolean;
 }) {
   const me = session.user.id;
   const [connections, setConnections] = useState<FriendConnection[]>([]);
@@ -1046,9 +1048,9 @@ function FriendCenter({
     );
   }
 
-  return (
-    <div className="sheetBackdrop friendCenterBackdrop" onMouseDown={onClose}>
-      <section className="addSheet friendCenterSheet" onMouseDown={(event) => event.stopPropagation()}>
+  const content = (
+    <>
+ event.stopPropagation()}>
         <div className="sheetHead friendCenterHeader">
           <div>
             <p className="eyebrow">SOSIAL</p>
@@ -1177,6 +1179,18 @@ function FriendCenter({
             ))}
           </div>
         )}
+      
+    </>
+  );
+
+  if (embedded) {
+    return <section className="friendCenterEmbedded">{content}</section>;
+  }
+
+  return (
+    <div className="sheetBackdrop friendCenterBackdrop" onMouseDown={onClose}>
+      <section className="addSheet friendCenterSheet" onMouseDown={(event) => event.stopPropagation()}>
+        {content}
       </section>
     </div>
   );
