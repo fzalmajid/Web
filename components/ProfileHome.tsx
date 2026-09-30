@@ -459,6 +459,7 @@ function AvatarCropEditor({
   const imgRef = useRef<HTMLImageElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const cropTimerRef = useRef<number | null>(null);
+  const onCropReadyRef = useRef(onCropReady);
   const [viewport, setViewport] = useState(260);
   const [natural, setNatural] = useState({ w: 1, h: 1 });
   const [zoom, setZoom] = useState(1);
@@ -474,6 +475,10 @@ function AvatarCropEditor({
     x: Math.max(-maxX, Math.min(maxX, offset.x)),
     y: Math.max(-maxY, Math.min(maxY, offset.y)),
   };
+
+  useEffect(() => {
+    onCropReadyRef.current = onCropReady;
+  }, [onCropReady]);
 
   useEffect(() => {
     setOffset((current) => ({
@@ -525,14 +530,14 @@ function AvatarCropEditor({
         512
       );
       canvas.toBlob((blob) => {
-        if (blob) onCropReady(blob);
+        if (blob) onCropReadyRef.current(blob);
       }, "image/jpeg", 0.9);
     }, 120);
 
     return () => {
       if (cropTimerRef.current) window.clearTimeout(cropTimerRef.current);
     };
-  }, [src, viewport, drawW, drawH, clamped.x, clamped.y, scale, natural.w, natural.h, onCropReady]);
+  }, [src, viewport, drawW, drawH, clamped.x, clamped.y, scale, natural.w, natural.h]);
 
   return (
     <div className="avatarCropPanel profilePhotoInlinePanel">
