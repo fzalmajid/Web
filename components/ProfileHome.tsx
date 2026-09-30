@@ -310,7 +310,7 @@ export default function ProfileHome({
         </div>
       </div>
 
-      <div className={activeFolder ? "socialRoomsHead socialRoomsHeadNested" : "socialRoomsHead"}>
+      <div className={activeFolder ? "socialRoomsHead socialRoomsHeadNested" : "socialRoomsHead socialRoomsHeadHome"}>
         <div>
           {activeFolder ? (
             <>
