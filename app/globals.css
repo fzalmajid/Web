@@ -11082,3 +11082,362 @@ body,
     max-width:calc(100vw - 28px)!important;
   }
 }
+
+
+/* 2026-09-30 compact composer popover system */
+/* One compact popover language for the AI composer.
+   Popovers stay anchored above their own trigger and keep the chat readable. */
+.gptComposer .aiDatabaseSourcePicker,
+.gptComposer .citationPicker,
+.gptComposer .aiModeSelect{
+  position:relative!important;
+  min-width:0!important;
+}
+
+.gptComposer .aiDatabaseSourcePopover,
+.gptComposer .citationPopover,
+.gptComposer .aiModePopover.aiModelPopover{
+  position:absolute!important;
+  top:auto!important;
+  bottom:calc(100% + 8px)!important;
+  transform:none!important;
+  margin:0!important;
+  padding:8px!important;
+  border:1px solid var(--line)!important;
+  border-radius:14px!important;
+  background:var(--card)!important;
+  box-shadow:0 16px 42px rgba(25,39,35,.16)!important;
+  max-height:min(430px,calc(100dvh - var(--rb-topbar-h) - 180px))!important;
+  overflow:auto!important;
+  overscroll-behavior:contain!important;
+  z-index:1400!important;
+}
+
+/* Source picker is narrow and attached to the left-side control. */
+.gptComposer .aiDatabaseSourcePopover{
+  left:0!important;
+  right:auto!important;
+  width:min(470px,calc(100vw - 32px))!important;
+  height:auto!important;
+}
+
+/* Citation/model stay attached to the right-side controls. */
+.gptComposer .citationPopover{
+  left:auto!important;
+  right:0!important;
+  width:min(500px,calc(100vw - 32px))!important;
+}
+.gptComposer .aiModePopover.aiModelPopover{
+  left:auto!important;
+  right:0!important;
+  width:min(520px,calc(100vw - 32px))!important;
+}
+
+/* Compact sticky heads: no large blank header bands. */
+.gptComposer .aiDatabaseSourceHead,
+.gptComposer .citationPopoverHead,
+.gptComposer .modelPickerHead{
+  position:sticky!important;
+  top:-8px!important;
+  z-index:3!important;
+  min-height:34px!important;
+  margin:0 0 6px!important;
+  padding:6px 2px 7px!important;
+  background:var(--card)!important;
+  border-bottom:1px solid var(--line)!important;
+}
+.gptComposer .aiDatabaseSourceHead>div,
+.gptComposer .citationPopoverHead>div,
+.gptComposer .modelPickerHead>div:first-child{
+  display:grid!important;
+  gap:1px!important;
+}
+.gptComposer .aiDatabaseSourceHead strong,
+.gptComposer .citationPopoverHead strong,
+.gptComposer .modelPickerHead strong{
+  font-size:.78rem!important;
+  line-height:1.18!important;
+}
+.gptComposer .aiDatabaseSourceHead small,
+.gptComposer .citationPopoverHead small,
+.gptComposer .modelPickerHead .aiModeSectionLabel{
+  font-size:.55rem!important;
+  line-height:1.15!important;
+}
+
+/* Source popup: turn ML information into a one-line disclosure. */
+.aiEmbeddingDetails{
+  margin:0 0 6px!important;
+  border:1px solid var(--line)!important;
+  border-radius:10px!important;
+  background:var(--soft)!important;
+  overflow:hidden!important;
+}
+.aiEmbeddingDetails>summary{
+  list-style:none!important;
+  cursor:pointer!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:8px!important;
+  margin:0!important;
+  padding:7px 9px!important;
+}
+.aiEmbeddingDetails>summary::-webkit-details-marker{display:none!important}
+.aiEmbeddingDetails>summary>span{
+  display:flex!important;
+  align-items:center!important;
+  min-width:0!important;
+  gap:7px!important;
+}
+.aiEmbeddingDetails>summary strong{
+  font-size:.69rem!important;
+  white-space:nowrap!important;
+}
+.aiEmbeddingDetails>summary small{
+  min-width:0!important;
+  color:var(--muted)!important;
+  font-size:.58rem!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+}
+.aiEmbeddingDetails>summary b{
+  flex:0 0 auto!important;
+  color:var(--muted)!important;
+  font-size:.58rem!important;
+}
+.aiEmbeddingDetailsBody{
+  display:grid!important;
+  gap:6px!important;
+  padding:0 9px 9px!important;
+}
+.aiEmbeddingDetailsBody small{
+  font-size:.59rem!important;
+  line-height:1.35!important;
+}
+.aiEmbeddingActions{
+  display:flex!important;
+  align-items:center!important;
+  flex-wrap:wrap!important;
+  gap:6px!important;
+}
+.aiEmbeddingActions .ghost{
+  min-height:28px!important;
+  padding:5px 8px!important;
+  border-radius:8px!important;
+  font-size:.61rem!important;
+}
+
+/* Source-type controls + folder tools use one compact row. */
+.gptComposer .aiSourceKindsInPicker{
+  margin:0 0 6px!important;
+  padding:0!important;
+}
+.gptComposer .aiSourceKindsInPicker>small{
+  display:block!important;
+  margin:0 0 4px!important;
+  font-size:.54rem!important;
+}
+.gptComposer .aiSourceKindsInPicker .sourceToggleGroup{
+  gap:4px!important;
+}
+.gptComposer .aiSourceKindsInPicker .sourceToggle{
+  min-height:30px!important;
+  padding:5px 9px!important;
+  font-size:.63rem!important;
+}
+.gptComposer .aiDatabaseSourceContent>.aiDatabaseSourceTools{
+  display:flex!important;
+  align-items:center!important;
+  gap:5px!important;
+  padding:5px 0!important;
+}
+.gptComposer .aiDatabaseSourceContent>.aiDatabaseSourceTools .ghost{
+  min-height:28px!important;
+  padding:5px 8px!important;
+  border-radius:8px!important;
+  font-size:.59rem!important;
+}
+
+/* Tree uses the space, not explanatory chrome. */
+.gptComposer .aiDatabaseSourceContent{
+  min-height:0!important;
+  overflow:hidden!important;
+}
+.gptComposer .aiDatabaseSourceTree{
+  min-height:120px!important;
+  max-height:248px!important;
+  padding:4px 2px 4px!important;
+  overflow-y:auto!important;
+  background:var(--card)!important;
+}
+.gptComposer .aiSourceRootRow{
+  min-height:34px!important;
+  margin:0 0 2px!important;
+  padding:6px 8px!important;
+}
+.gptComposer .aiSourceTreeRow{
+  min-height:34px!important;
+}
+.gptComposer .aiSourceTreeChoice,
+.gptComposer .aiSourceTreeExpand,
+.gptComposer .aiSourceFileRow{
+  min-height:32px!important;
+}
+.gptComposer .aiSourceTreeChoice strong,
+.gptComposer .aiSourceFileRow strong,
+.gptComposer .aiSourceRootRow strong{
+  font-size:.68rem!important;
+}
+.gptComposer .aiSourceTreeChoice small,
+.gptComposer .aiSourceFileRow small,
+.gptComposer .aiSourceRootRow small{
+  font-size:.56rem!important;
+}
+.gptComposer .aiDatabaseSourceDone{
+  position:sticky!important;
+  bottom:-8px!important;
+  z-index:3!important;
+  margin:6px -8px -8px!important;
+  padding:7px 8px!important;
+  background:var(--card)!important;
+  border-top:1px solid var(--line)!important;
+}
+.gptComposer .aiDatabaseSourceDone span{
+  font-size:.58rem!important;
+}
+.gptComposer .aiDatabaseSourceDone .primary{
+  min-height:30px!important;
+  padding:5px 9px!important;
+  border-radius:8px!important;
+  font-size:.62rem!important;
+}
+
+/* Model picker: denser rows, no giant modal feeling. */
+.gptComposer .modelCardGrid{
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:5px!important;
+}
+.gptComposer .modelCard{
+  min-height:50px!important;
+  padding:7px 8px!important;
+  border-radius:10px!important;
+}
+.gptComposer .modelCard strong{
+  font-size:.69rem!important;
+}
+.gptComposer .modelCard small{
+  font-size:.56rem!important;
+  line-height:1.22!important;
+}
+.gptComposer .modelEffortPanel,
+.gptComposer .modelLengthPanel{
+  margin-top:7px!important;
+  padding-top:7px!important;
+}
+.gptComposer .aiEffortGrid,
+.gptComposer .aiLengthGrid{
+  gap:5px!important;
+}
+.gptComposer .aiEffortOption,
+.gptComposer .aiLengthOption{
+  min-height:42px!important;
+  padding:6px 7px!important;
+  border-radius:9px!important;
+}
+.gptComposer .modelPluginButtonBottom{
+  min-height:30px!important;
+  margin-top:7px!important;
+  padding:5px 8px!important;
+  border-radius:8px!important;
+  font-size:.61rem!important;
+}
+
+/* Citation picker: compact cards; official docs collapsed by default. */
+.gptComposer .citationStyleGrid{
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:5px!important;
+}
+.gptComposer .citationStyleGrid button{
+  min-height:50px!important;
+  padding:7px 8px!important;
+  border-radius:10px!important;
+}
+.gptComposer .citationStyleGrid button strong{
+  font-size:.69rem!important;
+}
+.gptComposer .citationStyleGrid button small{
+  font-size:.56rem!important;
+  line-height:1.22!important;
+}
+.gptComposer .citationOfficialGuide{
+  margin:6px 0!important;
+  padding:0!important;
+  border:1px solid var(--line)!important;
+  border-radius:9px!important;
+  background:var(--soft)!important;
+  overflow:hidden!important;
+}
+.gptComposer .citationOfficialGuide>summary{
+  cursor:pointer!important;
+  padding:7px 8px!important;
+  color:var(--accent-strong)!important;
+  font-size:.61rem!important;
+  font-weight:800!important;
+}
+.gptComposer .citationOfficialGuide>a,
+.gptComposer .citationOfficialGuide>small{
+  display:block!important;
+  margin:0 8px 6px!important;
+  font-size:.58rem!important;
+  line-height:1.3!important;
+}
+.gptComposer .citationOutputTitle{
+  margin:6px 0 4px!important;
+}
+.gptComposer .citationOutputChoices{
+  gap:5px!important;
+}
+.gptComposer .citationOutputChoices button{
+  min-height:44px!important;
+  padding:6px 8px!important;
+  border-radius:9px!important;
+}
+.gptComposer .citationPreview{
+  margin-top:6px!important;
+  padding:7px 8px!important;
+}
+
+/* Desktop composer keeps the popup attached to the control, not over the center of the chat. */
+@media (min-width:761px){
+  .gptComposer .aiDatabaseSourcePopover{
+    transform:translateX(0)!important;
+  }
+  .gptComposer .citationPopover,
+  .gptComposer .aiModePopover.aiModelPopover{
+    transform:translateX(0)!important;
+  }
+}
+
+/* Mobile: one compact sheet just above the composer; internal scroll only. */
+@media (max-width:760px){
+  .gptComposer .aiDatabaseSourcePopover,
+  .gptComposer .citationPopover,
+  .gptComposer .aiModePopover.aiModelPopover{
+    position:fixed!important;
+    left:10px!important;
+    right:10px!important;
+    bottom:calc(var(--rb-composer-bottom) + 108px)!important;
+    width:auto!important;
+    max-width:none!important;
+    max-height:min(54dvh,420px)!important;
+  }
+  .gptComposer .modelCardGrid,
+  .gptComposer .citationStyleGrid{
+    grid-template-columns:1fr!important;
+  }
+  .gptComposer .aiDatabaseSourceTree{
+    max-height:210px!important;
+  }
+}
