@@ -9,7 +9,7 @@ export type ReferenceDocumentType =
   | "other";
 
 export type MetadataProvenance = {
-  source: "manual" | "document" | "mendeley" | "crossref" | "filename" | "official";
+  source: "manual" | "document" | "mendeley" | "crossref" | "datacite" | "openalex" | "openlibrary" | "europepmc" | "pubmed" | "filename" | "official";
   confidence: number;
   note?: string;
 };
@@ -31,6 +31,11 @@ export type ReferenceMetadata = {
   isbn?: string | null;
   url?: string | null;
   mendeley_id?: string | null;
+  datacite_id?: string | null;
+  openalex_id?: string | null;
+  openlibrary_id?: string | null;
+  pmid?: string | null;
+  pmcid?: string | null;
   provenance?: Record<string, MetadataProvenance>;
 };
 
@@ -189,7 +194,7 @@ export function mergeReferenceMetadata(
   };
   for (const field of [
     "title","authors","corporate_author","year","publisher","institution","type","edition",
-    "container_title","volume","issue","pages","doi","isbn","url","mendeley_id"
+    "container_title","volume","issue","pages","doi","isbn","url","mendeley_id","datacite_id","openalex_id","openlibrary_id","pmid","pmcid"
   ] as Array<keyof ReferenceMetadata>) {
     const value = incoming[field];
     if (value === undefined || value === null || value === "" ||
