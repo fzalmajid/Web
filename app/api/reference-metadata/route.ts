@@ -3,6 +3,7 @@ import { createServerSupabase } from "@/lib/supabase";
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { mendeleyConfigured, resolveReferenceMetadata } from "@/lib/referenceMetadataServer";
 import { formatVerifiedReference } from "@/lib/citationFormatterServer";
+import { getFreshMendeleySession, setMendeleySessionCookie } from "@/lib/mendeleySessionServer";
 
 function bearer(req: NextRequest) {
   const header = req.headers.get("authorization") || "";
@@ -63,7 +64,14 @@ export async function GET(req: NextRequest) {
     .eq("user_id", userData.user.id)
     .maybeSingle();
   if (error || !file) return NextResponse.json({ error: "File tidak ditemukan." }, { status: 404 });
-  return NextResponse.json({ file, mendeleyConfigured: mendeleyConfigured() });
+  const mendeleySession = await getFreshMendeleySession(req);
+  const response = NextResponse.json({
+    file,
+    mendeleyConfigured: mendeleyConfigured(),
+    mendeleyConnected: mendeleySession.connected,
+  });
+  if (mendeleySession.cookieValue) setMendeleySessionCookie(response, mendeleySession.cookieValue);
+  return response;
 }
 
 export async function POST(req: NextRequest) {
@@ -73,6 +81,7 @@ export async function POST(req: NextRequest) {
     const supabase = createServerSupabase(token);
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
+    const mendeleySession = await getFreshMendeleySession(req);
     const body = await req.json();
     const sourceFileId = String(body?.sourceFileId || "").trim();
     const action = String(body?.action || "resolve");
@@ -99,7 +108,7 @@ export async function POST(req: NextRequest) {
         bibliographic_metadata_updated_at: new Date().toISOString(),
       }).eq("id", sourceFileId).eq("user_id", userData.user.id);
       if (error) throw error;
-      return NextResponse.json({
+      const response = NextResponse.json({
         metadata,
         status: "manual",
         citationPreview: {
@@ -107,7 +116,10 @@ export async function POST(req: NextRequest) {
           vancouver: formatVerifiedReference(metadata, "vancouver"),
         },
         mendeleyConfigured: mendeleyConfigured(),
+        mendeleyConnected: mendeleySession.connected,
       });
+      if (mendeleySession.cookieValue) setMendeleySessionCookie(response, mendeleySession.cookieValue);
+      return response;
     }
 
     const frontMatter = await frontMatterForFile(supabase, sourceFileId);
@@ -118,6 +130,7 @@ export async function POST(req: NextRequest) {
       frontMatter,
       existing: file.bibliographic_metadata || {},
       preserveManual: file.bibliographic_metadata_status === "manual",
+      mendeleyAccessToken: mendeleySession.session?.accessToken || null,
     });
 
     const highConfidence = Object.values(resolved.metadata.provenance || {})
@@ -135,7 +148,7 @@ export async function POST(req: NextRequest) {
     }).eq("id", sourceFileId).eq("user_id", userData.user.id);
     if (error) throw error;
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       metadata: resolved.metadata,
       status,
       confidence: resolved.confidence,
@@ -149,7 +162,10 @@ export async function POST(req: NextRequest) {
         vancouver: formatVerifiedReference(resolved.metadata, "vancouver"),
       },
       mendeleyConfigured: mendeleyConfigured(),
+      mendeleyConnected: mendeleySession.connected,
     });
+    if (mendeleySession.cookieValue) setMendeleySessionCookie(response, mendeleySession.cookieValue);
+    return response;
   } catch (error: any) {
     return NextResponse.json({ error: String(error?.message || "Gagal memeriksa metadata referensi.") }, { status: 500 });
   }
