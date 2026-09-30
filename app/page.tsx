@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrieval } from "@/lib/hfIndexing";
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
+import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { assertPdfFile } from "@/lib/pdfValidation";
 import ProfileHome, { FriendCenter, ProfileEditorPanel, type UserProfile } from "@/components/ProfileHome";
 import ProfileSetup from "@/components/ProfileSetup";
@@ -96,6 +97,9 @@ type SourceFile = {
   ai_copy_ratio?: number | null;
   ai_copy_model?: string | null;
   ai_copy_updated_at?: string | null;
+  bibliographic_metadata?: ReferenceMetadata | null;
+  bibliographic_metadata_status?: "unreviewed" | "auto" | "verified" | "manual" | "conflict";
+  bibliographic_metadata_updated_at?: string | null;
   created_at: string;
 };
 type Recording = {
@@ -238,6 +242,20 @@ function writeCitationPrefs(prefs: CitationPrefs) {
 function citationRequestFields() {
   const prefs = readCitationPrefs();
   return { citationStyle: prefs.style, citationOutputs: prefs.outputs };
+}
+
+async function resolveBibliographicMetadata(session: Session, sourceFileId: string) {
+  const response = await fetch("/api/reference-metadata", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + session.access_token,
+    },
+    body: JSON.stringify({ action: "resolve", sourceFileId }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "Gagal memeriksa metadata referensi.");
+  return data;
 }
 
 function citationClientInstruction() {
@@ -1063,7 +1081,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     void Promise.all([
       supabase
         .from("source_files")
-        .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,processing_status,error_message,source_kind,source_url,ai_copy_mode,ai_copy_ratio,ai_copy_model,ai_copy_updated_at,created_at")
+        .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,processing_status,error_message,source_kind,source_url,ai_copy_mode,ai_copy_ratio,ai_copy_model,ai_copy_updated_at,bibliographic_metadata,bibliographic_metadata_status,bibliographic_metadata_updated_at,created_at")
         .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
@@ -2314,6 +2332,9 @@ async function pasteExplorerItem(
         error_message: file.error_message,
         source_kind: file.source_kind || "file",
         source_url: file.source_url || null,
+        bibliographic_metadata: file.bibliographic_metadata || {},
+        bibliographic_metadata_status: file.bibliographic_metadata_status || "unreviewed",
+        bibliographic_metadata_updated_at: file.bibliographic_metadata_updated_at || null,
       })
       .select("*")
       .single();
@@ -2426,6 +2447,7 @@ function FolderPage({
   const [renameDraft, setRenameDraft] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState("");
+  const [metadataFile, setMetadataFile] = useState<SourceFile | null>(null);
 
   useEffect(() => {
     return () => {
