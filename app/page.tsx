@@ -11,7 +11,7 @@ import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrie
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
 import { assertPdfFile } from "@/lib/pdfValidation";
-import ProfileHome from "@/components/ProfileHome";
+import ProfileHome, { FriendCenter, ProfileEditorPanel, type UserProfile } from "@/components/ProfileHome";
 import ProfileSetup from "@/components/ProfileSetup";
 import FriendFolderPage from "@/components/FriendFolderPage";
 import { isChunkedPdfPath, getChunkedPdfManifest, downloadChunkedPdf, removeStoredStudyFile, copyChunkedPdf, saveLargePdfToFolder, type LargePdfSourceRow } from "@/lib/largePdfClient";
@@ -857,13 +857,7 @@ function Auth() {
   );
 }
 
-type AccountProfileSummary = {
-  display_name: string;
-  username: string;
-  avatar_url: string | null;
-  avatar_emoji: string | null;
-  avatar_bg_color: string | null;
-};
+type AccountProfileSummary = UserProfile;
 
 type SettingsSection = "profile" | "friends" | "plugins" | "appearance" | "account";
 
@@ -946,7 +940,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     let alive = true;
     void supabase
       .from("user_profiles")
-      .select("display_name,username,avatar_url,avatar_emoji,avatar_bg_color")
+      .select("*")
       .eq("user_id", user.id)
       .maybeSingle()
       .then(({ data }) => {
@@ -1441,17 +1435,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             onSectionChange={setSettingsSection}
             theme={theme}
             onThemeChange={onThemeChange}
-            onEditProfile={() => {
-              setSettingsSection(null);
-              viewProfile(user.id);
-              setProfileEditRequest((value) => value + 1);
-            }}
-            onOpenFriends={() => {
-              setSettingsSection(null);
-              viewProfile(user.id);
-              setProfileFriendsRequest((value) => value + 1);
-            }}
-            onOpenProfile={() => viewProfile(user.id)}
+            onProfileUpdated={refresh}
+            onOpenProfile={(ownerId) => viewProfile(ownerId)}
           />
         ) : (
           <>
@@ -1707,8 +1692,7 @@ function SettingsPage({
   onSectionChange,
   theme,
   onThemeChange,
-  onEditProfile,
-  onOpenFriends,
+  onProfileUpdated,
   onOpenProfile,
 }: {
   session: Session;
@@ -1718,9 +1702,8 @@ function SettingsPage({
   onSectionChange: (section: SettingsSection) => void;
   theme: "light" | "dark" | "system";
   onThemeChange: (theme: "light" | "dark" | "system") => void;
-  onEditProfile: () => void;
-  onOpenFriends: () => void;
-  onOpenProfile: () => void;
+  onProfileUpdated: () => void;
+  onOpenProfile: (ownerId: string) => void;
 }) {
   const nav: Array<{ id: SettingsSection; label: string; hint: string }> = [
     { id: "profile", label: "Profil", hint: "Nama, username & foto" },
@@ -1762,15 +1745,16 @@ function SettingsPage({
                 <p className="muted">Foto, nama, username dan bio yang terlihat oleh teman.</p>
               </div>
             </div>
-            <article className="settingsProfileCard">
-              <WorkspaceAccountAvatar profile={profile} user={user} className="settingsProfileAvatar" />
-              <div>
-                <strong>{profile?.display_name || profile?.username || user.email?.split("@")[0] || "Akun"}</strong>
-                <small>@{profile?.username || user.email?.split("@")[0] || "akun"}</small>
+            {profile ? (
+              <div className="settingsInlineEditor">
+                <ProfileEditorPanel
+                  profile={profile}
+                  onSaved={onProfileUpdated}
+                />
               </div>
-              <button type="button" className="primary" onClick={onEditProfile}>Edit profil</button>
-              <button type="button" className="ghost" onClick={onOpenProfile}>Lihat profil</button>
-            </article>
+            ) : (
+              <div className="settingsInlineLoading">Memuat profil...</div>
+            )}
           </section>
         )}
 
@@ -1783,14 +1767,16 @@ function SettingsPage({
                 <p className="muted">Rekomendasi akun, permintaan masuk, daftar teman, dan auto-accept tetap dikelola di bar Teman agar tidak ada pengaturan ganda.</p>
               </div>
             </div>
-            <article className="settingsActionCard">
-              <span className="settingsActionIcon">👥</span>
-              <div>
-                <strong>Kelola teman</strong>
-                <small>Buka panel Teman lengkap dari profil kamu.</small>
-              </div>
-              <button type="button" className="primary" onClick={onOpenFriends}>Buka Teman</button>
-            </article>
+            <div className="settingsInlineFriends">
+              <FriendCenter
+                session={session}
+                ownProfile={profile}
+                onClose={() => {}}
+                onOpenProfile={onOpenProfile}
+                onProfileUpdated={onProfileUpdated}
+                embedded
+              />
+            </div>
           </section>
         )}
 
