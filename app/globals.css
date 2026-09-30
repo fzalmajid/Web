@@ -10221,3 +10221,31 @@ body,
     width:100%!important;
   }
 }
+
+
+/* FINAL ALIGNMENT AUDIT — headers and typography follow the profile baseline */
+.sheetBackdrop>.friendCenterSheet>.friendCenterHeader{
+  position:sticky!important;
+  top:0!important;
+  width:100%!important;
+  margin:0 0 14px!important;
+  padding:0 0 12px!important;
+  box-sizing:border-box!important;
+  background:var(--card)!important;
+  border-bottom:1px solid var(--line)!important;
+}
+.toolHeader h1{
+  margin:3px 0 7px!important;
+  font-size:1.42rem!important;
+  line-height:1.18!important;
+  letter-spacing:-.018em!important;
+}
+.toolHeader>p.muted,
+.toolHeader>div>p.muted{
+  max-width:780px;
+  font-size:.75rem!important;
+  line-height:1.5!important;
+}
+.toolHeader{
+  margin-bottom:18px!important;
+}
