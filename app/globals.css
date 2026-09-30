@@ -7998,3 +7998,496 @@ body,
   background:var(--card);
   color:var(--ink);
 }
+
+
+/* Social profile + friends — profile-first account home */
+.socialProfilePage,
+.friendFolderPage{
+  width:min(1120px,calc(100vw - 92px));
+  margin:0 auto;
+  padding:44px 0 190px;
+}
+.socialProfileHero{
+  display:grid;
+  grid-template-columns:132px minmax(0,1fr);
+  gap:34px;
+  align-items:start;
+  padding:18px 8px 34px;
+  border-bottom:1px solid var(--line);
+}
+.socialAvatar{
+  width:44px;
+  height:44px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  flex:0 0 auto;
+  background:var(--ink);
+  color:var(--card);
+  border:1px solid var(--line);
+}
+.socialAvatarLarge{
+  width:118px;
+  height:118px;
+  font-size:1.8rem;
+  border-width:2px;
+}
+.socialAvatar img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.socialProfileIdentity{
+  min-width:0;
+  display:grid;
+  gap:18px;
+}
+.socialProfileNameRow{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:22px;
+}
+.socialProfileNameRow h1{
+  margin:0;
+  font-size:1.65rem;
+  line-height:1.15;
+  letter-spacing:-.025em;
+}
+.socialProfileNameRow p{
+  margin:5px 0 0;
+  color:var(--muted);
+  font-size:.84rem;
+}
+.socialProfileActions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  justify-content:flex-end;
+}
+.socialProfileStats{
+  display:flex;
+  align-items:center;
+  gap:34px;
+}
+.socialProfileStats>div,
+.socialStatButton{
+  display:grid;
+  gap:2px;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:var(--ink);
+  text-align:left;
+}
+.socialProfileStats strong{
+  font-size:1.08rem;
+}
+.socialProfileStats span{
+  color:var(--muted);
+  font-size:.74rem;
+}
+.socialStatButton:not(.static){
+  cursor:pointer;
+}
+.socialStatButton:not(.static):hover span{
+  text-decoration:underline;
+}
+.socialProfileBio{
+  max-width:680px;
+  margin:0;
+  font-size:.83rem;
+  line-height:1.6;
+  white-space:pre-wrap;
+}
+.socialFriendSettingSummary{
+  width:max-content;
+  max-width:100%;
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:8px 12px;
+  padding:8px 11px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:var(--soft);
+}
+.socialFriendSettingSummary span{
+  font-size:.7rem;
+  font-weight:850;
+}
+.socialFriendSettingSummary small{
+  color:var(--muted);
+  font-size:.64rem;
+}
+.socialRoomsHead{
+  display:flex;
+  align-items:end;
+  justify-content:space-between;
+  gap:18px;
+  padding:30px 8px 16px;
+}
+.socialRoomsHead h2{
+  margin:3px 0 0;
+  font-size:1.16rem;
+}
+.socialRoomGrid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+  padding:0 8px;
+}
+.socialRoomCard{
+  min-width:0;
+  min-height:112px;
+  display:grid;
+  grid-template-columns:48px minmax(0,1fr);
+  align-items:center;
+  gap:14px;
+  padding:18px;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:var(--card);
+  color:var(--ink);
+  text-align:left;
+  transition:transform .16s ease,border-color .16s ease,background .16s ease;
+}
+.socialRoomCard:hover{
+  transform:translateY(-2px);
+  border-color:color-mix(in srgb,var(--ink) 26%,var(--line));
+  background:color-mix(in srgb,var(--card) 94%,var(--soft));
+}
+.socialRoomCard[data-color="rose"]{background:color-mix(in srgb,#f6d8df 28%,var(--card))}
+.socialRoomCard[data-color="sage"]{background:color-mix(in srgb,#cfe4d6 28%,var(--card))}
+.socialRoomCard[data-color="sky"]{background:color-mix(in srgb,#cfe1f1 28%,var(--card))}
+.socialRoomCard[data-color="amber"]{background:color-mix(in srgb,#efdba9 28%,var(--card))}
+.socialRoomCard[data-color="violet"]{background:color-mix(in srgb,#dfd4f2 28%,var(--card))}
+.socialRoomCard[data-color="slate"]{background:color-mix(in srgb,#cbd3d8 24%,var(--card))}
+.socialRoomIcon{
+  width:48px;
+  height:48px;
+  display:grid;
+  place-items:center;
+  border-radius:14px;
+  background:var(--soft);
+  font-size:1.45rem;
+}
+.socialRoomCard>span:last-child{
+  min-width:0;
+  display:grid;
+  gap:4px;
+}
+.socialRoomCard small{
+  color:var(--muted);
+  font-size:.62rem;
+  font-weight:850;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.socialRoomCard strong{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  font-size:.88rem;
+}
+.socialRoomsEmpty,
+.socialReferenceLocked{
+  margin:0 8px;
+  min-height:150px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+  padding:26px;
+  border:1px dashed var(--line);
+  border-radius:18px;
+  color:var(--muted);
+  text-align:center;
+}
+.socialRoomsEmpty>span,
+.socialReferenceLocked>span{
+  font-size:1.6rem;
+}
+.socialReferenceLocked{
+  justify-content:flex-start;
+  text-align:left;
+}
+.socialReferenceLocked strong{
+  color:var(--ink);
+}
+.socialReferenceLocked p{
+  margin:4px 0 0;
+  font-size:.75rem;
+}
+.socialFriendAccepted{
+  opacity:.92;
+}
+.socialUsernameInput{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  align-items:center;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--card);
+  overflow:hidden;
+}
+.socialUsernameInput>span{
+  padding-left:12px;
+  color:var(--muted);
+  font-weight:800;
+}
+.socialUsernameInput input{
+  border:0!important;
+  box-shadow:none!important;
+  background:transparent!important;
+}
+.socialToggleRow{
+  display:flex!important;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  padding:13px 14px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--soft);
+}
+.socialToggleRow>span{
+  display:grid;
+  gap:3px;
+}
+.socialToggleRow strong{
+  font-size:.78rem;
+}
+.socialToggleRow small{
+  color:var(--muted);
+  font-size:.65rem;
+}
+.socialToggleRow input[type="checkbox"]{
+  width:38px;
+  height:20px;
+  accent-color:var(--ink);
+}
+.friendCenterSheet{
+  width:min(620px,calc(100vw - 36px));
+  max-height:min(82vh,760px);
+  overflow:auto;
+}
+.socialAutoAcceptSetting{
+  margin-bottom:14px;
+}
+.socialFriendSearch{
+  position:relative;
+  display:grid;
+  gap:5px;
+  margin:8px 0 18px;
+}
+.socialFriendSearch input{
+  min-height:44px;
+  border-radius:13px;
+}
+.socialFriendSearch small{
+  color:var(--muted);
+}
+.socialPeopleSection{
+  display:grid;
+  gap:8px;
+  padding:14px 0;
+  border-top:1px solid var(--line);
+}
+.socialPeopleSection h3{
+  display:flex;
+  gap:7px;
+  align-items:center;
+  margin:0 0 4px;
+  font-size:.78rem;
+}
+.socialPeopleSection h3 span{
+  color:var(--muted);
+}
+.socialPersonRow{
+  min-width:0;
+  min-height:58px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:7px 4px;
+}
+.socialPersonMain{
+  min-width:0;
+  flex:1 1 auto;
+  display:flex;
+  align-items:center;
+  gap:11px;
+  border:0;
+  background:transparent;
+  color:var(--ink);
+  text-align:left;
+}
+.socialPersonMain>span:last-child{
+  min-width:0;
+  display:grid;
+  gap:2px;
+}
+.socialPersonMain strong,
+.socialPersonMain small{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.socialPersonMain strong{font-size:.77rem}
+.socialPersonMain small{color:var(--muted);font-size:.65rem}
+.socialPersonActions{
+  flex:0 0 auto;
+  display:flex;
+  gap:6px;
+}
+.friendFolderHero{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:20px;
+  padding:10px 8px 24px;
+  border-bottom:1px solid var(--line);
+}
+.friendFolderHero h1{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:4px 0 8px;
+  font-size:1.45rem;
+}
+.friendFolderHero .muted{
+  max-width:720px;
+}
+.friendReadOnlyBadge{
+  flex:0 0 auto;
+  padding:7px 10px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:var(--soft);
+  color:var(--muted);
+  font-size:.64rem;
+  font-weight:850;
+}
+.friendSubfolderGrid{
+  padding-top:22px;
+}
+.friendReferenceList{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:9px;
+  padding:20px 8px 0;
+}
+.friendReferenceCard{
+  min-width:0;
+  display:grid;
+  grid-template-columns:36px minmax(0,1fr);
+  align-items:center;
+  gap:10px;
+  padding:11px 13px;
+  border:1px solid var(--line);
+  border-radius:13px;
+  background:var(--card);
+}
+.friendReferenceCard>span{
+  width:34px;
+  height:34px;
+  display:grid;
+  place-items:center;
+  border-radius:10px;
+  background:var(--soft);
+}
+.friendReferenceCard>div{
+  min-width:0;
+  display:grid;
+  gap:2px;
+}
+.friendReferenceCard small{
+  color:var(--muted);
+  font-size:.6rem;
+}
+.friendReferenceCard strong{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:.72rem;
+}
+.socialSharedReferenceInfo{
+  border-color:color-mix(in srgb,var(--ink) 14%,var(--line))!important;
+  background:var(--soft)!important;
+}
+
+@media (max-width:760px){
+  html,
+  body,
+  .appShell{
+    min-width:0!important;
+  }
+  .socialProfilePage,
+  .friendFolderPage{
+    width:100%;
+    padding:22px 14px 170px;
+  }
+  .socialProfileHero{
+    grid-template-columns:82px minmax(0,1fr);
+    gap:16px;
+    padding:10px 0 24px;
+  }
+  .socialAvatarLarge{
+    width:78px;
+    height:78px;
+    font-size:1.2rem;
+  }
+  .socialProfileNameRow{
+    display:grid;
+    gap:12px;
+  }
+  .socialProfileNameRow h1{
+    font-size:1.22rem;
+  }
+  .socialProfileActions{
+    justify-content:flex-start;
+  }
+  .socialProfileStats{
+    gap:22px;
+  }
+  .socialFriendSettingSummary{
+    border-radius:14px;
+  }
+  .socialRoomsHead{
+    padding:24px 0 12px;
+  }
+  .socialRoomGrid{
+    grid-template-columns:1fr;
+    padding:0;
+  }
+  .socialRoomCard{
+    min-height:88px;
+  }
+  .socialRoomsEmpty,
+  .socialReferenceLocked{
+    margin:0;
+  }
+  .friendFolderHero{
+    display:grid;
+    padding:4px 0 18px;
+  }
+  .friendReadOnlyBadge{
+    width:max-content;
+  }
+  .friendReferenceList{
+    grid-template-columns:1fr;
+    padding:16px 0 0;
+  }
+  .socialPersonRow{
+    align-items:flex-start;
+  }
+  .socialPersonActions{
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+}
