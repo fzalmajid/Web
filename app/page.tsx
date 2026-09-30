@@ -1764,7 +1764,7 @@ function SettingsPage({
               <div>
                 <p className="eyebrow">TEMAN</p>
                 <h2>Pertemanan</h2>
-                <p className="muted">Rekomendasi akun, permintaan masuk, daftar teman, dan auto-accept tetap dikelola di bar Teman agar tidak ada pengaturan ganda.</p>
+                <p className="muted">Atur rekomendasi, permintaan masuk, daftar teman, dan penerimaan otomatis dari sini.</p>
               </div>
             </div>
             <div className="settingsInlineFriends">
@@ -1797,7 +1797,7 @@ function SettingsPage({
                   <div className="pluginLogo">G</div>
                   <div className="pluginCopy">
                     <strong>Gemini</strong>
-                    <small>Google Cloud/Gemini API milik user. OAuth Google + project sendiri.</small>
+                    <small>Hubungkan Gemini untuk digunakan di Ruang Belajar.</small>
                   </div>
                   <GeminiAccountConnection session={session} />
                 </article>
@@ -1806,7 +1806,7 @@ function SettingsPage({
                   <div className="pluginLogo">GPT</div>
                   <div className="pluginCopy">
                     <strong>OpenAI</strong>
-                    <small>Hubungkan API key khusus di situs ini.</small>
+                    <small>Hubungkan OpenAI untuk menggunakan model GPT.</small>
                     <a className="textBtn" href="/gpt-diagnostic">Hubungkan & uji GPT</a>
                   </div>
                   <ApiProviderConnection session={session} provider="openai" />
@@ -1816,7 +1816,7 @@ function SettingsPage({
                   <div className="pluginLogo">C</div>
                   <div className="pluginCopy">
                     <strong>Claude</strong>
-                    <small>Gunakan Anthropic API account user dan web search Claude.</small>
+                    <small>Hubungkan Claude untuk digunakan di Ruang Belajar.</small>
                   </div>
                   <ApiProviderConnection session={session} provider="anthropic" />
                 </article>
@@ -1824,13 +1824,13 @@ function SettingsPage({
             </div>
 
             <div className="pluginSection">
-              <small className="pluginSectionTitle">LOCAL DEVICE / CUSTOM ENDPOINT</small>
+              <small className="pluginSectionTitle">KONEKSI LANJUTAN</small>
               <div className="pluginGrid pluginGridTwo">
                 <article className="pluginCard">
                   <div className="pluginLogo">⌁</div>
                   <div className="pluginCopy">
                     <strong>Local AI</strong>
-                    <small>LM Studio, Ollama, vLLM, atau endpoint OpenAI-compatible.</small>
+                    <small>Hubungkan model AI yang berjalan di perangkat atau server milikmu.</small>
                   </div>
                   <LocalAiConnection />
                 </article>
@@ -1839,7 +1839,7 @@ function SettingsPage({
                   <div className="pluginLogo">MCP</div>
                   <div className="pluginCopy">
                     <strong>MCP Server</strong>
-                    <small>Hubungkan tools dan app lain lewat Model Context Protocol.</small>
+                    <small>Hubungkan alat dan aplikasi tambahan ke Ruang Belajar.</small>
                   </div>
                   <McpConnection />
                 </article>
@@ -9142,17 +9142,6 @@ function AiModePicker({
     AI_RESPONSE_LENGTHS.find((item) => item.value === (value.length || "medium")) ||
     AI_RESPONSE_LENGTHS[1];
 
-  function modelRouteLabel(item: (typeof visibleModels)[number]) {
-    if (item.provider === "gemini") {
-      return getSessionGoogleGeminiAuth().accessToken || getSessionGeminiKey()
-        ? "Quota project/user"
-        : "Shared";
-    }
-    if (item.provider === "openai" || item.provider === "anthropic") return "Quota user";
-    if (item.provider === "local-openai") return "Perangkat user";
-    return "";
-  }
-
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent | TouchEvent) => {
@@ -9224,10 +9213,7 @@ function AiModePicker({
                   <strong>{item.label}</strong>
                   {value.model === item.id && <b>✓</b>}
                 </span>
-                <small>
-                  {item.subtitle}
-                  {modelRouteLabel(item) ? " · " + modelRouteLabel(item) : ""}
-                </small>
+                <small>{item.subtitle}</small>
               </button>
             ))}
           </div>
