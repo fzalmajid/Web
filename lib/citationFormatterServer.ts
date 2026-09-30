@@ -85,3 +85,57 @@ export function formatVerifiedReferences(
     return "";
   }
 }
+
+
+function metadataFromKnowledgeSource(source: any): ReferenceMetadata {
+  return {
+    title: source?.bibliographic_work_title || source?.title || null,
+    authors: Array.isArray(source?.bibliographic_authors) ? source.bibliographic_authors : [],
+    corporate_author: source?.bibliographic_corporate_author || null,
+    year: Number(source?.bibliographic_year) || null,
+    publisher: source?.bibliographic_publisher || null,
+    institution: source?.bibliographic_institution || null,
+    type: source?.bibliographic_type || null,
+    edition: source?.bibliographic_edition || null,
+    container_title: source?.bibliographic_container_title || null,
+    volume: source?.bibliographic_volume || null,
+    issue: source?.bibliographic_issue || null,
+    pages: source?.bibliographic_pages || null,
+    doi: source?.bibliographic_doi || null,
+    isbn: source?.bibliographic_isbn || null,
+    url: source?.bibliographic_url || null,
+  };
+}
+
+export function buildDeterministicCitationInventory(
+  style: string,
+  rows: any[]
+) {
+  if (style !== "apa" && style !== "vancouver") return "";
+  const unique = new Map<string, any>();
+  for (const row of rows) {
+    const key = String(row?.bibliographic_work_id || row?.source_file_id || row?.id || "");
+    if (key && !unique.has(key)) unique.set(key, row);
+  }
+  const items: string[] = [];
+  let index = 1;
+  for (const [key, row] of unique) {
+    const metadata = metadataFromKnowledgeSource(row);
+    const formatted = formatVerifiedReference(metadata, style);
+    if (!formatted) continue;
+    const clean = style === "vancouver"
+      ? formatted.replace(/^\s*\d+[.)]\s*/, "")
+      : formatted;
+    items.push(
+      "WORK_ID=" + key + "\n" +
+      "  CSL_" + style.toUpperCase() + "_EXACT=" + clean
+    );
+    index++;
+  }
+  if (!items.length) return "";
+  return "\n\nFORMAT REFERENSI DETERMINISTIK (Citation.js/CSL; hanya pakai entri jika karya itu benar-benar mendukung jawaban):\n" +
+    items.join("\n") +
+    (style === "vancouver"
+      ? "\nUntuk Vancouver, nomor urut mengikuti urutan sitasi pertama dalam jawaban; jangan mengubah teks bibliografi setelah nomor."
+      : "\nUntuk APA, gunakan teks referensi persis seperti hasil CSL ini untuk karya yang benar-benar dipakai.");
+}
