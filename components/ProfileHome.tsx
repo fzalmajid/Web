@@ -146,6 +146,7 @@ export default function ProfileHome({
     setBusy(false);
     if (error) return alert(error.message);
     await refreshProfile();
+    onProfileChanged?.();
   }
 
   async function respond(accept: boolean) {
@@ -158,6 +159,7 @@ export default function ProfileHome({
     setBusy(false);
     if (error) return alert(error.message);
     await refreshProfile();
+    onProfileChanged?.();
   }
 
   async function cancelRequest() {
@@ -166,6 +168,7 @@ export default function ProfileHome({
     setBusy(false);
     if (error) return alert(error.message);
     await refreshProfile();
+    onProfileChanged?.();
   }
 
   async function removeFriend() {
@@ -175,6 +178,7 @@ export default function ProfileHome({
     setBusy(false);
     if (error) return alert(error.message);
     await refreshProfile();
+    onProfileChanged?.();
   }
 
   const canReadReference = relationship === "self" || relationship === "accepted";
@@ -488,6 +492,7 @@ function FriendCenter({
     setActionBusy("");
     if (error) return alert(error.message);
     await refreshConnections();
+    onProfileUpdated();
   }
 
   async function respond(row: FriendConnection, accept: boolean) {
@@ -499,6 +504,7 @@ function FriendCenter({
     setActionBusy("");
     if (error) return alert(error.message);
     await refreshConnections();
+    onProfileUpdated();
   }
 
   async function remove(userId: string) {
@@ -507,6 +513,7 @@ function FriendCenter({
     setActionBusy("");
     if (error) return alert(error.message);
     await refreshConnections();
+    onProfileUpdated();
   }
 
   async function toggleAutoAccept(value: boolean) {
