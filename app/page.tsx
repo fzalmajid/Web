@@ -2788,9 +2788,12 @@ function FolderPage({
                   })}
                 >
                   <div className="dataHead">
-                    <div>
-                      <small>{entry.category || "Catatan RAW"}</small>
-                      <h3>{entry.title}</h3>
+                    <div className="explorerEntityIdentity">
+                      <span className="explorerEntityIcon" aria-hidden="true">📝</span>
+                      <div>
+                        <small>{entry.category || "Catatan RAW"}</small>
+                        <h3>{entry.title}</h3>
+                      </div>
                     </div>
                     <div className="mediaCardActions">
                       <button
@@ -2858,6 +2861,14 @@ function FolderPage({
           recordings={recordings}
           onClose={closeContextMenu}
           onPreview={() => previewContextItem(contextMenu.item)}
+          onCustomizeNode={() => {
+            const item = contextMenu.item;
+            closeContextMenu();
+            if (item.kind === "node") {
+              const node = nodes.find((row) => row.id === item.id);
+              if (node) onCustomize(node);
+            }
+          }}
           canEditContent={contextMenu.item.kind === "entry" && entries.some((row) => row.id === contextMenu.item.id && row.source_type === "manual" && !row.source_file_id)}
           onEditContent={() => {
             const item = contextMenu.item;
@@ -3101,6 +3112,7 @@ function ExplorerActionMenu({
   recordings,
   onClose,
   onPreview,
+  onCustomizeNode,
   onRename,
   canEditContent,
   onEditContent,
@@ -3116,6 +3128,7 @@ function ExplorerActionMenu({
   recordings: Recording[];
   onClose: () => void;
   onPreview: () => void;
+  onCustomizeNode: () => void;
   onRename: () => void;
   canEditContent: boolean;
   onEditContent: () => void;
@@ -3128,6 +3141,7 @@ function ExplorerActionMenu({
   const entry = menu.item.kind === "entry" ? menu.item.id : null;
   const recording = menu.item.kind === "recording" ? recordings.find((row) => row.id === menu.item.id) : null;
   const canDownload = Boolean((file && file.source_kind !== "link") || recording);
+  const isNode = menu.item.kind === "node";
 
   const menuNode = (
     <div className="contextDismissLayer" onMouseDown={onClose} onContextMenu={(event) => event.preventDefault()}>
@@ -3141,12 +3155,18 @@ function ExplorerActionMenu({
         onMouseDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.preventDefault()}
       >
-        <button type="button" onClick={onPreview}>Preview</button>
-        {(file || entry) && <button type="button" onClick={onRename}>Ubah nama</button>}
-        {canEditContent && <button type="button" onClick={onEditContent}>Edit isi</button>}
-        <button type="button" onClick={onCopy}>Copy</button>
-        {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
-        {canDownload && <button type="button" onClick={onDownload}>Download</button>}
+        <button type="button" onClick={onPreview}>Buka</button>
+        {isNode ? (
+          <button type="button" onClick={onCustomizeNode}>Sesuaikan</button>
+        ) : (
+          <>
+            {(file || entry) && <button type="button" onClick={onRename}>Ubah nama</button>}
+            {canEditContent && <button type="button" onClick={onEditContent}>Edit isi</button>}
+            <button type="button" onClick={onCopy}>Copy</button>
+            {current && clipboardItem && <button type="button" onClick={onPaste}>Paste di sini</button>}
+            {canDownload && <button type="button" onClick={onDownload}>Download</button>}
+          </>
+        )}
         <button type="button" className="dangerMenuItem" onClick={onDelete}>Hapus</button>
       </div>
     </div>
@@ -4615,8 +4635,8 @@ function TaskPage({
   const activeTask = task;
   if (!activeTask) {
     return (
-      <section className="toolPage">
-        <div className="toolHeader">
+      <section className="toolPage rbFeaturePage taskPage">
+        <div className="toolHeader rbFeatureHeader">
           <p className="eyebrow">TUGAS</p>
           <h1>{node.title}</h1>
           <p className="muted">Data Tugas belum tersedia.</p>
@@ -4704,8 +4724,8 @@ function TaskPage({
   }
 
   return (
-    <section className="toolPage taskPage">
-      <div className="toolHeader taskHeader">
+    <section className="toolPage rbFeaturePage taskPage">
+      <div className="toolHeader rbFeatureHeader taskHeader">
         <div>
           <p className="eyebrow">TUGAS · {activeTask!.task_type === "quiz" ? "SOAL / QUIZ" : "TO-DO LIST"}</p>
           <h1>{node.title}</h1>
@@ -5174,8 +5194,8 @@ function DatabasePage({
   }
 
   return (
-    <section className="toolPage">
-      <div className="toolHeader">
+    <section className="toolPage rbFeaturePage databasePage">
+      <div className="toolHeader rbFeatureHeader">
         <p className="eyebrow">DATABASE</p>
         <h1>{node.title}</h1>
         <p className="muted">Masukkan teks, link, file, foto, audio, video, atau PDF. Sumber RAW/original disimpan dan menjadi sumber utama AI saat Database dipakai.</p>
@@ -5492,7 +5512,13 @@ function DatabaseFileCard({
       onClick={() => onPreview?.(file)}
     >
       <div className="dataHead">
-        <div>
+        <div className={compact ? "explorerEntityIdentity" : ""}>
+          {compact && (
+            <span className="explorerEntityIcon" aria-hidden="true">
+              {isLink ? "🔗" : isPdf ? "📄" : isImage ? "🖼️" : isAudio ? "🎧" : isVideo ? "🎬" : "📎"}
+            </span>
+          )}
+          <div>
           <small>
             {isLink
               ? "Link"
@@ -5504,6 +5530,7 @@ function DatabaseFileCard({
             {!isLink && " · " + formatBytes(file.size_bytes)}
           </small>
           <h3>{file.file_name}</h3>
+          </div>
         </div>
         <div className="mediaCardActions">
           <button
@@ -5514,7 +5541,7 @@ function DatabaseFileCard({
           >
             ...
           </button>
-          {file.processing_status === "error" && !isLink && (
+          {!compact && file.processing_status === "error" && !isLink && (
             <button className="ghost" type="button" disabled={retryBusy}
               onClick={retryRawExtraction}>
               {retryBusy ? "Memproses ulang..." : "Ulang baca RAW"}
@@ -5551,10 +5578,10 @@ function DatabaseFileCard({
         </div>
       </div>
 
-      {file.processing_status === "error" && file.error_message && !retryStatus && (
+      {!compact && file.processing_status === "error" && file.error_message && !retryStatus && (
         <p className="rawRetryMessage" role="status">Proses sebelumnya gagal: {file.error_message}</p>
       )}
-      {retryStatus && <p className="rawRetryMessage" role="status">{retryStatus}</p>}
+      {!compact && retryStatus && <p className="rawRetryMessage" role="status">{retryStatus}</p>}
       {previewUrl && isImage && (
         <div className="databaseMediaPreview">
           <img src={previewUrl} alt={file.file_name} />
@@ -5684,9 +5711,12 @@ function DatabaseStoredRecording({
       onClick={onClick}
     >
       <div className="dataHead">
-        <div>
-          <small>Rekaman audio · {formatTime(item.duration_seconds || 0)}</small>
-          <h3>{item.title}</h3>
+        <div className={compact ? "explorerEntityIdentity" : ""}>
+          {compact && <span className="explorerEntityIcon" aria-hidden="true">🎙️</span>}
+          <div>
+            <small>Rekaman audio · {formatTime(item.duration_seconds || 0)}</small>
+            <h3>{item.title}</h3>
+          </div>
         </div>
         <div className="mediaCardActions">
           <button className="ghost iconDots" type="button" onClick={(event) => { event.stopPropagation(); onContextMenu?.(event); }}>
@@ -6453,12 +6483,12 @@ function StudyPage({
   const sourceNameMap = new Map(nodes.map((item) => [item.id, item.title]));
 
   if (loading) {
-    return <section className="toolPage"><div className="loader">Memuat Study...</div></section>;
+    return <section className="toolPage rbFeaturePage studyPage"><div className="loader">Memuat Study...</div></section>;
   }
 
   return (
-    <section className="toolPage studyPage">
-      <div className="toolHeader studyHero">
+    <section className="toolPage rbFeaturePage studyPage">
+      <div className="toolHeader rbFeatureHeader studyHero">
         <p className="eyebrow">STUDY</p>
         <h1>{node.emoji ? node.emoji + " " : ""}{node.title}</h1>
         <p className="muted">
@@ -7589,8 +7619,8 @@ function RecordingPage({
   }
 
   return (
-    <section className="toolPage">
-      <div className="toolHeader">
+    <section className="toolPage rbFeaturePage recordingPage">
+      <div className="toolHeader rbFeatureHeader">
         <p className="eyebrow">REKAMAN & TRANSKRIP</p>
         <h1>{node.title}</h1>
         <p className="muted">
@@ -8260,8 +8290,8 @@ function PracticePage({
   }
 
   return (
-    <section className="toolPage">
-      <div className="toolHeader">
+    <section className="toolPage rbFeaturePage practicePage">
+      <div className="toolHeader rbFeatureHeader">
         <p className="eyebrow">{mode === "flashcards" ? "FLASHCARD" : "KUIS"}</p>
         <h1>{node.title}</h1>
         <p className="muted">Dibuat hanya dari Database pada halaman induknya.</p>
