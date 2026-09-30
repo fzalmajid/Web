@@ -2662,8 +2662,8 @@ function FolderPage({
       }}
       onDrop={handlePageDrop}
     >
-      <div className="folderTitle folderTitleRow">
-        <div>
+      <div className="folderTitle folderTitleRow explorerFolderHeader">
+        <div className="explorerFolderIdentity">
           <p className="eyebrow">{current ? "FOLDER BELAJAR" : "RUANG BELAJAR"}</p>
           <h1 className="folderHeroTitle">
             {current?.emoji && <span className="folderHeroEmoji" aria-hidden="true">{current.emoji}</span>}
@@ -2671,11 +2671,16 @@ function FolderPage({
           </h1>
           {current && (
             <p className="muted explorerHint">
-              Folder ini sekaligus Database. Drop file/foto/audio di sini, atau tekan + untuk menambah file, link, teks, rekaman, subfolder, Study, Flashcard, Kuis, atau Tugas.
+              Folder ini sekaligus Database. Drop file/foto/audio di sini, atau gunakan Tambah untuk file, link, teks, rekaman, subfolder, Study, Flashcard, Kuis, atau Tugas.
             </p>
           )}
         </div>
-        {current && <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>}
+        {current && (
+          <div className="explorerFolderHeaderActions">
+            <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>
+            <button className="primary socialAddRoom explorerHeaderAdd" onClick={onAdd}>+ Tambah</button>
+          </div>
+        )}
       </div>
 
       {dropActive && (
@@ -2980,7 +2985,6 @@ function FolderPage({
         </div>
       )}
 
-      <button className="bigPlus" onClick={onAdd} aria-label="Tambah">+</button>
     </section>
   );
 }
