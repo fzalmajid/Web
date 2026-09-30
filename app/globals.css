@@ -10135,3 +10135,89 @@ body,
     max-height:calc(100dvh - 165px)!important;
   }
 }
+
+
+/* INLINE SETTINGS + SHARED PROFILE EDITOR */
+.settingsInlineEditor,
+.settingsInlineFriends{
+  min-width:0;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:var(--card);
+  padding:16px;
+}
+.settingsInlineEditor .profileEditorPanel{
+  gap:12px!important;
+}
+.settingsInlineFriends .friendCenterEmbedded{
+  display:grid;
+  gap:0;
+}
+.friendCenterEmbedded .socialAutoAcceptSetting{
+  margin-bottom:14px;
+}
+.friendCenterEmbedded .socialFriendSearch{
+  margin-top:0;
+}
+.settingsInlineLoading,
+.profileSetupLoading{
+  min-height:140px;
+  display:grid;
+  place-items:center;
+  color:var(--muted);
+  border:1px dashed var(--line);
+  border-radius:16px;
+}
+.profileSetupCardUnified{
+  width:min(720px,100%)!important;
+}
+.profileSetupHead{
+  margin-bottom:14px;
+  padding-bottom:12px;
+  border-bottom:1px solid var(--line);
+}
+.profileSetupHead h2{
+  margin:2px 0 0;
+  font-size:1.15rem;
+}
+.profileSetupCardUnified .profileEditorPanel{
+  gap:12px!important;
+}
+
+/* Keep reusable profile controls at the same scale in modal, setup and Settings. */
+.profileEditorPanel>label{
+  font-size:.78rem!important;
+}
+.profileEditorPanel .profilePhotoEditor{
+  margin:0!important;
+}
+.profileEditorPanel .primary:last-child{
+  min-height:42px!important;
+}
+
+/* Friend panel embedded in Settings should not act like a modal. */
+.friendCenterEmbedded .friendCenterHeader{
+  display:none!important;
+}
+.friendCenterEmbedded .socialPeopleSection:last-child{
+  padding-bottom:0;
+}
+
+/* Do not let account/setup text overpower the profile design system. */
+.settingsPageTitle h1{
+  font-size:1.22rem!important;
+}
+.settingsContentHead h2{
+  font-size:1.08rem!important;
+}
+
+@media (max-width:760px){
+  .settingsInlineEditor,
+  .settingsInlineFriends{
+    padding:12px;
+    border-radius:16px;
+  }
+  .profileSetupCardUnified{
+    width:100%!important;
+  }
+}
