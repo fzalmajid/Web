@@ -121,3 +121,50 @@
 .contextDismissLayer .explorerContextMenu{
   pointer-events:auto!important;
 }
+
+
+/* CHAT SESSION MENU — floating popup, matching folder-card UI.
+   Visual-only change: Rename / Pin / Delete behavior is untouched. */
+.leftChatHistoryItem{
+  position:relative!important;
+}
+.leftChatHistoryItem:has(.leftChatItemMenu){
+  z-index:45!important;
+}
+.leftChatItemMenu{
+  position:absolute!important;
+  top:40px!important;
+  right:8px!important;
+  left:auto!important;
+  grid-column:auto!important;
+  width:142px!important;
+  min-width:142px!important;
+  max-width:calc(100% - 16px)!important;
+  margin:0!important;
+  padding:5px!important;
+  display:grid!important;
+  gap:0!important;
+  z-index:50!important;
+  border:1px solid var(--line)!important;
+  border-radius:12px!important;
+  background:var(--card)!important;
+  box-shadow:0 14px 36px rgba(25,39,35,.16)!important;
+}
+.leftChatItemMenu button{
+  width:100%!important;
+  border:0!important;
+  border-radius:8px!important;
+  background:transparent!important;
+  color:var(--ink)!important;
+  padding:9px 10px!important;
+  text-align:left!important;
+  font-size:.72rem!important;
+  font-weight:750!important;
+  cursor:pointer!important;
+}
+.leftChatItemMenu button:hover{
+  background:var(--soft)!important;
+}
+.leftChatItemMenu button.danger{
+  color:var(--danger)!important;
+}
