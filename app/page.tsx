@@ -2577,12 +2577,23 @@ function FolderPage({
             ? "Mengupload... " + (index + 1) + "/" + incoming.length
             : "Mengupload..."
         );
+        let sourceFileId = "";
         if (file.size > STORAGE_OBJECT_LIMIT) {
-          await saveOversizedPdf(session, user, targetNodeId, file,
+          const row = await saveOversizedPdf(session, user, targetNodeId, file,
             defaultSelection("gemini-2.5-flash"), undefined, onChange);
+          sourceFileId = String(row?.id || "");
         } else {
           const row = await saveRawFileToFolder(user, targetNodeId, file);
+          sourceFileId = String(row?.id || "");
           if (!row.raw_text) await ensureRawFileText(session, row);
+        }
+        if (sourceFileId) {
+          setDropUploadStatus(
+            incoming.length > 1
+              ? "Memeriksa metadata... " + (index + 1) + "/" + incoming.length
+              : "Memeriksa metadata..."
+          );
+          try { await resolveBibliographicMetadata(session, sourceFileId); } catch {}
         }
       }
       onChange();
@@ -4137,17 +4148,24 @@ function AddSheet({
     setBusy(true);
     setStatus("Menyimpan file asli...");
     try {
+      let sourceFileId = "";
       if (selectedFile.size > STORAGE_OBJECT_LIMIT) {
-        await saveOversizedPdf(session, user, targetNodeId, selectedFile,
+        const row = await saveOversizedPdf(session, user, targetNodeId, selectedFile,
           defaultSelection("gemini-2.5-flash"), setStatus);
+        sourceFileId = String(row?.id || "");
       } else {
         const row = await saveRawFileToFolder(user, targetNodeId, selectedFile);
+        sourceFileId = String(row?.id || "");
         if (!row.raw_text) {
           setStatus("File asli tersimpan. Membaca RAW...");
           await ensureRawFileText(session, row);
         }
       }
-      setStatus("File asli sudah masuk folder. Versi AI belum dibuat.");
+      setStatus("File asli sudah masuk folder. Memeriksa metadata referensi...");
+      if (sourceFileId) {
+        try { await resolveBibliographicMetadata(session, sourceFileId); } catch {}
+      }
+      setStatus("File asli sudah masuk folder. Metadata referensi sudah diperiksa.");
       onAdded();
     } catch (error: any) {
       setStatus("");
