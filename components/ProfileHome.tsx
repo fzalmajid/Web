@@ -581,12 +581,18 @@ function EditProfileSheet({
     });
   }
 
-  function useEmojiAvatar() {
+  function openEmojiAvatarEditor() {
+    setAvatarEditorMode("emoji");
+  }
+
+  function activateEmojiAvatar(nextEmoji = avatarEmoji, nextColor = avatarBgColor) {
     if (avatarPreview.startsWith("blob:")) URL.revokeObjectURL(avatarPreview);
     setPendingAvatarBlob(null);
     setAvatarPreview("");
     setAvatarUrl("");
     setCropSrc("");
+    setAvatarEmoji(nextEmoji);
+    setAvatarBgColor(nextColor);
     setAvatarEditorMode("emoji");
   }
 
@@ -708,7 +714,7 @@ function EditProfileSheet({
               <button
                 type="button"
                 className={avatarEditorMode === "emoji" ? "profileAvatarOption active" : "profileAvatarOption"}
-                onClick={useEmojiAvatar}
+                onClick={openEmojiAvatarEditor}
               >
                 <span>🙂</span>
                 <div>
@@ -729,7 +735,7 @@ function EditProfileSheet({
                       type="button"
                       key={emoji}
                       className={avatarEmoji === emoji ? "profileEmojiChoice active" : "profileEmojiChoice"}
-                      onClick={() => setAvatarEmoji(emoji)}
+                      onClick={() => activateEmojiAvatar(emoji, avatarBgColor)}
                       aria-label={"Pilih avatar " + emoji}
                     >
                       {emoji}
@@ -747,7 +753,7 @@ function EditProfileSheet({
                       className={avatarBgColor === color ? "profileColorChoice active" : "profileColorChoice"}
                       style={{ background: color }}
                       aria-label={"Pilih warna " + color}
-                      onClick={() => setAvatarBgColor(color)}
+                      onClick={() => activateEmojiAvatar(avatarEmoji, color)}
                     />
                   ))}
                 </div>
@@ -966,7 +972,7 @@ function FriendCenter({
   return (
     <div className="sheetBackdrop friendCenterBackdrop" onMouseDown={onClose}>
       <section className="addSheet friendCenterSheet" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="sheetHead">
+        <div className="sheetHead friendCenterHeader">
           <div>
             <p className="eyebrow">SOSIAL</p>
             <h2>Teman</h2>
