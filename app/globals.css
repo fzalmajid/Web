@@ -11674,3 +11674,21 @@ body,
     max-width:72vw;
   }
 }
+
+
+/* Academic math renderer: KaTeX augments simple Unicode scientific text. */
+.rbKatex {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: baseline;
+}
+.rbKatexDisplay {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2rem 0;
+}
+.rbKatexDisplay .katex-display {
+  margin: 0.35rem 0;
+  text-align: left;
+}
