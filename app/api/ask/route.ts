@@ -32,6 +32,7 @@ import {
 } from "@/lib/aiQuota";
 import { buildCitationMetadataInventory, citationInstruction, citationStructuralWarnings, normalizeCitationOptions, type CitationOutput, type CitationStyle } from "@/lib/citations";
 import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } from "@/lib/artifacts";
+import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 
 function bearer(req: NextRequest) {
@@ -1355,6 +1356,10 @@ export async function POST(req: NextRequest) {
       useDatabase && !databaseWarning && !casualAiQuestion
         ? buildCitationMetadataInventory(citationStyle, data)
         : "";
+    const deterministicCitationInventory =
+      useDatabase && !databaseWarning && !casualAiQuestion
+        ? buildDeterministicCitationInventory(citationStyle, data)
+        : "";
 
     const prompt = buildPrompt({
       question,
@@ -1369,7 +1374,7 @@ export async function POST(req: NextRequest) {
       citationStyle,
       citationOutputs,
       artifactFormat,
-    }) + citationMetadataInventory + scholarlyContext +
+    }) + citationMetadataInventory + deterministicCitationInventory + scholarlyContext +
       (/\b(eksipien|excipients?)\b/i.test(question.trim()) && data.length
         ? "\n\nPRIORITAS RELEVANSI: Untuk fungsi atau pemilihan eksipien tablet, gunakan monografi eksipien yang benar-benar cocok dari Handbook of Pharmaceutical Excipients atau referensi eksipien lain. Farmakope dipakai untuk fakta zat aktif/spesifikasi yang relevan, bukan sebagai satu-satunya sumber eksipien. Eksipien yang tidak menyebut PCT tetap bisa relevan sebagai bahan tambahan, tetapi jangan mengklaim formula tablet PCT sudah terbukti tanpa sumber formulasi. Sitasi hanya halaman yang memuat fakta terkait."
         : "") +
