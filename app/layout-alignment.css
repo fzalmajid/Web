@@ -192,3 +192,22 @@
   align-content:start!important;
   scrollbar-gutter:auto!important;
 }
+
+
+/* HOME BREADCRUMB ROOT — replaces the old "PROFIL SAYA" visual label.
+   Home remains an interactive breadcrumb/drop target; folder titles stay below it. */
+.socialRoomsHeadHome{
+  align-items:center!important;
+}
+.socialRoomsHeadHome .profileHomeBreadcrumb{
+  margin:0!important;
+}
+.socialRoomsHeadHome .profileHomeBreadcrumb button{
+  cursor:pointer!important;
+}
+.profileFolderBreadcrumb [data-rb-drop-target]{
+  border-radius:6px!important;
+}
+.profileFolderBreadcrumb [data-rb-drop-target]:hover{
+  background:var(--soft)!important;
+}
