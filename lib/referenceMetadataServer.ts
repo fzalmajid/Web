@@ -115,8 +115,50 @@ async function mendeleyToken() {
   return result.token;
 }
 
+async function testMendeleyAppRegistrationRecognition() {
+  const id = String(process.env.MENDELEY_CLIENT_ID || "").trim();
+  const redirectUri = String(
+    process.env.MENDELEY_REDIRECT_URI ||
+    "https://web-fzalmajid.vercel.app/api/mendeley/callback"
+  ).trim();
+  if (!id) return { recognized: false, status: null, reason: "missing_client_id" as const };
+
+  const url = new URL("https://api.mendeley.com/oauth/authorize");
+  url.searchParams.set("client_id", id);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "all");
+  url.searchParams.set("state", "ruang-belajar-diagnostic");
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "manual",
+      cache: "no-store",
+      headers: { Accept: "text/html,application/json" },
+    });
+
+    // A 3xx means Mendeley accepted the application id + redirect URI and is
+    // sending the browser into its sign-in/authorization flow. A 400 means the
+    // application registration pair itself is not accepted.
+    if (response.status >= 300 && response.status < 400) {
+      return { recognized: true, status: response.status, reason: "authorization_flow_started" as const };
+    }
+    if (response.status === 200) {
+      return { recognized: true, status: 200, reason: "authorization_page_returned" as const };
+    }
+    if (response.status === 400) {
+      return { recognized: false, status: 400, reason: "client_id_or_redirect_not_recognized" as const };
+    }
+    return { recognized: false, status: response.status, reason: "authorization_endpoint_unexpected" as const };
+  } catch {
+    return { recognized: false, status: null, reason: "authorization_endpoint_network_error" as const };
+  }
+}
+
 export async function testMendeleyCatalogConnection() {
   const configured = mendeleyConfigured();
+  const registration = await testMendeleyAppRegistrationRecognition();
   if (!configured) {
     return {
       configured: false,
@@ -125,6 +167,9 @@ export async function testMendeleyCatalogConnection() {
       bodyStatus: null,
       authMethod: null,
       reason: "missing_environment",
+      appRegistrationRecognized: registration.recognized,
+      authorizationStatus: registration.status,
+      authorizationReason: registration.reason,
     };
   }
 
@@ -141,6 +186,9 @@ export async function testMendeleyCatalogConnection() {
       bodyStatus: result.bodyStatus,
       authMethod: result.method,
       reason: "ok",
+      appRegistrationRecognized: registration.recognized,
+      authorizationStatus: registration.status,
+      authorizationReason: registration.reason,
     };
   }
 
@@ -160,6 +208,9 @@ export async function testMendeleyCatalogConnection() {
       has5xx ? "mendeley_server_error" :
       statuses.length ? "token_request_failed" :
       "network_error",
+    appRegistrationRecognized: registration.recognized,
+    authorizationStatus: registration.status,
+    authorizationReason: registration.reason,
   };
 }
 
