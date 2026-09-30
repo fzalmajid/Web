@@ -75,9 +75,13 @@ export async function POST(req: NextRequest) {
     if (userError || !userData.user) return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
 
     const body = await req.json();
-    const nodeId = String(body.nodeId || "").trim();
+    const rawNodeId = body.nodeId;
+    const nodeId =
+      rawNodeId === null || rawNodeId === undefined || String(rawNodeId).trim() === ""
+        ? null
+        : String(rawNodeId).trim();
     const input = String(body.url || "").trim();
-    if (!nodeId || !input) return NextResponse.json({ error: "Database dan link wajib diisi." }, { status: 400 });
+    if (!input) return NextResponse.json({ error: "Link wajib diisi." }, { status: 400 });
 
     let url: URL;
     try { url = new URL(input); } catch { return NextResponse.json({ error: "Link tidak valid." }, { status: 400 }); }
