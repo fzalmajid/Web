@@ -10957,3 +10957,87 @@ body,
     font-size:1.08rem!important;
   }
 }
+
+
+/* 2026-09-30 breadcrumb drag/drop responsiveness */
+/* The slash and its neighboring gap belong to the destination breadcrumb.
+   This makes moving folders upward through Home / Parent / Child reliable,
+   instead of requiring pixel-perfect placement on the text itself. */
+.profileFolderBreadcrumb{
+  gap:2px!important;
+}
+.profileFolderBreadcrumb>.breadcrumbDropTarget,
+.profileBreadcrumbSegment{
+  min-height:30px;
+  border-radius:9px;
+}
+.profileFolderBreadcrumb>.breadcrumbDropTarget{
+  display:inline-flex;
+  align-items:center;
+  padding:5px 7px!important;
+  transition:background .12s ease,color .12s ease,box-shadow .12s ease;
+}
+.profileBreadcrumbSegment{
+  display:inline-flex;
+  align-items:center;
+  gap:1px;
+  padding:2px 3px 2px 1px;
+  transition:background .12s ease,box-shadow .12s ease;
+}
+.profileBreadcrumbSegment>b{
+  display:inline-grid;
+  place-items:center;
+  min-width:13px;
+  align-self:stretch;
+  pointer-events:none;
+}
+.profileBreadcrumbSegment>.breadcrumbDropTarget{
+  min-height:26px;
+  padding:3px 5px!important;
+}
+.profileFolderBreadcrumb>.breadcrumbDropTarget.active,
+.profileBreadcrumbSegment.active{
+  background:#e9f6ee!important;
+  color:#286848!important;
+  box-shadow:0 0 0 2px rgba(103,161,127,.18)!important;
+}
+.profileBreadcrumbSegment.active>b{
+  color:#4c8b69!important;
+}
+
+/* On tool pages, the slash itself is part of the drop zone too. */
+.explorerPathBar .pathSegment.dropAvailable{
+  padding:2px 2px;
+  border-radius:10px;
+  transition:background .12s ease,box-shadow .12s ease;
+}
+.explorerPathBar .pathSegment.dropAvailable.active{
+  background:#e9f6ee;
+  box-shadow:0 0 0 2px rgba(103,161,127,.15);
+}
+.explorerPathBar .pathSegment.dropAvailable.active .pathSlash{
+  color:#4c8b69!important;
+}
+.explorerPathBar .pathSegment.dropAvailable .pathSlash{
+  min-width:14px;
+  align-self:stretch;
+  display:grid;
+  place-items:center;
+  pointer-events:none;
+}
+
+/* While dragging, increase vertical tolerance without visually enlarging the bar. */
+.profileFolderBreadcrumb [data-rb-drop-target],
+.explorerPathBar [data-rb-drop-target]{
+  touch-action:none;
+}
+
+@media (max-width:760px){
+  .profileFolderBreadcrumb>.breadcrumbDropTarget,
+  .profileBreadcrumbSegment{
+    min-height:34px;
+  }
+  .profileBreadcrumbSegment>b{
+    min-width:16px;
+  }
+}
