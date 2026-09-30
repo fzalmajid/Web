@@ -331,7 +331,7 @@ export default function ProfileHome({
                 >
                   Home
                 </button>
-                {activeFolderPath.map((item) => (
+                {[...activeFolderPath, { id: activeFolder.id, title: activeFolder.title }].map((item) => (
                   <span key={item.id}>
                     <b>/</b>
                     <button
@@ -353,10 +353,6 @@ export default function ProfileHome({
                   </span>
                 ))}
               </div>
-              <h2 className="profileActiveFolderTitle">
-                <span className="profileActiveFolderIcon">{activeFolder.emoji || "📁"}</span>
-                <span>{activeFolder.title}</span>
-              </h2>
             </>
           ) : (
             <>
