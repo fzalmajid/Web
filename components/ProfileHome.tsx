@@ -652,7 +652,7 @@ function FriendCenter({
   }
 
   return (
-    <div className="sheetBackdrop" onMouseDown={onClose}>
+    <div className="sheetBackdrop friendCenterBackdrop" onMouseDown={onClose}>
       <section className="addSheet friendCenterSheet" onMouseDown={(event) => event.stopPropagation()}>
         <div className="sheetHead">
           <div>
