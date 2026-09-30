@@ -2027,7 +2027,7 @@ async function importStoredRawFile(
 async function saveOversizedPdf(
   session: Session,
   user: User,
-  nodeId: string,
+  nodeId: string | null,
   file: File,
   selection: AiSelection,
   onStatus?: (value: string) => void,
@@ -10868,16 +10868,18 @@ function BottomAskBar({
         alert("Pada Supabase Free, lampiran selain PDF maksimal 50 MB. PDF hingga 200 MB dapat langsung disimpan dan dibaca lewat Database.");
         return;
       }
-      const target = askVoiceDatabases.find((item) => item.id === attachmentDbId) || askVoiceDatabases[0];
-      if (!target) {
-        alert("Buat atau pilih folder Database terlebih dahulu agar PDF besar bisa diproses.");
+      const saveToHome = attachmentDbId === "__home__";
+      const target = saveToHome ? null : (askVoiceDatabases.find((item) => item.id === attachmentDbId) || askVoiceDatabases[0] || null);
+      if (!saveToHome && !target) {
+        alert("Pilih Home atau folder Database terlebih dahulu agar PDF besar bisa diproses.");
         return;
       }
+      const targetNodeId = target?.id || null;
       setAttachmentBusy(true);
       setAttachmentStatus("PDF besar: menyimpan file asli secara bertahap ke Database...");
       try {
         const row = await saveOversizedPdf(
-          session, session.user, target.id, file, aiSelection, setAttachmentStatus, onChange
+          session, session.user, targetNodeId, file, aiSelection, setAttachmentStatus, onChange
         );
         if (pendingAttachment?.filePath) {
           await supabase.storage.from("study-files").remove([pendingAttachment.filePath]);
