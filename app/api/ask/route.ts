@@ -759,6 +759,18 @@ function expandPharmacyQuery(question: string) {
     expanded = expanded.replace(/\bpct\b/gi, "paracetamol parasetamol acetaminophen acetaminofen");
   }
 
+  // Cross-language and OCR-friendly regulatory/dissolution terms. This is
+  // lexical retrieval, so it works immediately even while E5/Hugging Face
+  // vectors for the relevant entry are still unfinished.
+  if (/\bdisolusi\b/i.test(expanded)) {
+    expanded += " dissolution uji disolusi";
+  } else if (/\bdissolution\b/i.test(expanded)) {
+    expanded += " disolusi uji disolusi";
+  }
+  if (/\bbpom\b/i.test(expanded)) {
+    expanded += " badan pengawas obat makanan pengawas obat makanan";
+  }
+
   const analyticalIntent =
     /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible)\b/i.test(expanded);
 
@@ -805,6 +817,9 @@ function databaseLookupTerms(question: string) {
     dipyridamole: ["dipiridamol","dipyridamol","dipiridamole"],
     dipyridamol: ["dipiridamol","dipyridamole"],
     dipiridamol: ["dipyridamole","dipyridamol"],
+    disolusi: ["dissolution"],
+    dissolution: ["disolusi"],
+    bpom: ["pengawas","makanan"],
   };
   return Array.from(new Set(words.flatMap((word) => [word, ...(synonym[word] || [])])));
 }
@@ -1055,7 +1070,9 @@ export async function POST(req: NextRequest) {
           : Promise.resolve([]);
 
         // All independent retrieval layers run concurrently. E5 is optional and can never
-        // block lexical/RAW evidence from reaching the selected model.
+        // block lexical/RAW evidence from reaching the selected model. Entries that have
+        // not finished Hugging Face indexing remain eligible through FTS/RAW and the
+        // hybrid fusion intentionally preserves strong lexical evidence.
         const semanticPromise = searchSemanticKnowledge(
           supabase, databaseSearchQuery, scopeNodeId,
           sourceNodeIds, sourceFileIds, hasExplicitDatabaseSources, searchLimit,
