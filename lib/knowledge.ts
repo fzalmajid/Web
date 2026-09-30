@@ -16,6 +16,19 @@ export type KnowledgeSource = {
   bibliographic_work_title?: string;
   bibliographic_edition?: string | null;
   bibliographic_year?: string | null;
+  bibliographic_authors?: string[];
+  bibliographic_corporate_author?: string | null;
+  bibliographic_publisher?: string | null;
+  bibliographic_institution?: string | null;
+  bibliographic_type?: string | null;
+  bibliographic_container_title?: string | null;
+  bibliographic_volume?: string | null;
+  bibliographic_issue?: string | null;
+  bibliographic_pages?: string | null;
+  bibliographic_doi?: string | null;
+  bibliographic_isbn?: string | null;
+  bibliographic_url?: string | null;
+  bibliographic_metadata_status?: string | null;
   printed_page_start?: number | null;
   printed_page_end?: number | null;
 };
@@ -107,22 +120,60 @@ export async function annotateBibliographicWorks(
     // Bibliography lookup should never prevent answering a question.
   }
   const byId = new Map(hints.map((hint) => [hint.source_file_id, hint]));
+  const { data: metadataRows } = await supabase
+    .from("source_files")
+    .select("id,bibliographic_metadata,bibliographic_metadata_status")
+    .in("id", ids);
+  const metadataById = new Map(
+    (metadataRows || []).map((item: any) => [
+      String(item.id),
+      {
+        metadata: item.bibliographic_metadata && typeof item.bibliographic_metadata === "object"
+          ? item.bibliographic_metadata : {},
+        status: String(item.bibliographic_metadata_status || "unreviewed"),
+      },
+    ])
+  );
+
   return rows.map((row) => {
     const fileId = row.source_file_id;
     const hint = fileId ? byId.get(fileId) : undefined;
+    const stored = fileId ? metadataById.get(fileId) : undefined;
+    const metadata: any = stored?.metadata || {};
+
     if (!hint) return {
       ...row,
       bibliographic_work_id: fileId ? "file:" + fileId : "entry:" + row.id,
-      bibliographic_work_title: row.title.replace(/\s*·\s*Halaman\s+\d+(?:\s*[-–]\s*\d+)?/i, "")
+      bibliographic_work_title: metadata.title ||
+        row.title.replace(/\s*·\s*Halaman\s+\d+(?:\s*[-–]\s*\d+)?/i, ""),
+      bibliographic_authors: Array.isArray(metadata.authors) ? metadata.authors : [],
+      bibliographic_corporate_author: metadata.corporate_author || null,
+      bibliographic_year: metadata.year ? String(metadata.year) : null,
+      bibliographic_publisher: metadata.publisher || null,
+      bibliographic_institution: metadata.institution || null,
+      bibliographic_type: metadata.type || null,
+      bibliographic_doi: metadata.doi || null,
+      bibliographic_isbn: metadata.isbn || null,
+      bibliographic_url: metadata.url || null,
+      bibliographic_metadata_status: stored?.status || "unreviewed",
     };
-    const title = normalizedPublicationTitle(hint.file_name);
-    const edition = publicationEdition(hint.file_name, hint.front_matter || "");
-    const year = publicationYear(hint.file_name, hint.front_matter || "");
+
+    const title = String(metadata.title || normalizedPublicationTitle(hint.file_name));
+    const edition = String(metadata.edition || publicationEdition(hint.file_name, hint.front_matter || "") || "");
+    const year = metadata.year ? String(metadata.year) : publicationYear(hint.file_name, hint.front_matter || "");
     const normalized = title.toLocaleLowerCase("en").replace(/[^a-z0-9À-ÿ]+/gi, " ").trim();
-    // The edition is essential when two files have the same title.
-    const workId = edition
-      ? "work:" + normalized + "|edition:" + edition + (year ? "|year:" + year : "")
-      : "file:" + fileId;
+    const authorIdentity = Array.isArray(metadata.authors) && metadata.authors.length
+      ? metadata.authors.join("|").toLowerCase()
+      : String(metadata.corporate_author || "").toLowerCase();
+    const doi = String(metadata.doi || "").toLowerCase().trim();
+    const isbn = String(metadata.isbn || "").toLowerCase().trim();
+    const workId = doi
+      ? "doi:" + doi
+      : isbn
+        ? "isbn:" + isbn
+        : edition
+          ? "work:" + normalized + "|edition:" + edition + (year ? "|year:" + year : "") + (authorIdentity ? "|author:" + authorIdentity : "")
+          : "file:" + fileId;
     const editionLabel = edition
       ? (/^farmakope\s+indonesia/i.test(title)
           ? "Edisi " + (["I","II","III","IV","V","VI","VII","VIII","IX","X"][Number(edition)-1] || edition)
@@ -134,7 +185,20 @@ export async function annotateBibliographicWorks(
       bibliographic_work_title: title +
         (editionLabel ? " (" + editionLabel + (year ? ", " + year : "") + ")" : year ? " (" + year + ")" : ""),
       bibliographic_edition: edition || null,
-      bibliographic_year: year || null
+      bibliographic_year: year || null,
+      bibliographic_authors: Array.isArray(metadata.authors) ? metadata.authors : [],
+      bibliographic_corporate_author: metadata.corporate_author || null,
+      bibliographic_publisher: metadata.publisher || null,
+      bibliographic_institution: metadata.institution || null,
+      bibliographic_type: metadata.type || null,
+      bibliographic_container_title: metadata.container_title || null,
+      bibliographic_volume: metadata.volume || null,
+      bibliographic_issue: metadata.issue || null,
+      bibliographic_pages: metadata.pages || null,
+      bibliographic_doi: metadata.doi || null,
+      bibliographic_isbn: metadata.isbn || null,
+      bibliographic_url: metadata.url || hint.file_name && null,
+      bibliographic_metadata_status: stored?.status || "unreviewed",
     };
   });
 }
@@ -900,8 +964,28 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000,
     const sourceId = row.source_file_id || row.id;
     const publication = row.bibliographic_work_title || row.title;
     const workId = row.bibliographic_work_id || sourceId;
+    const authorValue = row.bibliographic_authors?.length
+      ? row.bibliographic_authors.join("; ")
+      : row.bibliographic_corporate_author || "[tidak terverifikasi]";
+    const metadataLine = [
+      "AUTHOR=" + authorValue,
+      "YEAR=" + (row.bibliographic_year || "[tidak terverifikasi]"),
+      "TITLE=" + publication,
+      "TYPE=" + (row.bibliographic_type || "[tidak terverifikasi]"),
+      "EDITION=" + (row.bibliographic_edition || "[tidak tersedia]"),
+      "PUBLISHER=" + (row.bibliographic_publisher || "[tidak terverifikasi]"),
+      "INSTITUTION=" + (row.bibliographic_institution || "[tidak tersedia]"),
+      "CONTAINER=" + (row.bibliographic_container_title || "[tidak tersedia]"),
+      "VOLUME=" + (row.bibliographic_volume || "[tidak tersedia]"),
+      "ISSUE=" + (row.bibliographic_issue || "[tidak tersedia]"),
+      "PAGES=" + (row.bibliographic_pages || "[tidak tersedia]"),
+      "DOI=" + (row.bibliographic_doi || "[tidak tersedia]"),
+      "ISBN=" + (row.bibliographic_isbn || "[tidak tersedia]"),
+      "URL=" + (row.bibliographic_url || "[tidak tersedia]"),
+      "STATUS=" + (row.bibliographic_metadata_status || "unreviewed"),
+    ].join(" | ");
     const part =
-      `[WORK_ID: ${workId} | KARYA BIBLIOGRAFIS: ${publication} | SOURCE_ID: ${sourceId} | FILE/HALAMAN: ${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | CUPLIKAN ISI RAW ASLI]\n${body}`;
+      `[WORK_ID: ${workId} | KARYA BIBLIOGRAFIS: ${publication} | SOURCE_ID: ${sourceId} | FILE/HALAMAN: ${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | METADATA BIBLIOGRAFIS: ${metadataLine} | CUPLIKAN ISI RAW ASLI]\n${body}`;
 
     parts.push(part);
     used += part.length;
