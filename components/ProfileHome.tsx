@@ -1062,33 +1062,27 @@ function FriendCenter({
           {searchBusy && <small>Mencari...</small>}
         </div>
 
-        {!query.trim() && (
+        {!query.trim() && recommendations.length > 0 && (
           <div className="socialPeopleSection socialRecommendationSection">
             <h3>Rekomendasi teman <span>{recommendations.length}</span></h3>
-            {recommendations.length ? (
-              <div className="socialRecommendationList">
-                {recommendations.map((person) => (
-                  <PersonRow
-                    key={person.user_id}
-                    person={person}
-                    trailing={
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={actionBusy === person.user_id}
-                        onClick={() => void send(person.user_id)}
-                      >
-                        {actionBusy === person.user_id ? "Mengirim..." : "Tambah"}
-                      </button>
-                    }
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="muted socialRecommendationEmpty">
-                Belum ada rekomendasi baru. Akun yang sudah berteman atau sedang menunggu konfirmasi tidak ditampilkan di sini.
-              </p>
-            )}
+            <div className="socialRecommendationList">
+              {recommendations.map((person) => (
+                <PersonRow
+                  key={person.user_id}
+                  person={person}
+                  trailing={
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={actionBusy === person.user_id}
+                      onClick={() => void send(person.user_id)}
+                    >
+                      {actionBusy === person.user_id ? "Mengirim..." : "Tambah"}
+                    </button>
+                  }
+                />
+              ))}
+            </div>
           </div>
         )}
 
