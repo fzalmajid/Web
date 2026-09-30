@@ -5,6 +5,7 @@ import { modelPlanForSelection, selectionFromHeaders } from "./aiModels";
 import { geminiUserAuthFromHeaders } from "./geminiUserAuth";
 import { normalizeAiMode } from "./aiQuota";
 import { extractPdfPageBatch, type PdfIndexedPage } from "./pdfIndex";
+import { recognizeRasterLocally } from "./localOcrServer";
 
 export type VisualOcrOptions = {
   selection: ReturnType<typeof selectionFromHeaders>;
@@ -68,6 +69,9 @@ async function readImage(
 }
 
 async function recognizeImage(image: VisualImage, options: VisualOcrOptions) {
+  const local = await recognizeRasterLocally(Buffer.from(image.data, "base64"), image.mimeType);
+  if (local.accepted && local.text) return local.text;
+
   const result = await geminiGenerateDetailed(
     [
       {
