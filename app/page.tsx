@@ -856,6 +856,37 @@ function Auth() {
   );
 }
 
+type AccountProfileSummary = {
+  display_name: string;
+  username: string;
+  avatar_url: string | null;
+  avatar_emoji: string | null;
+};
+
+type SettingsSection = "profile" | "friends" | "plugins" | "appearance" | "account";
+
+function WorkspaceAccountAvatar({
+  profile,
+  user,
+  className = "leftChatAccountAvatar",
+}: {
+  profile: AccountProfileSummary | null;
+  user: User;
+  className?: string;
+}) {
+  return (
+    <span className={className} aria-hidden="true">
+      {profile?.avatar_url ? (
+        <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" />
+      ) : profile?.avatar_emoji ? (
+        <span>{profile.avatar_emoji}</span>
+      ) : (
+        (user.email || "A").slice(0, 1).toUpperCase()
+      )}
+    </span>
+  );
+}
+
 function Workspace({ session, user, theme, onThemeChange }: { session: Session; user: User; theme: "light" | "dark" | "system"; onThemeChange: (theme: "light" | "dark" | "system") => void }) {
   const [nodes, setNodes] = useState<StudyNode[]>([]);
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
@@ -869,7 +900,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [viewedOwnerReferenceAllowed, setViewedOwnerReferenceAllowed] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [customizeNode, setCustomizeNode] = useState<StudyNode | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  const [accountProfile, setAccountProfile] = useState<AccountProfileSummary | null>(null);
+  const [profileFriendsRequest, setProfileFriendsRequest] = useState(0);
+  const [profileEditRequest, setProfileEditRequest] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const breadcrumbHoverTimerRef = useRef<number | null>(null);
   const [breadcrumbDropId, setBreadcrumbDropId] = useState<string | null>(null);
@@ -894,10 +928,26 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }, [refreshKey, viewedOwnerId]);
 
   useEffect(() => {
-    const openPlugins = () => setSettingsOpen(true);
+    const openPlugins = () => {
+      setSidebarAccountOpen(false);
+      setSettingsSection("plugins");
+    };
     window.addEventListener("rb-open-plugins", openPlugins);
     return () => window.removeEventListener("rb-open-plugins", openPlugins);
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void supabase
+      .from("user_profiles")
+      .select("display_name,username,avatar_url,avatar_emoji")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (alive && data) setAccountProfile(data as AccountProfileSummary);
+      });
+    return () => { alive = false; };
+  }, [user.id, refreshKey]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("rb-left-chat-sidebar");
@@ -921,12 +971,14 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }
 
   function requestNewChat() {
+    setSettingsSection(null);
     setChatMenuId(null);
     setActiveSidebarChatId(null);
     setChatRequestVersion((value) => value + 1);
   }
 
   function requestStoredChat(chatId: string) {
+    setSettingsSection(null);
     setChatMenuId(null);
     setActiveSidebarChatId(chatId);
     setChatRequestVersion((value) => value + 1);
@@ -1109,6 +1161,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const refresh = () => setRefreshKey((value) => value + 1);
   const viewingOwnProfile = viewedOwnerId === user.id;
   function viewProfile(ownerId: string) {
+    setSettingsSection(null);
     setViewedOwnerId(ownerId);
     setCurrentId(null);
     setViewedOwnerReferenceAllowed(ownerId === user.id);
@@ -1317,12 +1370,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             {sidebarAccountOpen && (
               <div className="leftChatAccountMenu" role="menu">
                 <div className="leftChatAccountIdentity">
-                  <span className="leftChatAccountAvatar" aria-hidden="true">
-                    {(user.email || "A").slice(0, 1).toUpperCase()}
-                  </span>
+                  <WorkspaceAccountAvatar profile={accountProfile} user={user} />
                   <span>
-                    <strong>{user.email?.split("@")[0] || "Akun"}</strong>
-                    <small>{user.email}</small>
+                    <strong>{accountProfile?.display_name || accountProfile?.username || user.email?.split("@")[0] || "Akun"}</strong>
+                    <small>@{accountProfile?.username || user.email?.split("@")[0] || "akun"}</small>
                   </span>
                 </div>
 
@@ -1336,29 +1387,12 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                   className="leftChatAccountAction"
                   onClick={() => {
                     setSidebarAccountOpen(false);
-                    viewProfile(user.id);
+                    setSettingsSection("profile");
                   }}
                 >
-                  <span>Profil</span>
+                  <span>Settings</span>
                   <b aria-hidden="true">›</b>
                 </button>
-
-                <button
-                  type="button"
-                  className="leftChatAccountAction"
-                  onClick={() => {
-                    setSidebarAccountOpen(false);
-                    setSettingsOpen(true);
-                  }}
-                >
-                  <span>Plugin &amp; AI</span>
-                  <b aria-hidden="true">›</b>
-                </button>
-
-                <div className="leftChatThemeSetting">
-                  <span>Tema</span>
-                  <ThemePicker value={theme} onChange={onThemeChange} />
-                </div>
 
                 <button
                   type="button"
@@ -1380,12 +1414,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
               }}
               aria-expanded={sidebarAccountOpen}
             >
-              <span className="leftChatAccountAvatar" aria-hidden="true">
-                {(user.email || "A").slice(0, 1).toUpperCase()}
-              </span>
+              <WorkspaceAccountAvatar profile={accountProfile} user={user} />
               <span className="leftChatAccountCopy">
-                <strong>Akun</strong>
-                <small>{user.email}</small>
+                <strong>{accountProfile?.display_name || accountProfile?.username || "Akun"}</strong>
+                <small>@{accountProfile?.username || user.email?.split("@")[0] || "akun"}</small>
               </span>
               <span className="leftChatAccountChevron" aria-hidden="true" />
             </button>
@@ -1393,7 +1425,30 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         )}
       </aside>
 
-      <main className="pageShell">
+      <main className={settingsSection ? "pageShell settingsPageShell" : "pageShell"}>
+        {settingsSection ? (
+          <SettingsPage
+            session={session}
+            user={user}
+            profile={accountProfile}
+            section={settingsSection}
+            onSectionChange={setSettingsSection}
+            theme={theme}
+            onThemeChange={onThemeChange}
+            onEditProfile={() => {
+              setSettingsSection(null);
+              viewProfile(user.id);
+              setProfileEditRequest((value) => value + 1);
+            }}
+            onOpenFriends={() => {
+              setSettingsSection(null);
+              viewProfile(user.id);
+              setProfileFriendsRequest((value) => value + 1);
+            }}
+            onOpenProfile={() => viewProfile(user.id)}
+          />
+        ) : (
+          <>
         {current && (
           <div className="pageNav explorerPathNav">
             <div className="crumbs explorerPathBar" aria-label="Lokasi folder">
@@ -1485,6 +1540,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             }}
             onAccessChange={setViewedOwnerReferenceAllowed}
             onProfileChanged={refresh}
+            openFriendsRequest={profileFriendsRequest}
+            openEditRequest={profileEditRequest}
           />
         ) : isFolderLikeNode(current) ? (
           viewingOwnProfile ? (
@@ -1559,9 +1616,12 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             onChange={refresh}
           />
         )}
+
+          </>
+        )}
       </main>
 
-      {(viewingOwnProfile || viewedOwnerReferenceAllowed) && (
+      {!settingsSection && (viewingOwnProfile || viewedOwnerReferenceAllowed) && (
         <BottomAskBar
           session={session}
           scopeNodeId={aiScopeId}
@@ -1577,80 +1637,6 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           onActiveChatChange={setActiveSidebarChatId}
           onChatsChange={() => void refreshSidebarChats()}
         />
-      )}
-
-      {settingsOpen && (
-        <div className="sheetBackdrop" onMouseDown={() => setSettingsOpen(false)}>
-          <section className="addSheet settingsSheet pluginSheet" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="sheetHead">
-              <div>
-                <p className="eyebrow">AI PLUGINS</p>
-                <h2>+ Plugin</h2>
-              </div>
-              <button className="closeBtn" onClick={() => setSettingsOpen(false)}>×</button>
-            </div>
-
-            <p className="muted pluginIntro">
-              Hubungkan provider milik user. Model dari provider yang belum terhubung tidak akan muncul di Choose Model.
-            </p>
-
-            <div className="pluginSection">
-              <small className="pluginSectionTitle">CLOUD AI</small>
-              <div className="pluginGrid">
-                <article className="pluginCard">
-                  <div className="pluginLogo">G</div>
-                  <div className="pluginCopy">
-                    <strong>Gemini</strong>
-                    <small>Google Cloud/Gemini API milik user. OAuth Google + project sendiri.</small>
-                  </div>
-                  <GeminiAccountConnection session={session} />
-                </article>
-
-                <article className="pluginCard">
-                  <div className="pluginLogo">GPT</div>
-                  <div className="pluginCopy">
-                    <strong>OpenAI</strong>
-                    <small>Hubungkan API key khusus di situs ini; koneksi plugin ChatGPT tidak otomatis berpindah ke Ruang Belajar.</small>
-                    <a className="textBtn" href="/gpt-diagnostic">Hubungkan & uji GPT di halaman khusus</a>
-                  </div>
-                  <ApiProviderConnection session={session} provider="openai" />
-                </article>
-
-                <article className="pluginCard">
-                  <div className="pluginLogo">C</div>
-                  <div className="pluginCopy">
-                    <strong>Claude</strong>
-                    <small>Gunakan Anthropic API account user dan web search Claude.</small>
-                  </div>
-                  <ApiProviderConnection session={session} provider="anthropic" />
-                </article>
-              </div>
-            </div>
-
-            <div className="pluginSection">
-              <small className="pluginSectionTitle">LOCAL DEVICE / CUSTOM ENDPOINT</small>
-              <div className="pluginGrid pluginGridTwo">
-                <article className="pluginCard">
-                  <div className="pluginLogo">⌁</div>
-                  <div className="pluginCopy">
-                    <strong>Local AI</strong>
-                    <small>LM Studio, Ollama, vLLM, atau endpoint OpenAI-compatible. Model berjalan di perangkat/server user.</small>
-                  </div>
-                  <LocalAiConnection />
-                </article>
-
-                <article className="pluginCard">
-                  <div className="pluginLogo">MCP</div>
-                  <div className="pluginCopy">
-                    <strong>MCP Server</strong>
-                    <small>Hubungkan tools/app lain lewat Model Context Protocol. Tool dapat dipanggil model lokal yang mendukung function calling.</small>
-                  </div>
-                  <McpConnection />
-                </article>
-              </div>
-            </div>
-          </section>
-        </div>
       )}
 
       {customizeNode && viewingOwnProfile && (
@@ -1686,6 +1672,218 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   );
 }
 
+
+function SettingsPage({
+  session,
+  user,
+  profile,
+  section,
+  onSectionChange,
+  theme,
+  onThemeChange,
+  onEditProfile,
+  onOpenFriends,
+  onOpenProfile,
+}: {
+  session: Session;
+  user: User;
+  profile: AccountProfileSummary | null;
+  section: SettingsSection;
+  onSectionChange: (section: SettingsSection) => void;
+  theme: "light" | "dark" | "system";
+  onThemeChange: (theme: "light" | "dark" | "system") => void;
+  onEditProfile: () => void;
+  onOpenFriends: () => void;
+  onOpenProfile: () => void;
+}) {
+  const nav: Array<{ id: SettingsSection; label: string; hint: string }> = [
+    { id: "profile", label: "Profil", hint: "Nama, username & foto" },
+    { id: "friends", label: "Teman", hint: "Pertemanan & rekomendasi" },
+    { id: "plugins", label: "Plugin & AI", hint: "Provider dan koneksi" },
+    { id: "appearance", label: "Tampilan", hint: "Tema aplikasi" },
+    { id: "account", label: "Akun", hint: "Email & keluar" },
+  ];
+
+  return (
+    <section className="settingsPage">
+      <aside className="settingsPageNav" aria-label="Settings">
+        <div className="settingsPageTitle">
+          <p className="eyebrow">RUANG BELAJAR</p>
+          <h1>Settings</h1>
+        </div>
+        <div className="settingsPageNavList">
+          {nav.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={section === item.id ? "active" : ""}
+              onClick={() => onSectionChange(item.id)}
+            >
+              <strong>{item.label}</strong>
+              <small>{item.hint}</small>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <div className="settingsPageContent">
+        {section === "profile" && (
+          <section className="settingsContentSection">
+            <div className="settingsContentHead">
+              <div>
+                <p className="eyebrow">PROFIL</p>
+                <h2>Identitas belajar</h2>
+                <p className="muted">Foto, nama, username dan bio yang terlihat oleh teman.</p>
+              </div>
+            </div>
+            <article className="settingsProfileCard">
+              <WorkspaceAccountAvatar profile={profile} user={user} className="settingsProfileAvatar" />
+              <div>
+                <strong>{profile?.display_name || profile?.username || user.email?.split("@")[0] || "Akun"}</strong>
+                <small>@{profile?.username || user.email?.split("@")[0] || "akun"}</small>
+              </div>
+              <button type="button" className="primary" onClick={onEditProfile}>Edit profil</button>
+              <button type="button" className="ghost" onClick={onOpenProfile}>Lihat profil</button>
+            </article>
+          </section>
+        )}
+
+        {section === "friends" && (
+          <section className="settingsContentSection">
+            <div className="settingsContentHead">
+              <div>
+                <p className="eyebrow">TEMAN</p>
+                <h2>Pertemanan</h2>
+                <p className="muted">Rekomendasi akun, permintaan masuk, daftar teman, dan auto-accept tetap dikelola di bar Teman agar tidak ada pengaturan ganda.</p>
+              </div>
+            </div>
+            <article className="settingsActionCard">
+              <span className="settingsActionIcon">👥</span>
+              <div>
+                <strong>Kelola teman</strong>
+                <small>Buka panel Teman lengkap dari profil kamu.</small>
+              </div>
+              <button type="button" className="primary" onClick={onOpenFriends}>Buka Teman</button>
+            </article>
+          </section>
+        )}
+
+        {section === "plugins" && (
+          <section className="settingsContentSection">
+            <div className="settingsContentHead">
+              <div>
+                <p className="eyebrow">AI & PLUGINS</p>
+                <h2>Koneksi model</h2>
+                <p className="muted">Hubungkan provider yang ingin digunakan di Ruang Belajar.</p>
+              </div>
+            </div>
+
+            <div className="pluginSection">
+              <small className="pluginSectionTitle">CLOUD AI</small>
+              <div className="pluginGrid">
+                <article className="pluginCard">
+                  <div className="pluginLogo">G</div>
+                  <div className="pluginCopy">
+                    <strong>Gemini</strong>
+                    <small>Google Cloud/Gemini API milik user. OAuth Google + project sendiri.</small>
+                  </div>
+                  <GeminiAccountConnection session={session} />
+                </article>
+
+                <article className="pluginCard">
+                  <div className="pluginLogo">GPT</div>
+                  <div className="pluginCopy">
+                    <strong>OpenAI</strong>
+                    <small>Hubungkan API key khusus di situs ini.</small>
+                    <a className="textBtn" href="/gpt-diagnostic">Hubungkan & uji GPT</a>
+                  </div>
+                  <ApiProviderConnection session={session} provider="openai" />
+                </article>
+
+                <article className="pluginCard">
+                  <div className="pluginLogo">C</div>
+                  <div className="pluginCopy">
+                    <strong>Claude</strong>
+                    <small>Gunakan Anthropic API account user dan web search Claude.</small>
+                  </div>
+                  <ApiProviderConnection session={session} provider="anthropic" />
+                </article>
+              </div>
+            </div>
+
+            <div className="pluginSection">
+              <small className="pluginSectionTitle">LOCAL DEVICE / CUSTOM ENDPOINT</small>
+              <div className="pluginGrid pluginGridTwo">
+                <article className="pluginCard">
+                  <div className="pluginLogo">⌁</div>
+                  <div className="pluginCopy">
+                    <strong>Local AI</strong>
+                    <small>LM Studio, Ollama, vLLM, atau endpoint OpenAI-compatible.</small>
+                  </div>
+                  <LocalAiConnection />
+                </article>
+
+                <article className="pluginCard">
+                  <div className="pluginLogo">MCP</div>
+                  <div className="pluginCopy">
+                    <strong>MCP Server</strong>
+                    <small>Hubungkan tools dan app lain lewat Model Context Protocol.</small>
+                  </div>
+                  <McpConnection />
+                </article>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {section === "appearance" && (
+          <section className="settingsContentSection">
+            <div className="settingsContentHead">
+              <div>
+                <p className="eyebrow">TAMPILAN</p>
+                <h2>Tema</h2>
+                <p className="muted">Atur tampilan Ruang Belajar di perangkat ini.</p>
+              </div>
+            </div>
+            <article className="settingsActionCard settingsThemeCard">
+              <span className="settingsActionIcon">◐</span>
+              <div>
+                <strong>Tema aplikasi</strong>
+                <small>Ikuti sistem, terang, atau gelap.</small>
+              </div>
+              <ThemePicker value={theme} onChange={onThemeChange} />
+            </article>
+          </section>
+        )}
+
+        {section === "account" && (
+          <section className="settingsContentSection">
+            <div className="settingsContentHead">
+              <div>
+                <p className="eyebrow">AKUN</p>
+                <h2>Akun Ruang Belajar</h2>
+                <p className="muted">Informasi login dan sesi saat ini.</p>
+              </div>
+            </div>
+            <article className="settingsAccountCard">
+              <div>
+                <small>Email</small>
+                <strong>{user.email}</strong>
+              </div>
+              <div>
+                <small>Pemakaian AI</small>
+                <AiCreditBadge />
+              </div>
+              <button type="button" className="dangerSmall settingsSignOut" onClick={() => supabase.auth.signOut()}>
+                Keluar dari akun
+              </button>
+            </article>
+          </section>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function isFolderLikeNode(node: StudyNode) {
   return node.node_type === "material" || node.node_type === "submaterial" || node.node_type === "database";
