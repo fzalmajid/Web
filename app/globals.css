@@ -10348,7 +10348,7 @@ body,
 @media (min-width:900px){
   .appShell.leftChatSidebarOpen{
     --rb-workspace-left:var(--rb-left-rail-w);
-    --rb-workspace-center-shift:calc(var(--rb-left-rail-w) / 2);
+    --rb-workspace-center-shift:129px;
   }
 
   /* The hamburger never moves. The session/history rail starts directly underneath it. */
@@ -10404,9 +10404,4 @@ body,
     right:16px!important;
   }
 
-  /* Any content-level fixed model chooser that is viewport-centered follows the workspace center.
-     Composer-anchored popovers stay attached to the composer through their later absolute rules. */
-  .appShell.leftChatSidebarOpen .aiModePopover.aiModelPopover:not(.gptComposer *){
-    left:calc(50% + var(--rb-workspace-center-shift))!important;
-  }
 }
