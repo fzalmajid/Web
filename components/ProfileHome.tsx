@@ -313,7 +313,7 @@ export default function ProfileHome({
           {activeFolder ? (
             <>
               <div className="profileFolderBreadcrumb" aria-label="Lokasi folder">
-                <button type="button" onClick={onBackToRooms}>Ruang Belajar</button>
+                <button type="button" onClick={onBackToRooms}>Home</button>
                 {activeFolderPath.map((item) => (
                   <span key={item.id}>
                     <b>/</b>
@@ -329,7 +329,7 @@ export default function ProfileHome({
           ) : (
             <>
               <p className="eyebrow">{ownProfile ? "PROFIL SAYA" : "PROFIL TEMAN"}</p>
-              <h2>Ruang Belajar</h2>
+              <h2>Home</h2>
             </>
           )}
         </div>
