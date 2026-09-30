@@ -10342,17 +10342,52 @@ body,
 }
 
 
-/* SIDEBAR PUSH LAYOUT CONTRACT — 2026-09-30 */
-/* Hamburger/top rail stay put. The opened chat rail only claims the space below it;
-   every workspace layer that is centered/fixed is then re-centered in the remaining area. */
+/* UNIFIED WORKSPACE ALIGNMENT CONTRACT — 2026-09-30
+   One shared horizontal geometry for the profile/folder workspace and the AI bar.
+   Profile avatar ↕ AI left edge and profile actions ↕ AI right edge stay on the same vertical lines. */
+:root{
+  --rb-workspace-max-w:1120px;
+  --rb-workspace-outer-gutter:46px;
+  --rb-workspace-inner-edge:8px;
+  --rb-workspace-ai-max-w:1104px; /* 1120 - 2 × 8px */
+}
+
+/* The profile/folder surface is owned by pageShell; never create a second viewport-sized
+   container inside it, otherwise the two layers drift when the chat rail opens. */
+.pageShell{
+  width:min(var(--rb-workspace-max-w),calc(100vw - 92px))!important;
+  max-width:var(--rb-workspace-max-w)!important;
+  margin-left:auto!important;
+  margin-right:auto!important;
+}
+.pageShell>.socialProfilePage,
+.pageShell>.friendFolderPage{
+  width:100%!important;
+  max-width:100%!important;
+  margin-left:0!important;
+  margin-right:0!important;
+}
+
+/* The AI composer and answer room align to the 8px inner edge used by
+   socialProfileHero / socialRoomsHead / room grids. */
+.bottomAsk,
+.aiAnswer{
+  left:50%!important;
+  width:min(var(--rb-workspace-ai-max-w),calc(100vw - 108px))!important;
+  max-width:var(--rb-workspace-ai-max-w)!important;
+}
+
+/* Open sidebar = compress the whole workspace together, instead of independently
+   recentering the profile and the AI bar. */
 @media (min-width:900px){
   .appShell.leftChatSidebarOpen{
     --rb-topbar-h:60px;
     --rb-workspace-left:var(--rb-left-rail-w);
-    --rb-workspace-center-shift:129px;
+    --rb-workspace-center-shift:129px; /* 258px rail / 2 */
   }
 
-  /* The hamburger never moves. The session/history rail starts directly underneath it. */
+  /* Hamburger stays physically anchored. Everything else in the top rail belongs
+     to the remaining workspace to its right. */
   .appShell.leftChatSidebarOpen .topbar{
     left:0!important;
     right:0!important;
@@ -10372,6 +10407,7 @@ body,
     transform:none!important;
     z-index:1002!important;
   }
+
   .appShell.leftChatSidebarOpen .leftChatSidebar.open{
     left:0!important;
     top:var(--rb-topbar-h)!important;
@@ -10381,36 +10417,45 @@ body,
     padding-top:10px!important;
   }
 
-  /* Main page, sticky/fixed AI bars, and the answer room use the same remaining workspace. */
+  /* Same 1120px workspace, centered inside the area that remains after the rail.
+     At tighter widths it contracts with the same 46px outer breathing room. */
   .appShell.leftChatSidebarOpen .pageShell{
-    width:min(1080px,calc(100% - var(--rb-left-rail-w) - 28px))!important;
-    margin-left:calc(var(--rb-left-rail-w) + max(14px,(100vw - var(--rb-left-rail-w) - 1080px)/2))!important;
+    width:min(
+      var(--rb-workspace-max-w),
+      calc(100vw - var(--rb-left-rail-w) - 92px)
+    )!important;
+    max-width:var(--rb-workspace-max-w)!important;
+    margin-left:auto!important;
     margin-right:auto!important;
+    position:relative;
+    left:var(--rb-workspace-center-shift);
   }
+
+  /* AI bar/answer use the exact same center and the exact inner profile edges:
+     46px workspace gutter + 8px profile inset = 54px when compressed. */
   .appShell.leftChatSidebarOpen .bottomAsk,
   .appShell.leftChatSidebarOpen .aiAnswer{
     left:calc(50% + var(--rb-workspace-center-shift))!important;
-    width:min(920px,calc(100% - var(--rb-left-rail-w) - 28px))!important;
+    width:min(
+      var(--rb-workspace-ai-max-w),
+      calc(100vw - var(--rb-left-rail-w) - 108px)
+    )!important;
+    max-width:var(--rb-workspace-ai-max-w)!important;
   }
 
-  /* Full-screen sheets/modals are no longer centered behind the history rail. */
+  /* Full-screen workspace overlays follow the same compressed region. */
   .appShell.leftChatSidebarOpen .sheetBackdrop{
     left:var(--rb-workspace-left)!important;
     right:0!important;
     width:auto!important;
   }
-
-  /* Fixed popovers inside sheets must follow the shifted sheet center too. */
   .appShell.leftChatSidebarOpen .sheetBackdrop>.addSheet .citationPopover,
   .appShell.leftChatSidebarOpen .sheetBackdrop>.addSheet .aiModePopover.aiModelPopover{
     left:calc(50% + var(--rb-workspace-center-shift))!important;
     width:min(560px,calc(100vw - var(--rb-left-rail-w) - 32px))!important;
   }
-
-  /* Drag/drop feedback is part of the workspace as well, not the drawer. */
   .appShell.leftChatSidebarOpen .explorerDropOverlay{
     left:calc(var(--rb-left-rail-w) + 16px)!important;
     right:16px!important;
   }
-
 }
