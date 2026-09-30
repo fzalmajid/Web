@@ -474,6 +474,51 @@ export async function getSelectedKnowledge(
 }
 
 
+export async function searchSharedReferenceKnowledge(
+  supabase: SupabaseClient,
+  question: string,
+  ownerUserId: string,
+  scopeNodeId: string | null,
+  sourceNodeIds: string[],
+  sourceFileIds: string[],
+  explicitlySelected: boolean,
+  limit = 80
+): Promise<KnowledgeSource[]> {
+  const { data, error } = await supabase.rpc("search_shared_reference", {
+    p_owner_user_id: ownerUserId,
+    search_query: question,
+    result_limit: limit,
+    scope_node_id: scopeNodeId,
+    source_node_ids: sourceNodeIds,
+    source_file_ids: sourceFileIds,
+    use_selected: explicitlySelected,
+  });
+  if (error) throw error;
+  return hydrateRawContent(supabase, (data || []) as KnowledgeSource[]);
+}
+
+export async function getSharedReferenceKnowledge(
+  supabase: SupabaseClient,
+  ownerUserId: string,
+  scopeNodeId: string | null,
+  sourceNodeIds: string[],
+  sourceFileIds: string[],
+  explicitlySelected: boolean,
+  limit = 60
+): Promise<KnowledgeSource[]> {
+  const { data, error } = await supabase.rpc("get_shared_reference", {
+    p_owner_user_id: ownerUserId,
+    result_limit: limit,
+    scope_node_id: scopeNodeId,
+    source_node_ids: sourceNodeIds,
+    source_file_ids: sourceFileIds,
+    use_selected: explicitlySelected,
+  });
+  if (error) throw error;
+  return hydrateRawContent(supabase, (data || []) as KnowledgeSource[]);
+}
+
+
 export type SemanticRetrieval = {
   rows: KnowledgeSource[];
   model: string | null;
