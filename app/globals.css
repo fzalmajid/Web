@@ -9939,3 +9939,199 @@ body,
     font-size:1.25rem!important;
   }
 }
+
+
+/* CONSISTENCY AUDIT PASS — social, overlays, sidebar, embedded folders */
+:root{
+  --rb-topbar-h:64px;
+  --rb-left-rail-w:258px;
+  --rb-friend-row-h:56px;
+}
+
+/* Friend suggestions: natural height up to four rows, then their own scroll. */
+.socialRecommendationList{
+  display:grid!important;
+  gap:0!important;
+  max-height:calc(var(--rb-friend-row-h) * 4)!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain!important;
+  scrollbar-gutter:stable;
+  padding-right:4px!important;
+}
+.socialRecommendationList .socialPersonRow{
+  height:var(--rb-friend-row-h)!important;
+  min-height:var(--rb-friend-row-h)!important;
+  max-height:var(--rb-friend-row-h)!important;
+  box-sizing:border-box!important;
+}
+.socialRecommendationSection{
+  min-height:0!important;
+}
+
+/* Opened folders remain visually inside the profile page. */
+.socialRoomsHeadNested{
+  align-items:flex-end!important;
+  gap:16px!important;
+  padding-top:18px!important;
+}
+.socialRoomHeadActions{
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+.socialFolderCustomize,
+.socialRoomHeadActions .socialAddRoom{
+  min-height:34px!important;
+  padding:7px 10px!important;
+  border-radius:10px!important;
+  font-size:.68rem!important;
+}
+.profileFolderBreadcrumb{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-bottom:8px;
+  color:var(--muted);
+  font-size:.64rem;
+}
+.profileFolderBreadcrumb button{
+  border:0;
+  padding:0;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  font-weight:800;
+}
+.profileFolderBreadcrumb button:hover{
+  color:var(--ink);
+}
+.profileFolderBreadcrumb b{
+  color:color-mix(in srgb,var(--muted) 55%,transparent);
+}
+.profileActiveFolderTitle{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:0!important;
+  font-size:1.02rem!important;
+}
+.profileActiveFolderIcon{
+  width:42px;
+  height:42px;
+  display:grid;
+  place-items:center;
+  flex:0 0 42px;
+  border-radius:12px;
+  background:var(--soft);
+  font-size:1.2rem;
+}
+.socialEmbeddedFolder{
+  min-width:0;
+  padding:0 8px;
+}
+.socialEmbeddedFolder .embeddedFolderPage{
+  min-height:0;
+}
+.socialEmbeddedFolder .embeddedFolderPage .explorerNodeGrid{
+  padding:0!important;
+}
+.socialEmbeddedFolder .embeddedFolderPage .explorerItems{
+  padding-left:0!important;
+  padding-right:0!important;
+}
+
+/* Bottom composer popovers must open upward from a bottom-fixed trigger. */
+.gptComposer .aiModeSelect,
+.gptComposer .citationPicker,
+.gptComposer .aiDatabaseSourcePicker{
+  position:relative!important;
+}
+.gptComposer .aiModePopover.aiModelPopover,
+.gptComposer .citationPopover,
+.gptComposer .aiDatabaseSourcePopover{
+  position:absolute!important;
+  top:auto!important;
+  bottom:calc(100% + 8px)!important;
+  transform:none!important;
+  max-height:min(520px,calc(100dvh - var(--rb-topbar-h) - 130px))!important;
+  overflow:auto!important;
+  z-index:360!important;
+}
+.gptComposer .aiModePopover.aiModelPopover{
+  left:auto!important;
+  right:0!important;
+}
+.gptComposer .citationPopover,
+.gptComposer .aiDatabaseSourcePopover{
+  left:auto!important;
+  right:0!important;
+}
+
+/* Context menus are viewport overlays; never clip under embedded cards or profile sections. */
+.contextDismissLayer{
+  position:fixed!important;
+  inset:0!important;
+  z-index:1000!important;
+  pointer-events:auto!important;
+}
+.explorerContextMenu{
+  z-index:1001!important;
+  max-height:calc(100dvh - 24px)!important;
+  overflow-y:auto!important;
+}
+
+/* Desktop sidebar and top rail move as one layout, not two misaligned layers. */
+@media (min-width:900px){
+  .appShell.leftChatSidebarOpen .topbar{
+    left:var(--rb-left-rail-w)!important;
+    right:0!important;
+    width:calc(100% - var(--rb-left-rail-w))!important;
+  }
+  .appShell.leftChatSidebarOpen .leftChatSidebar.open{
+    top:0!important;
+    padding-top:calc(var(--rb-topbar-h) + 10px)!important;
+  }
+  .appShell.leftChatSidebarOpen .topbarStart::after{
+    display:none!important;
+  }
+}
+
+/* Keep headline scale inside the same profile-first hierarchy. */
+.socialProfilePage h1,
+.settingsPage h1,
+.settingsContentHead h2,
+.addSheet .sheetHead h2{
+  letter-spacing:-.015em;
+}
+.addSheet .sheetHead h2{
+  font-size:1.15rem!important;
+  line-height:1.2!important;
+}
+
+/* User-facing wording should not look like debug/developer chrome. */
+.friendFolderHero .eyebrow,
+.friendReadOnlyBadge{
+  letter-spacing:.05em;
+}
+
+@media (max-width:760px){
+  :root{
+    --rb-friend-row-h:54px;
+  }
+  .socialEmbeddedFolder{
+    padding:0;
+  }
+  .socialRoomsHeadNested{
+    align-items:flex-start!important;
+  }
+  .socialRoomHeadActions{
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+  .gptComposer .aiModePopover.aiModelPopover,
+  .gptComposer .citationPopover,
+  .gptComposer .aiDatabaseSourcePopover{
+    max-height:calc(100dvh - 165px)!important;
+  }
+}
