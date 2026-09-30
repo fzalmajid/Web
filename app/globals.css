@@ -10347,6 +10347,7 @@ body,
    every workspace layer that is centered/fixed is then re-centered in the remaining area. */
 @media (min-width:900px){
   .appShell.leftChatSidebarOpen{
+    --rb-topbar-h:60px;
     --rb-workspace-left:var(--rb-left-rail-w);
     --rb-workspace-center-shift:129px;
   }
@@ -10357,11 +10358,19 @@ body,
     right:0!important;
     width:100%!important;
     inset:0 0 auto 0!important;
+    padding-left:calc(var(--rb-left-rail-w) + 10px)!important;
   }
   .appShell.leftChatSidebarOpen .topbarStart,
-  .appShell.leftChatSidebarOpen .topbarChatToggle,
   .appShell.leftChatSidebarOpen .topbarNewChat{
     transform:none!important;
+  }
+  .appShell.leftChatSidebarOpen .topbarChatToggle{
+    position:fixed!important;
+    left:10px!important;
+    top:12px!important;
+    margin:0!important;
+    transform:none!important;
+    z-index:1002!important;
   }
   .appShell.leftChatSidebarOpen .leftChatSidebar.open{
     left:0!important;
