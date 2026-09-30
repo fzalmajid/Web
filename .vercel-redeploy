@@ -26,3 +26,5 @@ retry-right-edge-scope-path=2026-09-30T13:07+07:00
 final-home-folder-parity-upward-picker-chat-deselect=2026-09-30
 
 retry-final-home-folder-chat-ui-after-ready=2026-09-30
+
+post-build-success-production-trigger=2026-09-30T13:03+07:00
