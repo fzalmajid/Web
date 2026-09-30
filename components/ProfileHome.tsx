@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -273,12 +273,6 @@ export default function ProfileHome({
             <p className="socialProfileBio muted">Tambahkan bio singkat agar teman lebih mudah mengenal profil Ruang Belajar kamu.</p>
           ) : null}
 
-          {ownProfile && (
-            <div className="socialFriendSettingSummary">
-              <span>{profile?.auto_accept_friends ? "Auto-accept teman aktif" : "Permintaan teman perlu konfirmasi"}</span>
-              <small>Default aman: konfirmasi manual.</small>
-            </div>
-          )}
         </div>
       </div>
 
@@ -384,6 +378,137 @@ export default function ProfileHome({
   );
 }
 
+function AvatarCropEditor({
+  src,
+  onCancel,
+  onApply,
+}: {
+  src: string;
+  onCancel: () => void;
+  onApply: (blob: Blob) => void;
+}) {
+  const viewport = 260;
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const [natural, setNatural] = useState({ w: 1, h: 1 });
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [busy, setBusy] = useState(false);
+
+  const baseScale = Math.max(viewport / natural.w, viewport / natural.h);
+  const scale = baseScale * zoom;
+  const drawW = natural.w * scale;
+  const drawH = natural.h * scale;
+  const maxX = Math.max(0, (drawW - viewport) / 2);
+  const maxY = Math.max(0, (drawH - viewport) / 2);
+  const clamped = {
+    x: Math.max(-maxX, Math.min(maxX, offset.x)),
+    y: Math.max(-maxY, Math.min(maxY, offset.y)),
+  };
+
+  useEffect(() => {
+    setOffset((current) => ({
+      x: Math.max(-maxX, Math.min(maxX, current.x)),
+      y: Math.max(-maxY, Math.min(maxY, current.y)),
+    }));
+  }, [zoom, natural.w, natural.h]);
+
+  async function applyCrop() {
+    const img = imgRef.current;
+    if (!img) return;
+    setBusy(true);
+    const left = (viewport - drawW) / 2 + clamped.x;
+    const top = (viewport - drawH) / 2 + clamped.y;
+    const sourceX = Math.max(0, -left / scale);
+    const sourceY = Math.max(0, -top / scale);
+    const sourceSize = viewport / scale;
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setBusy(false);
+      return;
+    }
+    ctx.drawImage(
+      img,
+      sourceX,
+      sourceY,
+      Math.min(sourceSize, natural.w - sourceX),
+      Math.min(sourceSize, natural.h - sourceY),
+      0,
+      0,
+      512,
+      512
+    );
+    canvas.toBlob((blob) => {
+      setBusy(false);
+      if (blob) onApply(blob);
+    }, "image/jpeg", 0.9);
+  }
+
+  return (
+    <div className="avatarCropPanel">
+      <div
+        className="avatarCropViewport"
+        onPointerDown={(event) => {
+          dragRef.current = { x: event.clientX, y: event.clientY, ox: clamped.x, oy: clamped.y };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (!dragRef.current) return;
+          const nextX = dragRef.current.ox + event.clientX - dragRef.current.x;
+          const nextY = dragRef.current.oy + event.clientY - dragRef.current.y;
+          setOffset({
+            x: Math.max(-maxX, Math.min(maxX, nextX)),
+            y: Math.max(-maxY, Math.min(maxY, nextY)),
+          });
+        }}
+        onPointerUp={() => { dragRef.current = null; }}
+        onPointerCancel={() => { dragRef.current = null; }}
+      >
+        <img
+          ref={imgRef}
+          src={src}
+          alt="Atur posisi foto profil"
+          draggable={false}
+          onLoad={(event) => {
+            const img = event.currentTarget;
+            setNatural({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+            setOffset({ x: 0, y: 0 });
+            setZoom(1);
+          }}
+          style={{
+            width: drawW,
+            height: drawH,
+            left: (viewport - drawW) / 2 + clamped.x,
+            top: (viewport - drawH) / 2 + clamped.y,
+          }}
+        />
+        <span className="avatarCropGuide" aria-hidden="true" />
+      </div>
+      <label className="avatarZoomControl">
+        <span>Zoom</span>
+        <input
+          type="range"
+          min="1"
+          max="3"
+          step="0.01"
+          value={zoom}
+          onChange={(event) => setZoom(Number(event.target.value))}
+        />
+      </label>
+      <small className="muted">Geser foto dengan drag, lalu zoom sampai bagian yang ingin ditampilkan pas di lingkaran.</small>
+      <div className="avatarCropActions">
+        <button type="button" className="ghost" disabled={busy} onClick={onCancel}>Batal</button>
+        <button type="button" className="primary" disabled={busy} onClick={() => void applyCrop()}>
+          {busy ? "Memproses..." : "Gunakan foto"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function EditProfileSheet({
   profile,
   onClose,
@@ -397,9 +522,38 @@ function EditProfileSheet({
   const [username, setUsername] = useState(profile.username || "");
   const [bio, setBio] = useState(profile.bio || "");
   const [avatarEmoji, setAvatarEmoji] = useState(profile.avatar_emoji || "📚");
-  const [autoAccept, setAutoAccept] = useState(profile.auto_accept_friends);
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url || "");
+  const [avatarPreview, setAvatarPreview] = useState(profile.avatar_url || "");
+  const [pendingAvatarBlob, setPendingAvatarBlob] = useState<Blob | null>(null);
+  const [cropSrc, setCropSrc] = useState("");
   const [busy, setBusy] = useState(false);
   const [errorText, setErrorText] = useState("");
+
+  function chooseImage(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setErrorText("Pilih file gambar.");
+      return;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      setErrorText("Gambar maksimal 12 MB sebelum dipotong.");
+      return;
+    }
+    setErrorText("");
+    const objectUrl = URL.createObjectURL(file);
+    setCropSrc((previous) => {
+      if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+      return objectUrl;
+    });
+  }
+
+  function useEmojiAvatar() {
+    if (avatarPreview.startsWith("blob:")) URL.revokeObjectURL(avatarPreview);
+    setPendingAvatarBlob(null);
+    setAvatarPreview("");
+    setAvatarUrl("");
+    setCropSrc("");
+  }
 
   async function save() {
     const safeUsername = username.toLowerCase().replace(/[^a-z0-9._]/g, "").slice(0, 32);
@@ -407,8 +561,28 @@ function EditProfileSheet({
       setErrorText("Username minimal 3 karakter.");
       return;
     }
+    if (!displayName.trim()) {
+      setErrorText("Nama profil tidak boleh kosong.");
+      return;
+    }
+
     setBusy(true);
     setErrorText("");
+
+    let nextAvatarUrl = avatarUrl;
+    if (pendingAvatarBlob) {
+      const path = profile.user_id + "/avatar-" + Date.now() + ".jpg";
+      const upload = await supabase.storage
+        .from("profile-avatars")
+        .upload(path, pendingAvatarBlob, { contentType: "image/jpeg", upsert: false });
+      if (upload.error) {
+        setBusy(false);
+        setErrorText(upload.error.message);
+        return;
+      }
+      nextAvatarUrl = supabase.storage.from("profile-avatars").getPublicUrl(path).data.publicUrl;
+    }
+
     const { error } = await supabase
       .from("user_profiles")
       .update({
@@ -416,11 +590,12 @@ function EditProfileSheet({
         display_name: displayName.trim().slice(0, 80),
         bio: bio.trim().slice(0, 220),
         avatar_emoji: avatarEmoji || "📚",
-        avatar_url: null,
+        avatar_url: nextAvatarUrl || null,
         onboarding_completed: true,
-        auto_accept_friends: autoAccept,
+        updated_at: new Date().toISOString(),
       })
       .eq("user_id", profile.user_id);
+
     setBusy(false);
     if (error) {
       setErrorText(error.code === "23505" ? "Username sudah dipakai akun lain." : error.message);
@@ -440,6 +615,48 @@ function EditProfileSheet({
           <button className="closeBtn" type="button" disabled={busy} onClick={onClose}>×</button>
         </div>
         <div className="stack">
+          <div className="profilePhotoEditor">
+            <div className="profilePhotoPreview">
+              {avatarPreview ? (
+                <img src={avatarPreview} alt="Foto profil" />
+              ) : (
+                <span>{avatarEmoji || "📚"}</span>
+              )}
+            </div>
+            <div className="profilePhotoEditorActions">
+              <label className="ghost profilePhotoUpload">
+                Upload foto
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(event) => {
+                    chooseImage(event.target.files?.[0]);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              <button type="button" className="ghost" onClick={useEmojiAvatar}>Pakai emoji</button>
+            </div>
+          </div>
+
+          {cropSrc && (
+            <AvatarCropEditor
+              src={cropSrc}
+              onCancel={() => {
+                if (cropSrc.startsWith("blob:")) URL.revokeObjectURL(cropSrc);
+                setCropSrc("");
+              }}
+              onApply={(blob) => {
+                if (avatarPreview.startsWith("blob:")) URL.revokeObjectURL(avatarPreview);
+                const preview = URL.createObjectURL(blob);
+                setPendingAvatarBlob(blob);
+                setAvatarPreview(preview);
+                if (cropSrc.startsWith("blob:")) URL.revokeObjectURL(cropSrc);
+                setCropSrc("");
+              }}
+            />
+          )}
+
           <label>Nama
             <input value={displayName} maxLength={80} onChange={(e) => setDisplayName(e.target.value)} />
           </label>
@@ -447,34 +664,31 @@ function EditProfileSheet({
             <div className="socialUsernameInput"><span>@</span><input value={username} maxLength={32} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ""))} /></div>
           </label>
           <div className="profileEmojiField">
-            <span className="profileEmojiLabel">Avatar belajar</span>
+            <span className="profileEmojiLabel">Avatar emoji</span>
             <div className="profileEmojiGrid">
               {STUDY_PROFILE_EMOJIS.map((emoji) => (
                 <button
                   type="button"
                   key={emoji}
                   className={avatarEmoji === emoji ? "profileEmojiChoice active" : "profileEmojiChoice"}
-                  onClick={() => setAvatarEmoji(emoji)}
+                  onClick={() => {
+                    setAvatarEmoji(emoji);
+                    if (!avatarPreview) setAvatarPreview("");
+                  }}
                   aria-label={"Pilih avatar " + emoji}
                 >
                   {emoji}
                 </button>
               ))}
             </div>
+            <small className="muted">Emoji dipakai saat kamu tidak memakai foto.</small>
           </div>
           <label>Bio
             <textarea rows={4} value={bio} maxLength={220} onChange={(e) => setBio(e.target.value)} />
             <small className="muted">{bio.length}/220</small>
           </label>
-          <label className="socialToggleRow">
-            <span>
-              <strong>Auto-accept teman</strong>
-              <small>Jika mati, setiap permintaan harus kamu terima dulu. Default: mati.</small>
-            </span>
-            <input type="checkbox" checked={autoAccept} onChange={(e) => setAutoAccept(e.target.checked)} />
-          </label>
           {errorText && <div className="notice">{errorText}</div>}
-          <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
+          <button type="button" className="primary" disabled={busy || Boolean(cropSrc)} onClick={() => void save()}>
             {busy ? "Menyimpan..." : "Simpan profil"}
           </button>
         </div>
