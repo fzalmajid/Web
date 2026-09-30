@@ -32,6 +32,7 @@ import {
   type AiResponseLength,
   type AiSelection,
 } from "@/lib/aiModels";
+import { applyFsrsRating, fsrsDueLabel, fsrsIsDue, fsrsStateLabel, type FsrsRating } from "@/lib/fsrsScheduling";
 
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
@@ -125,6 +126,16 @@ type Flashcard = {
   back: string;
   material_id: string | null;
   scope_node_id: string | null;
+  fsrs_due?: string | null;
+  fsrs_stability?: number | null;
+  fsrs_difficulty?: number | null;
+  fsrs_elapsed_days?: number | null;
+  fsrs_scheduled_days?: number | null;
+  fsrs_learning_steps?: number | null;
+  fsrs_reps?: number | null;
+  fsrs_lapses?: number | null;
+  fsrs_state?: number | null;
+  fsrs_last_review?: string | null;
 };
 type Quiz = {
   id: string;
@@ -8480,7 +8491,13 @@ function PracticePage({
   type ManualKind = "mcq-fixed" | "essay-fixed" | "mcq-ai" | "essay-ai";
 
   const mode = node.node_type === "flashcards" ? "flashcards" : "quiz";
-  const localCards = cards.filter((item) => item.scope_node_id === node.id);
+  const localCards = cards
+    .filter((item) => item.scope_node_id === node.id)
+    .sort((a, b) => {
+      const dueOrder = Number(fsrsIsDue(b)) - Number(fsrsIsDue(a));
+      if (dueOrder) return dueOrder;
+      return new Date(a.fsrs_due || 0).getTime() - new Date(b.fsrs_due || 0).getTime();
+    });
   const localQuizzes = quizzes.filter((item) => item.scope_node_id === node.id);
 
   const fixedMcq = localQuizzes.filter((item) => item.quiz_type === "mcq" && item.grading_mode === "fixed");
@@ -8491,6 +8508,7 @@ function PracticePage({
 
   const [busy, setBusy] = useState(false);
   const [grading, setGrading] = useState(false);
+  const [reviewingCardId, setReviewingCardId] = useState("");
   const [flipped, setFlipped] = useState<Record<string, boolean>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [essayAnswers, setEssayAnswers] = useState<Record<string, string>>({});
@@ -8505,6 +8523,42 @@ function PracticePage({
   const [manualChoices, setManualChoices] = useState(["", "", "", ""]);
   const [manualCorrect, setManualCorrect] = useState(0);
   const [manualExpectedAnswer, setManualExpectedAnswer] = useState("");
+
+  async function rateFlashcard(card: Flashcard, rating: FsrsRating) {
+    if (reviewingCardId) return;
+    setReviewingCardId(card.id);
+    const now = new Date();
+    try {
+      const scheduled = applyFsrsRating(card, rating, now);
+      const { error: updateError } = await supabase
+        .from("flashcards")
+        .update(scheduled.update)
+        .eq("id", card.id)
+        .eq("user_id", session.user.id);
+      if (updateError) throw updateError;
+
+      const { error: logError } = await supabase.from("flashcard_reviews").insert({
+        user_id: session.user.id,
+        flashcard_id: card.id,
+        rating,
+        reviewed_at: now.toISOString(),
+        due_before: card.fsrs_due || null,
+        due_after: scheduled.card.due.toISOString(),
+        stability: scheduled.card.stability,
+        difficulty: scheduled.card.difficulty,
+        state: scheduled.card.state,
+        scheduled_days: scheduled.card.scheduled_days,
+        elapsed_days: scheduled.card.elapsed_days,
+      });
+      if (logError) console.warn("[FSRS_REVIEW_LOG]", logError.message);
+      setFlipped((value) => ({ ...value, [card.id]: false }));
+      onChange();
+    } catch (error: any) {
+      alert(error?.message || "Gagal menyimpan jadwal review flashcard.");
+    } finally {
+      setReviewingCardId("");
+    }
+  }
 
   const answeredMcq = [...fixedMcq, ...aiMcq].filter((quiz) => answers[quiz.id]).length;
   const answeredEssay = [...fixedEssay, ...aiEssay].filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
@@ -8892,15 +8946,28 @@ function PracticePage({
       {mode === "flashcards" && (
         <div className="flashGrid">
           {localCards.map((card) => (
-            <button
-              className="flash"
-              key={card.id}
-              onClick={() => setFlipped((value) => ({ ...value, [card.id]: !value[card.id] }))}
-            >
-              <small>{flipped[card.id] ? "JAWABAN" : "PERTANYAAN"}</small>
-              <strong><RichText text={flipped[card.id] ? card.back : card.front} /></strong>
-              <span>Ketuk untuk balik</span>
-            </button>
+            <div className={"flashStack " + (fsrsIsDue(card) ? "due" : "scheduled")} key={card.id}>
+              <button
+                className="flash"
+                onClick={() => setFlipped((value) => ({ ...value, [card.id]: !value[card.id] }))}
+              >
+                <small>{flipped[card.id] ? "JAWABAN" : "PERTANYAAN"}</small>
+                <strong><RichText text={flipped[card.id] ? card.back : card.front} /></strong>
+                <span>Ketuk untuk balik</span>
+              </button>
+              <div className="fsrsCardMeta">
+                <span>{fsrsStateLabel(card.fsrs_state)}</span>
+                <span>{fsrsDueLabel(card)}</span>
+              </div>
+              {flipped[card.id] && (
+                <div className="fsrsReviewActions" aria-label="Nilai seberapa mudah kartu diingat">
+                  <button type="button" disabled={reviewingCardId === card.id} onClick={() => rateFlashcard(card, 1)}>Lupa</button>
+                  <button type="button" disabled={reviewingCardId === card.id} onClick={() => rateFlashcard(card, 2)}>Sulit</button>
+                  <button type="button" disabled={reviewingCardId === card.id} onClick={() => rateFlashcard(card, 3)}>Baik</button>
+                  <button type="button" disabled={reviewingCardId === card.id} onClick={() => rateFlashcard(card, 4)}>Mudah</button>
+                </div>
+              )}
+            </div>
           ))}
           {!localCards.length && <p className="muted">Belum ada flashcard.</p>}
         </div>
