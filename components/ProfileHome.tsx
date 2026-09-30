@@ -1050,7 +1050,7 @@ export function FriendCenter({
 
   const content = (
     <>
- event.stopPropagation()}>
+      {!embedded && (
         <div className="sheetHead friendCenterHeader">
           <div>
             <p className="eyebrow">SOSIAL</p>
@@ -1058,131 +1058,130 @@ export function FriendCenter({
           </div>
           <button type="button" className="closeBtn" onClick={onClose}>×</button>
         </div>
+      )}
 
-        <label className="socialToggleRow socialAutoAcceptSetting">
-          <span>
-            <strong>Auto-accept friend request</strong>
-            <small>{autoAccept ? "Permintaan baru langsung menjadi teman." : "Setiap permintaan harus dikonfirmasi dulu."}</small>
-          </span>
-          <input type="checkbox" checked={autoAccept} onChange={(e) => void toggleAutoAccept(e.target.checked)} />
-        </label>
+      <label className="socialToggleRow socialAutoAcceptSetting">
+        <span>
+          <strong>Auto-accept friend request</strong>
+          <small>{autoAccept ? "Permintaan baru langsung menjadi teman." : "Setiap permintaan harus dikonfirmasi dulu."}</small>
+        </span>
+        <input type="checkbox" checked={autoAccept} onChange={(e) => void toggleAutoAccept(e.target.checked)} />
+      </label>
 
-        <div className="socialFriendSearch">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cari nama atau @username"
-          />
-          {searchBusy && <small>Mencari...</small>}
-        </div>
+      <div className="socialFriendSearch">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Cari nama atau @username"
+        />
+        {searchBusy && <small>Mencari...</small>}
+      </div>
 
-        {!query.trim() && recommendations.length > 0 && (
-          <div className="socialPeopleSection socialRecommendationSection">
-            <h3>Rekomendasi teman <span>{recommendations.length}</span></h3>
-            <div className="socialRecommendationList">
-              {recommendations.map((person) => (
-                <PersonRow
-                  key={person.user_id}
-                  person={person}
-                  trailing={
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={actionBusy === person.user_id}
-                      onClick={() => void send(person.user_id)}
-                    >
-                      {actionBusy === person.user_id ? "Mengirim..." : "Tambah"}
-                    </button>
-                  }
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {!!query.trim() && (
-          <div className="socialPeopleSection">
-            <h3>Hasil pencarian</h3>
-            {results.length ? results.map((person) => {
-              const state = stateByUser.get(person.user_id) || "none";
-              const incomingRow = incoming.find((row) => row.requester_id === person.user_id);
-              return (
-                <PersonRow
-                  key={person.user_id}
-                  person={person}
-                  trailing={
-                    state === "accepted" ? (
-                      <button type="button" className="ghost" onClick={() => onOpenProfile(person.user_id)}>Teman ✓</button>
-                    ) : state === "outgoing" ? (
-                      <button type="button" className="ghost" disabled>Menunggu</button>
-                    ) : state === "incoming" && incomingRow ? (
-                      <>
-                        <button type="button" className="primary" disabled={actionBusy === incomingRow.id} onClick={() => void respond(incomingRow, true)}>Terima</button>
-                        <button type="button" className="ghost" disabled={actionBusy === incomingRow.id} onClick={() => void respond(incomingRow, false)}>Tolak</button>
-                      </>
-                    ) : (
-                      <button type="button" className="primary" disabled={actionBusy === person.user_id} onClick={() => void send(person.user_id)}>Tambah</button>
-                    )
-                  }
-                />
-              );
-            }) : !searchBusy ? <p className="muted">Tidak ada akun yang cocok.</p> : null}
-          </div>
-        )}
-
-        {!!incoming.length && (
-          <div className="socialPeopleSection">
-            <h3>Permintaan masuk <span>{incoming.length}</span></h3>
-            {incoming.map((row) => (
+      {!query.trim() && recommendations.length > 0 && (
+        <div className="socialPeopleSection socialRecommendationSection">
+          <h3>Rekomendasi teman <span>{recommendations.length}</span></h3>
+          <div className="socialRecommendationList">
+            {recommendations.map((person) => (
               <PersonRow
-                key={row.id}
-                person={profiles[row.requester_id]}
+                key={person.user_id}
+                person={person}
                 trailing={
-                  <>
-                    <button type="button" className="primary" disabled={actionBusy === row.id} onClick={() => void respond(row, true)}>Terima</button>
-                    <button type="button" className="ghost" disabled={actionBusy === row.id} onClick={() => void respond(row, false)}>Tolak</button>
-                  </>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={actionBusy === person.user_id}
+                    onClick={() => void send(person.user_id)}
+                  >
+                    {actionBusy === person.user_id ? "Mengirim..." : "Tambah"}
+                  </button>
                 }
               />
             ))}
           </div>
-        )}
+        </div>
+      )}
 
+      {!!query.trim() && (
         <div className="socialPeopleSection">
-          <h3>Teman <span>{accepted.length}</span></h3>
-          {accepted.length ? accepted.map((row) => {
-            const otherId = row.requester_id === me ? row.addressee_id : row.requester_id;
+          <h3>Hasil pencarian</h3>
+          {results.length ? results.map((person) => {
+            const state = stateByUser.get(person.user_id) || "none";
+            const incomingRow = incoming.find((row) => row.requester_id === person.user_id);
             return (
               <PersonRow
-                key={row.id}
-                person={profiles[otherId]}
+                key={person.user_id}
+                person={person}
                 trailing={
-                  <>
-                    <button type="button" className="ghost" onClick={() => onOpenProfile(otherId)}>Lihat profil</button>
-                    <button type="button" className="dangerSmall" disabled={actionBusy === otherId} onClick={() => void remove(otherId)}>Hapus</button>
-                  </>
+                  state === "accepted" ? (
+                    <button type="button" className="ghost" onClick={() => onOpenProfile(person.user_id)}>Teman ✓</button>
+                  ) : state === "outgoing" ? (
+                    <button type="button" className="ghost" disabled>Menunggu</button>
+                  ) : state === "incoming" && incomingRow ? (
+                    <>
+                      <button type="button" className="primary" disabled={actionBusy === incomingRow.id} onClick={() => void respond(incomingRow, true)}>Terima</button>
+                      <button type="button" className="ghost" disabled={actionBusy === incomingRow.id} onClick={() => void respond(incomingRow, false)}>Tolak</button>
+                    </>
+                  ) : (
+                    <button type="button" className="primary" disabled={actionBusy === person.user_id} onClick={() => void send(person.user_id)}>Tambah</button>
+                  )
                 }
               />
             );
-          }) : <p className="muted">Belum ada teman yang diterima.</p>}
+          }) : !searchBusy ? <p className="muted">Tidak ada akun yang cocok.</p> : null}
         </div>
+      )}
 
-        {!!outgoing.length && (
-          <div className="socialPeopleSection">
-            <h3>Menunggu konfirmasi <span>{outgoing.length}</span></h3>
-            {outgoing.map((row) => (
-              <PersonRow
-                key={row.id}
-                person={profiles[row.addressee_id]}
-                trailing={<button type="button" className="ghost" disabled>Menunggu</button>}
-              />
-            ))}
-          </div>
-        )}
-      
+      {!!incoming.length && (
+        <div className="socialPeopleSection">
+          <h3>Permintaan masuk <span>{incoming.length}</span></h3>
+          {incoming.map((row) => (
+            <PersonRow
+              key={row.id}
+              person={profiles[row.requester_id]}
+              trailing={
+                <>
+                  <button type="button" className="primary" disabled={actionBusy === row.id} onClick={() => void respond(row, true)}>Terima</button>
+                  <button type="button" className="ghost" disabled={actionBusy === row.id} onClick={() => void respond(row, false)}>Tolak</button>
+                </>
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="socialPeopleSection">
+        <h3>Teman <span>{accepted.length}</span></h3>
+        {accepted.length ? accepted.map((row) => {
+          const otherId = row.requester_id === me ? row.addressee_id : row.requester_id;
+          return (
+            <PersonRow
+              key={row.id}
+              person={profiles[otherId]}
+              trailing={
+                <>
+                  <button type="button" className="ghost" onClick={() => onOpenProfile(otherId)}>Lihat profil</button>
+                  <button type="button" className="dangerSmall" disabled={actionBusy === otherId} onClick={() => void remove(otherId)}>Hapus</button>
+                </>
+              }
+            />
+          );
+        }) : <p className="muted">Belum ada teman yang diterima.</p>}
+      </div>
+
+      {!!outgoing.length && (
+        <div className="socialPeopleSection">
+          <h3>Menunggu konfirmasi <span>{outgoing.length}</span></h3>
+          {outgoing.map((row) => (
+            <PersonRow
+              key={row.id}
+              person={profiles[row.addressee_id]}
+              trailing={<button type="button" className="ghost" disabled>Menunggu</button>}
+            />
+          ))}
+        </div>
+      )}
     </>
   );
-
   if (embedded) {
     return <section className="friendCenterEmbedded">{content}</section>;
   }
