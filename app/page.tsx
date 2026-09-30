@@ -2408,6 +2408,7 @@ function FolderPage({
 }) {
   const [dropActive, setDropActive] = useState(false);
   const [dropBusy, setDropBusy] = useState(false);
+  const [dropUploadStatus, setDropUploadStatus] = useState("");
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const folderHoverTimerRef = useRef<number | null>(null);
   const nativeDragEnabled = true;
@@ -2545,8 +2546,15 @@ function FolderPage({
     const incoming = Array.from(list);
     if (!incoming.length) return;
     setDropBusy(true);
+    setDropUploadStatus(incoming.length > 1 ? "Mengupload... 1/" + incoming.length : "Mengupload...");
     try {
-      for (const file of incoming) {
+      for (let index = 0; index < incoming.length; index++) {
+        const file = incoming[index];
+        setDropUploadStatus(
+          incoming.length > 1
+            ? "Mengupload... " + (index + 1) + "/" + incoming.length
+            : "Mengupload..."
+        );
         if (file.size > STORAGE_OBJECT_LIMIT) {
           await saveOversizedPdf(session, user, targetNodeId, file,
             defaultSelection("gemini-2.5-flash"), undefined, onChange);
@@ -2560,6 +2568,7 @@ function FolderPage({
       alert(error?.message || "Gagal menyimpan file.");
     } finally {
       setDropBusy(false);
+      setDropUploadStatus("");
       setDropActive(false);
     }
   }
@@ -2738,13 +2747,17 @@ function FolderPage({
         </div>
       )}
 
-      {dropActive && (
-        <div className="folderDropChip">
+      {(dropActive || dropBusy) && (
+        <div
+          className={dropBusy ? "folderDropChip uploading" : "folderDropChip"}
+          role={dropBusy ? "status" : undefined}
+          aria-live={dropBusy ? "polite" : undefined}
+        >
           {dropBusy
-            ? "Mengupload..."
+            ? (dropUploadStatus || "Mengupload...")
             : current
               ? "Drop di sini → " + current.title
-              : "Drop folder ke Beranda"}
+              : "Drop di sini → Home"}
         </div>
       )}
 
