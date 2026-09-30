@@ -1225,9 +1225,11 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     try {
       const moved = await moveExplorerDraggedItem(nodes, item, targetNodeId);
       if (!moved) return;
+      activeExplorerDragItem = null;
       setCurrentId(targetNodeId);
       refresh();
     } catch (error: any) {
+      activeExplorerDragItem = null;
       alert(error?.message || "Gagal memindahkan item.");
     }
   }
@@ -2120,6 +2122,11 @@ type ExplorerDragItem = {
   id: string;
 };
 
+/* HTML5 drag data can be unavailable while crossing nested React surfaces on some
+   Chromium/WebKit builds. Keep an in-app drag session as a fallback so breadcrumb
+   targets remain responsive even when DataTransfer hides the custom MIME payload. */
+let activeExplorerDragItem: ExplorerDragItem | null = null;
+
 type ExplorerClipboardItem = ExplorerDragItem | null;
 
 type ExplorerPreviewItem =
@@ -2134,20 +2141,29 @@ type ExplorerContextMenu = {
 } | null;
 
 function hasExplorerDragItem(event: any) {
+  if (activeExplorerDragItem) return true;
   const types = Array.from(event.dataTransfer?.types || []).map(String);
-  return types.includes("application/x-rb-explorer-item");
+  return (
+    types.includes("application/x-rb-explorer-item") ||
+    types.includes("text/plain")
+  );
 }
 
 function readExplorerDragItem(event: any): ExplorerDragItem | null {
-  const raw = event.dataTransfer?.getData("application/x-rb-explorer-item");
-  if (!raw) return null;
-  try {
-    const item = JSON.parse(raw);
-    if (!["file", "recording", "entry", "node"].includes(item?.kind) || !item?.id) return null;
-    return { kind: item.kind, id: String(item.id) } as ExplorerDragItem;
-  } catch {
-    return null;
+  const custom = event.dataTransfer?.getData("application/x-rb-explorer-item") || "";
+  const plain = event.dataTransfer?.getData("text/plain") || "";
+  const raw = custom || (plain.startsWith("rb-explorer:") ? plain.slice("rb-explorer:".length) : "");
+  if (raw) {
+    try {
+      const item = JSON.parse(raw);
+      if (["file", "recording", "entry", "node"].includes(item?.kind) && item?.id) {
+        return { kind: item.kind, id: String(item.id) } as ExplorerDragItem;
+      }
+    } catch {
+      // Fall through to the in-app drag session.
+    }
   }
+  return activeExplorerDragItem;
 }
 
 async function moveExplorerDraggedItem(
@@ -2191,8 +2207,23 @@ function setExplorerDragData(
   kind: "file" | "recording" | "entry" | "node",
   id: string
 ) {
+  const item: ExplorerDragItem = { kind, id };
+  activeExplorerDragItem = item;
+  const payload = JSON.stringify(item);
   event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("application/x-rb-explorer-item", JSON.stringify({ kind, id }));
+  event.dataTransfer.setData("application/x-rb-explorer-item", payload);
+  /* text/plain is intentionally duplicated as a browser-compatible fallback.
+     The rb-explorer prefix prevents ordinary external text drags being mistaken
+     for explorer items. */
+  event.dataTransfer.setData("text/plain", "rb-explorer:" + payload);
+  const dragSource = event.currentTarget as HTMLElement | null;
+  dragSource?.addEventListener(
+    "dragend",
+    () => {
+      activeExplorerDragItem = null;
+    },
+    { once: true }
+  );
 }
 
 function copyTitle(title: string) {
