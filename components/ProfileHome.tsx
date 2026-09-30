@@ -299,7 +299,7 @@ export default function ProfileHome({
           <p className="eyebrow">{ownProfile ? "PROFIL SAYA" : "PROFIL TEMAN"}</p>
           <h2>Ruang Belajar</h2>
         </div>
-        {ownProfile && <button type="button" className="primary socialAddRoom" onClick={onAddRoom}>+ Ruang Belajar</button>}
+        {ownProfile && <button type="button" className="primary socialAddRoom" onClick={onAddRoom}>+ Upload</button>}
       </div>
 
 
@@ -535,8 +535,7 @@ function AvatarCropEditor({
           </>
         ) : (
           <span className="avatarCropEmptyState">
-            <b>＋</b>
-            <small>Pilih foto</small>
+            <small>Masukkan foto</small>
           </span>
         )}
       </button>
@@ -554,11 +553,11 @@ function AvatarCropEditor({
         />
       </label>
 
-      <small className="muted">
-        {src
-          ? "Geser foto di dalam lingkaran dan atur zoom. Hasilnya baru tersimpan setelah klik Simpan profil."
-          : "Klik lingkaran abu-abu untuk memilih foto dari perangkat. Foto belum berubah sampai Simpan profil ditekan."}
-      </small>
+      {src && (
+        <small className="muted">
+          Geser foto di dalam lingkaran dan atur zoom. Hasilnya baru tersimpan setelah klik Simpan profil.
+        </small>
+      )}
     </div>
   );
 }
