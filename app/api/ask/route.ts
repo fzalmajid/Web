@@ -13,7 +13,7 @@ import {
   ExternalAiError,
   type ExternalAiAttachment,
 } from "@/lib/externalAi";
-import { annotateBibliographicWorks, buildKnowledgeContext, detectPrintedPageRange, diversifyKnowledgeSources, fuseHybridKnowledge, prioritizeQuestionRelevantSources, getScopeKnowledge, getSelectedKnowledge, searchDirectRawKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge } from "@/lib/knowledge";
+import { annotateBibliographicWorks, buildKnowledgeContext, detectPrintedPageRange, diversifyKnowledgeSources, fuseHybridKnowledge, prioritizeQuestionRelevantSources, getScopeKnowledge, getSelectedKnowledge, getSharedReferenceKnowledge, searchDirectRawKnowledge, searchScopeKnowledge, searchSelectedKnowledge, searchSemanticKnowledge, searchSharedReferenceKnowledge } from "@/lib/knowledge";
 import {
   AI_MODEL_CATALOG,
   modelPlanForSelection,
@@ -893,6 +893,7 @@ export async function POST(req: NextRequest) {
       .map((item) => (item.role === "assistant" ? "AI" : "USER") + ":\n" + item.content)
       .join("\n\n");
     const scopeNodeId = body.scopeNodeId ?? null;
+    const referenceOwnerId = String(body.referenceOwnerId || "").trim();
     const sourceNodeIds = Array.isArray(body.sourceNodeIds)
       ? body.sourceNodeIds.map((value: unknown) => String(value || "")).filter(Boolean).slice(0, 24)
       : [];
@@ -944,6 +945,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
     }
 
+    const databaseOwnerId = referenceOwnerId || userData.user.id;
+    const sharedFriendReference = databaseOwnerId !== userData.user.id;
+    if (sharedFriendReference) {
+      const { data: friendship, error: friendshipError } = await supabase
+        .from("friend_connections")
+        .select("id,status,requester_id,addressee_id")
+        .eq("status", "accepted")
+        .or(
+          "and(requester_id.eq." + userData.user.id + ",addressee_id.eq." + databaseOwnerId + ")," +
+          "and(requester_id.eq." + databaseOwnerId + ",addressee_id.eq." + userData.user.id + ")"
+        )
+        .limit(1)
+        .maybeSingle();
+      if (friendshipError || !friendship) {
+        return NextResponse.json(
+          { error: "Reference teman hanya dapat digunakan setelah permintaan pertemanan diterima." },
+          { status: 403 }
+        );
+      }
+    }
+
     // Cheap database retrieval runs BEFORE the LLM. Search broadly across the selected
     // folder and every descendant, then send only the strongest content/page chunks.
     const databaseSearchQuery = expandPharmacyQuery(question.trim());
@@ -964,6 +986,43 @@ export async function POST(req: NextRequest) {
       // direct RAW/exact/fuzzy -> lexical FTS -> E5 semantic -> broad fallback.
       // E5 is useful for ranking, but it is never allowed to be the only path to a selected file.
       try {
+        if (sharedFriendReference) {
+          data = await searchSharedReferenceKnowledge(
+            supabase,
+            databaseSearchQuery,
+            databaseOwnerId,
+            scopeNodeId,
+            sourceNodeIds,
+            sourceFileIds,
+            hasExplicitDatabaseSources,
+            searchLimit
+          );
+          semanticStatus = "shared-reference";
+          semanticModel = null;
+
+          const broadSharedQuestion =
+            /\b(ringkas|rangkum|overview|gambaran|jelaskan materi|apa isi|pelajari semua|seluruh materi)\b/i.test(
+              question.trim()
+            );
+          if (!data.length && broadSharedQuestion) {
+            data = await getSharedReferenceKnowledge(
+              supabase,
+              databaseOwnerId,
+              scopeNodeId,
+              sourceNodeIds,
+              sourceFileIds,
+              hasExplicitDatabaseSources,
+              fallbackLimit
+            );
+          }
+
+          data = await annotateBibliographicWorks(supabase, data);
+          data = diversifyKnowledgeSources(
+            prioritizeQuestionRelevantSources(data, question.trim()),
+            contextSourceLimit,
+            3
+          );
+        } else {
         const literalDatabaseIntent =
           /\b(copy(?:\s*[- ]?paste)?|kutip(?:an)?|verbatim|teks\s+persis|persis|halaman|page|lokasi|locate|terletak|tercantum)\b/i.test(
             question.trim()
@@ -1064,6 +1123,7 @@ export async function POST(req: NextRequest) {
           prioritizeQuestionRelevantSources(data, question.trim()),
           contextSourceLimit, 3
         );
+        }
       } catch (databaseError: any) {
         // Fail closed for every model. Never spend credits on an answer that claims
         // to be grounded in a Database source when retrieval itself failed.
@@ -1128,7 +1188,8 @@ export async function POST(req: NextRequest) {
         grounded: true,
         publicWeb: false,
         selectedSources,
-        model: "Pencarian Database · tanpa Gemini",
+        referenceOwnerId: databaseOwnerId,
+        model: sharedFriendReference ? "Reference teman · tanpa Gemini" : "Pencarian Database · tanpa Gemini",
         provider: "database-index",
         semanticStatus,
         semanticModel,
@@ -1527,6 +1588,7 @@ export async function POST(req: NextRequest) {
         grounded: !useAi,
         publicWeb: useWeb,
         selectedSources,
+        referenceOwnerId: databaseOwnerId,
         webFallback: false,
         model: result.model,
         aiUsage,
