@@ -9069,3 +9069,382 @@ body,
     max-height:calc(100dvh - 88px)!important;
   }
 }
+
+
+/* PROFILE PHOTO CROP + FULL SETTINGS PAGE */
+.leftChatAccountAvatar{
+  overflow:hidden;
+}
+.leftChatAccountAvatar img,
+.settingsProfileAvatar img{
+  width:100%;
+  height:100%;
+  display:block;
+  object-fit:cover;
+  border-radius:inherit;
+}
+.leftChatAccountAvatar>span{
+  line-height:1;
+}
+
+.profilePhotoEditor{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:13px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--soft);
+}
+.profilePhotoPreview{
+  width:72px;
+  height:72px;
+  flex:0 0 auto;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  border-radius:50%;
+  border:1px solid var(--line);
+  background:var(--card);
+  font-size:1.8rem;
+}
+.profilePhotoPreview img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.profilePhotoEditorActions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+}
+.profilePhotoUpload{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+}
+.profilePhotoUpload input{
+  position:absolute;
+  width:1px;
+  height:1px;
+  opacity:0;
+  pointer-events:none;
+}
+.avatarCropPanel{
+  display:grid;
+  gap:12px;
+  justify-items:center;
+  padding:16px;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:var(--soft);
+}
+.avatarCropViewport{
+  position:relative;
+  width:260px;
+  height:260px;
+  max-width:76vw;
+  max-height:76vw;
+  overflow:hidden;
+  border-radius:50%;
+  background:#101714;
+  touch-action:none;
+  cursor:grab;
+  user-select:none;
+}
+.avatarCropViewport:active{cursor:grabbing}
+.avatarCropViewport img{
+  position:absolute;
+  max-width:none!important;
+  pointer-events:none;
+  user-select:none;
+}
+.avatarCropGuide{
+  position:absolute;
+  inset:0;
+  border:2px solid rgba(255,255,255,.84);
+  border-radius:50%;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);
+  pointer-events:none;
+}
+.avatarZoomControl{
+  width:min(360px,100%);
+  display:grid!important;
+  grid-template-columns:auto minmax(0,1fr);
+  align-items:center;
+  gap:12px;
+}
+.avatarZoomControl>span{
+  font-size:.72rem;
+  font-weight:850;
+}
+.avatarZoomControl input[type="range"]{
+  width:100%;
+}
+.avatarCropActions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  width:100%;
+}
+
+/* Settings is a page, not a popup. */
+.settingsPageShell{
+  padding-bottom:64px!important;
+}
+.settingsPage{
+  width:100%;
+  display:grid;
+  grid-template-columns:220px minmax(0,1fr);
+  gap:28px;
+  align-items:start;
+}
+.settingsPageNav{
+  position:sticky;
+  top:84px;
+  display:grid;
+  gap:18px;
+}
+.settingsPageTitle{
+  padding:3px 8px;
+}
+.settingsPageTitle h1{
+  margin:3px 0 0;
+  font-size:1.42rem;
+}
+.settingsPageNavList{
+  display:grid;
+  gap:4px;
+}
+.settingsPageNavList button{
+  min-width:0;
+  display:grid;
+  gap:2px;
+  padding:11px 12px;
+  border:0;
+  border-radius:12px;
+  background:transparent;
+  color:var(--ink);
+  text-align:left;
+}
+.settingsPageNavList button:hover{
+  background:var(--soft);
+}
+.settingsPageNavList button.active{
+  background:var(--soft);
+}
+.settingsPageNavList strong{
+  font-size:.75rem;
+}
+.settingsPageNavList small{
+  color:var(--muted);
+  font-size:.61rem;
+}
+.settingsPageContent{
+  min-width:0;
+  max-width:860px;
+}
+.settingsContentSection{
+  display:grid;
+  gap:18px;
+}
+.settingsContentHead{
+  min-height:78px;
+  padding:4px 0 17px;
+  border-bottom:1px solid var(--line);
+}
+.settingsContentHead h2{
+  margin:3px 0 7px;
+  font-size:1.25rem;
+}
+.settingsContentHead p{
+  margin:0;
+  font-size:.74rem;
+}
+.settingsProfileCard,
+.settingsActionCard,
+.settingsAccountCard{
+  min-width:0;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:var(--card);
+}
+.settingsProfileCard{
+  display:grid;
+  grid-template-columns:56px minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:12px;
+  padding:15px;
+}
+.settingsProfileAvatar{
+  width:54px;
+  height:54px;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  border-radius:50%;
+  border:1px solid var(--line);
+  background:var(--soft);
+  font-size:1.4rem;
+}
+.settingsProfileCard>div{
+  min-width:0;
+  display:grid;
+  gap:3px;
+}
+.settingsProfileCard strong{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:.84rem;
+}
+.settingsProfileCard small{
+  color:var(--muted);
+  font-size:.66rem;
+}
+.settingsProfileCard .primary,
+.settingsProfileCard .ghost{
+  min-height:34px;
+  padding:7px 10px;
+  border-radius:10px;
+  font-size:.66rem;
+}
+.settingsActionCard{
+  display:grid;
+  grid-template-columns:42px minmax(0,1fr) auto;
+  align-items:center;
+  gap:12px;
+  padding:14px;
+}
+.settingsActionIcon{
+  width:40px;
+  height:40px;
+  display:grid;
+  place-items:center;
+  border-radius:12px;
+  background:var(--soft);
+  font-size:1.1rem;
+}
+.settingsActionCard>div{
+  min-width:0;
+  display:grid;
+  gap:3px;
+}
+.settingsActionCard strong{
+  font-size:.8rem;
+}
+.settingsActionCard small{
+  color:var(--muted);
+  font-size:.66rem;
+  line-height:1.4;
+}
+.settingsThemeCard .themePicker{
+  justify-self:end;
+}
+.settingsAccountCard{
+  display:grid;
+  gap:0;
+  overflow:hidden;
+}
+.settingsAccountCard>div{
+  display:grid;
+  gap:4px;
+  padding:15px;
+  border-bottom:1px solid var(--line);
+}
+.settingsAccountCard small{
+  color:var(--muted);
+  font-size:.63rem;
+}
+.settingsAccountCard strong{
+  font-size:.8rem;
+  overflow-wrap:anywhere;
+}
+.settingsSignOut{
+  margin:14px;
+  justify-self:start;
+}
+
+/* Settings plugin cards have room to breathe because this is a page, not a modal. */
+.settingsPage .pluginSection{
+  padding-top:2px;
+}
+.settingsPage .pluginGrid{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+.settingsPage .pluginGrid.pluginGridTwo{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+
+@media (max-width:900px){
+  .settingsPage{
+    grid-template-columns:1fr;
+    gap:18px;
+  }
+  .settingsPageNav{
+    position:static;
+    gap:10px;
+  }
+  .settingsPageNavList{
+    display:flex;
+    overflow-x:auto;
+    gap:6px;
+    padding-bottom:3px;
+  }
+  .settingsPageNavList button{
+    flex:0 0 auto;
+    min-width:124px;
+    border:1px solid var(--line);
+    background:var(--card);
+  }
+  .settingsPageNavList button.active{
+    border-color:color-mix(in srgb,var(--ink) 20%,var(--line));
+  }
+}
+
+@media (max-width:760px){
+  .profilePhotoEditor{
+    align-items:flex-start;
+  }
+  .profilePhotoPreview{
+    width:60px;
+    height:60px;
+  }
+  .avatarCropViewport{
+    width:230px;
+    height:230px;
+  }
+  .settingsPageShell{
+    padding-left:14px!important;
+    padding-right:14px!important;
+  }
+  .settingsPageTitle{
+    padding:0;
+  }
+  .settingsProfileCard{
+    grid-template-columns:48px minmax(0,1fr);
+  }
+  .settingsProfileAvatar{
+    width:46px;
+    height:46px;
+  }
+  .settingsProfileCard .primary,
+  .settingsProfileCard .ghost{
+    grid-column:auto;
+  }
+  .settingsActionCard{
+    grid-template-columns:38px minmax(0,1fr);
+  }
+  .settingsActionCard>.primary,
+  .settingsActionCard>.ghost,
+  .settingsActionCard>.themePicker{
+    grid-column:1/-1;
+    justify-self:start;
+  }
+  .settingsPage .pluginGrid,
+  .settingsPage .pluginGrid.pluginGridTwo{
+    grid-template-columns:1fr;
+  }
+}
