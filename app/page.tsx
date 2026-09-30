@@ -1557,6 +1557,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
               ? path.slice(0, -1).map((item) => ({ id: item.id, title: item.title }))
               : []}
             onBackToRooms={() => setCurrentId(null)}
+            onOpenFolderPath={setCurrentId}
+            onCustomizeActive={() => {
+              if (current && isFolderLikeNode(current)) setCustomizeNode(current);
+            }}
             onUploadActive={() => setAddOpen(true)}
             activeContent={current && isFolderLikeNode(current)
               ? (
