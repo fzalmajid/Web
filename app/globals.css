@@ -11513,3 +11513,164 @@ body,
 }
 
 /* If the viewport itself is narrow, the existing mobile sheet rules remain authoritative. */
+
+
+/* 2026-09-30 reference metadata editor */
+.referenceMetadataBackdrop{
+  z-index:1800!important;
+}
+.referenceMetadataSheet{
+  width:min(760px,calc(100vw - 28px))!important;
+  max-height:min(86dvh,760px)!important;
+  overflow:auto!important;
+}
+.referenceMetadataHead h2{
+  max-width:620px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.referenceMetadataStatusRow{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:7px;
+  margin-top:6px;
+}
+.referenceMetadataStatus{
+  display:inline-flex;
+  align-items:center;
+  min-height:24px;
+  padding:4px 8px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:var(--soft);
+  color:var(--muted);
+  font-size:.6rem;
+  font-weight:850;
+}
+.referenceMetadataStatus.verified,
+.referenceMetadataStatus.manual{
+  border-color:#98c6ad;
+  background:#eef8f2;
+  color:#286848;
+}
+.referenceMetadataStatus.conflict{
+  border-color:#e1b6b6;
+  background:#fff0f0;
+  color:#a83d3d;
+}
+.referenceMetadataStatusRow small{
+  color:var(--muted);
+  font-size:.61rem;
+}
+.referenceMetadataForm{
+  display:grid;
+  gap:12px;
+}
+.referenceMetadataGrid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+}
+.referenceMetadataGrid label{
+  display:grid;
+  gap:5px;
+  min-width:0;
+  color:var(--muted);
+  font-size:.64rem;
+  font-weight:800;
+}
+.referenceMetadataGrid label.span2{
+  grid-column:1/-1;
+}
+.referenceMetadataGrid input,
+.referenceMetadataGrid select{
+  width:100%;
+  min-width:0;
+  min-height:40px;
+  box-sizing:border-box;
+  padding:8px 10px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--card);
+  color:var(--ink);
+  font:inherit;
+  font-size:.72rem;
+}
+.referenceMetadataGrid input:focus,
+.referenceMetadataGrid select:focus{
+  outline:2px solid rgba(103,161,127,.16);
+  border-color:#8fb9a4;
+}
+.referenceMetadataProvenance{
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:var(--soft);
+  overflow:hidden;
+}
+.referenceMetadataProvenance>summary{
+  cursor:pointer;
+  padding:9px 10px;
+  font-size:.66rem;
+  font-weight:850;
+}
+.referenceMetadataProvenance>div{
+  display:grid;
+  gap:6px;
+  padding:0 10px 10px;
+}
+.referenceMetadataProvenance p{
+  display:grid;
+  grid-template-columns:minmax(90px,.8fr) minmax(120px,1fr);
+  gap:3px 8px;
+  margin:0;
+  padding:7px 0;
+  border-top:1px solid var(--line);
+}
+.referenceMetadataProvenance p strong,
+.referenceMetadataProvenance p span{
+  font-size:.61rem;
+}
+.referenceMetadataProvenance p small{
+  grid-column:1/-1;
+  color:var(--muted);
+  font-size:.58rem;
+}
+.referenceMetadataMessage{
+  margin:0;
+  padding:8px 10px;
+  border-radius:9px;
+  background:var(--soft);
+  color:var(--muted);
+  font-size:.64rem;
+}
+.referenceMetadataActions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  position:sticky;
+  bottom:-1px;
+  padding-top:4px;
+  background:linear-gradient(180deg,transparent,var(--card) 28%);
+}
+.referenceMetadataActions button{
+  min-height:36px;
+  padding:7px 11px;
+  border-radius:10px;
+}
+@media (max-width:620px){
+  .referenceMetadataSheet{
+    width:calc(100vw - 16px)!important;
+    max-height:92dvh!important;
+  }
+  .referenceMetadataGrid{
+    grid-template-columns:1fr;
+  }
+  .referenceMetadataGrid label.span2{
+    grid-column:auto;
+  }
+  .referenceMetadataHead h2{
+    max-width:72vw;
+  }
+}
