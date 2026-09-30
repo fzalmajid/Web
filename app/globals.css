@@ -11041,3 +11041,44 @@ body,
     min-width:16px;
   }
 }
+
+
+/* 2026-09-30 persistent drop upload feedback */
+.folderDropChip.uploading{
+  position:fixed!important;
+  left:50%!important;
+  top:76px!important;
+  z-index:1300!important;
+  margin:0!important;
+  transform:translateX(-50%)!important;
+  border-style:solid!important;
+  background:color-mix(in srgb,#eef8f2 96%,var(--card))!important;
+  color:#286848!important;
+  box-shadow:0 12px 34px rgba(25,39,35,.16)!important;
+  pointer-events:none!important;
+}
+.folderDropChip.uploading::before{
+  content:"";
+  display:inline-block;
+  width:10px;
+  height:10px;
+  margin-right:7px;
+  border:2px solid currentColor;
+  border-right-color:transparent;
+  border-radius:50%;
+  vertical-align:-1px;
+  animation:rbDropUploadSpin .7s linear infinite;
+}
+@keyframes rbDropUploadSpin{
+  to{transform:rotate(360deg)}
+}
+:root[data-theme="dark"] .folderDropChip.uploading{
+  background:rgba(24,48,38,.97)!important;
+  color:#a9d4bd!important;
+}
+@media (max-width:760px){
+  .folderDropChip.uploading{
+    top:68px!important;
+    max-width:calc(100vw - 28px)!important;
+  }
+}
