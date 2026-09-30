@@ -8628,3 +8628,256 @@ body,
   .profileEmojiGrid{grid-template-columns:repeat(6,minmax(0,1fr))}
   .profileEmojiChoice{min-height:44px;padding:6px}
 }
+
+
+/* PROFILE UI AS DESIGN SYSTEM — compact social cards everywhere without removing actions */
+.pageShell{
+  width:min(1120px,calc(100vw - 92px))!important;
+}
+
+.socialRoomCard{
+  position:relative;
+  display:block;
+  min-height:112px;
+  padding:0;
+  overflow:visible;
+}
+.socialRoomOpen{
+  width:100%;
+  min-height:110px;
+  display:grid;
+  grid-template-columns:48px minmax(0,1fr);
+  align-items:center;
+  gap:14px;
+  padding:18px 46px 18px 18px;
+  border:0;
+  border-radius:inherit;
+  background:transparent;
+  color:var(--ink);
+  text-align:left;
+}
+.socialRoomCopy{
+  min-width:0;
+  display:grid;
+  gap:4px;
+}
+.socialRoomCopy small{
+  color:var(--muted);
+  font-size:.62rem;
+  font-weight:850;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.socialRoomCopy strong{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  font-size:.88rem;
+}
+.socialRoomDots{
+  position:absolute;
+  top:8px;
+  right:8px;
+  z-index:2;
+  min-width:30px;
+  min-height:30px;
+  padding:2px 7px;
+  border:0;
+  border-radius:9px;
+  background:color-mix(in srgb,var(--card) 88%,transparent);
+  color:var(--muted);
+  font-weight:900;
+}
+.socialRoomDots:hover{
+  background:var(--soft);
+  color:var(--ink);
+}
+.socialRoomMenu{
+  position:absolute;
+  top:40px;
+  right:8px;
+  z-index:35;
+  width:142px;
+  display:grid;
+  padding:5px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--card);
+  box-shadow:0 14px 36px rgba(25,39,35,.16);
+}
+.socialRoomMenu button{
+  border:0;
+  border-radius:8px;
+  padding:9px 10px;
+  background:transparent;
+  color:var(--ink);
+  text-align:left;
+  font-size:.72rem;
+  font-weight:750;
+}
+.socialRoomMenu button:hover{background:var(--soft)}
+.socialRoomMenu .dangerMenuItem{color:var(--danger)}
+
+/* Friend recommendations are based on authenticated accounts with login activity. */
+.socialSuggestions{
+  margin:26px 8px 4px;
+  padding:18px 0 4px;
+  border-top:1px solid var(--line);
+}
+.socialSuggestionsHead{
+  display:flex;
+  align-items:end;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:12px;
+}
+.socialSuggestionsHead h2{
+  margin:3px 0 0;
+  font-size:1.05rem;
+}
+.socialSuggestionsHead .textBtn{
+  margin:0;
+  padding:6px 0;
+  font-size:.72rem;
+}
+.socialSuggestionGrid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+}
+.socialSuggestionCard{
+  min-width:0;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:8px;
+  padding:11px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--card);
+}
+.socialSuggestionMain{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:var(--ink);
+  text-align:left;
+}
+.socialSuggestionMain>span:last-child{
+  min-width:0;
+  display:grid;
+  gap:2px;
+}
+.socialSuggestionMain strong,
+.socialSuggestionMain small{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.socialSuggestionMain strong{font-size:.72rem}
+.socialSuggestionMain small{font-size:.61rem;color:var(--muted)}
+.socialSuggestionCard .socialAvatar{
+  width:38px;
+  height:38px;
+}
+.socialSuggestionCard .socialAvatarEmoji{font-size:1.12rem}
+.socialSuggestionAdd{
+  padding:7px 9px;
+  border-radius:10px;
+  font-size:.65rem;
+}
+
+/* Inside folders: same visual density, radius and icon scale as profile room cards. */
+.explorerNodeGrid{
+  gap:12px!important;
+}
+.nodeCard.explorerUnifiedCard{
+  min-height:112px!important;
+  border-radius:18px!important;
+  box-shadow:none!important;
+}
+.nodeCard.explorerUnifiedCard .nodeOpen{
+  min-height:110px!important;
+  padding:18px 46px 18px 18px!important;
+  display:grid!important;
+  grid-template-columns:48px minmax(0,1fr)!important;
+  align-items:center!important;
+  gap:14px!important;
+}
+.nodeCard.explorerUnifiedCard .nodeIcon{
+  width:48px!important;
+  height:48px!important;
+  min-width:48px!important;
+  border-radius:14px!important;
+  font-size:1.35rem!important;
+}
+.nodeCard.explorerUnifiedCard .nodeOpen small{
+  margin-bottom:4px!important;
+  font-size:.62rem!important;
+  font-weight:850!important;
+  letter-spacing:.06em!important;
+}
+.nodeCard.explorerUnifiedCard .nodeOpen h3{
+  margin:0!important;
+  font-size:.88rem!important;
+  line-height:1.28!important;
+}
+.nodeCard.explorerUnifiedCard .nodeTools{
+  top:8px!important;
+  right:8px!important;
+  bottom:auto!important;
+}
+.nodeCard.explorerUnifiedCard .nodeTools button{
+  min-width:30px!important;
+  min-height:30px!important;
+  padding:2px 7px!important;
+  border-radius:9px!important;
+  background:color-mix(in srgb,var(--card) 88%,transparent)!important;
+  font-size:.68rem!important;
+  font-weight:900!important;
+}
+.nodeCard.explorerUnifiedCard .nodeTools button:hover{
+  background:var(--soft)!important;
+  color:var(--ink)!important;
+}
+
+.explorerItems{
+  gap:12px!important;
+}
+.explorerItems .explorerUnifiedCard,
+.explorerItems .compactExplorerDataCard{
+  border-radius:18px!important;
+  box-shadow:none!important;
+}
+
+@media (max-width:980px){
+  .socialSuggestionGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:760px){
+  .pageShell{
+    width:100%!important;
+    padding-left:14px!important;
+    padding-right:14px!important;
+  }
+  .socialSuggestions{
+    margin:22px 0 2px;
+  }
+  .socialSuggestionGrid{
+    grid-template-columns:1fr;
+  }
+  .socialRoomOpen{
+    min-height:86px;
+    padding:14px 44px 14px 14px;
+  }
+  .nodeCard.explorerUnifiedCard{
+    min-height:88px!important;
+  }
+  .nodeCard.explorerUnifiedCard .nodeOpen{
+    min-height:86px!important;
+    padding:14px 44px 14px 14px!important;
+  }
+}
