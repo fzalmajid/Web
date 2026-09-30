@@ -135,6 +135,7 @@ export default function ProfileHome({
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [roomMenuId, setRoomMenuId] = useState<string | null>(null);
+  const [breadcrumbDragTarget, setBreadcrumbDragTarget] = useState<string | null>(null);
 
 
   async function refreshProfile() {
@@ -313,39 +314,70 @@ export default function ProfileHome({
       <div className="socialRoomsHead socialRoomsHeadUnified">
         <div>
           {!ownProfile && !activeFolder && <p className="eyebrow">PROFIL TEMAN</p>}
-          <div className="profileFolderBreadcrumb profileHomeBreadcrumb" aria-label="Lokasi folder">
+          <div
+            className="profileFolderBreadcrumb profileHomeBreadcrumb"
+            aria-label="Lokasi folder"
+            onDragLeave={(event) => {
+              if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+              setBreadcrumbDragTarget(null);
+            }}
+            onDrop={() => setBreadcrumbDragTarget(null)}
+          >
             <button
               type="button"
+              className={breadcrumbDragTarget === "__root__" ? "breadcrumbDropTarget active" : "breadcrumbDropTarget"}
               data-rb-drop-target="__root__"
               onClick={onBackToRooms}
+              onDragEnter={(event) => {
+                if (!ownProfile || !onBreadcrumbDrop) return;
+                event.preventDefault();
+                setBreadcrumbDragTarget("__root__");
+              }}
               onDragOver={(event) => {
                 if (!ownProfile || !onBreadcrumbDrop) return;
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "move";
+                setBreadcrumbDragTarget("__root__");
               }}
               onDrop={(event) => {
                 if (!ownProfile || !onBreadcrumbDrop) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setBreadcrumbDragTarget(null);
                 onBreadcrumbDrop(event, null);
               }}
             >
               Home
             </button>
             {activeFolder && [...activeFolderPath, { id: activeFolder.id, title: activeFolder.title }].map((item) => (
-              <span key={item.id}>
-                <b>/</b>
+              <span
+                key={item.id}
+                className={breadcrumbDragTarget === item.id ? "profileBreadcrumbSegment active" : "profileBreadcrumbSegment"}
+                data-rb-drop-target={item.id}
+                onDragEnter={(event) => {
+                  if (!ownProfile || !onBreadcrumbDrop) return;
+                  event.preventDefault();
+                  setBreadcrumbDragTarget(item.id);
+                }}
+                onDragOver={(event) => {
+                  if (!ownProfile || !onBreadcrumbDrop) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setBreadcrumbDragTarget(item.id);
+                }}
+                onDrop={(event) => {
+                  if (!ownProfile || !onBreadcrumbDrop) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setBreadcrumbDragTarget(null);
+                  onBreadcrumbDrop(event, item.id);
+                }}
+              >
+                <b aria-hidden="true">/</b>
                 <button
                   type="button"
-                  data-rb-drop-target={item.id}
+                  className="breadcrumbDropTarget"
                   onClick={() => onOpenFolderPath?.(item.id)}
-                  onDragOver={(event) => {
-                    if (!ownProfile || !onBreadcrumbDrop) return;
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(event) => {
-                    if (!ownProfile || !onBreadcrumbDrop) return;
-                    onBreadcrumbDrop(event, item.id);
-                  }}
                 >
                   {item.title}
                 </button>
