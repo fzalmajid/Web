@@ -1190,8 +1190,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }, [current, nodes]);
 
   const aiScopeName = !current
-    ? "Seluruh folder"
-    : path.map((item) => item.title).join(" · ");
+    ? "Home"
+    : ["Home", ...path.map((item) => item.title)].join(" · ");
 
   function goBack() {
     if (!current) return;
@@ -11349,7 +11349,13 @@ function BottomAskBar({
   const activeSourcesLabel = sourcesLabel();
   const activeChat = savedChats.find((item) => item.id === activeChatId) || null;
   const activeChatTitle = activeChat?.title || "New Chat";
-  const activeChatScopeName = String(activeChat?.settings?.scopeName || scopeName);
+  const activeChatScopeRaw = String(activeChat?.settings?.scopeName || scopeName || "Home");
+  const activeChatScopeName =
+    activeChatScopeRaw === "Seluruh folder"
+      ? "Home"
+      : /^Home(?:\s*·|$)/i.test(activeChatScopeRaw)
+        ? activeChatScopeRaw
+        : "Home · " + activeChatScopeRaw;
   const activeChatScopeNodeId = activeChat?.scope_node_id || scopeNodeId;
 
   return (
@@ -11475,7 +11481,9 @@ function BottomAskBar({
         </button>
         <div className="askTopRow">
           <div className="askTopControls">
-            <div className="askScope" title={activeChatScopeName}>{activeChatScopeName}</div>
+            <div className="askScope" title={activeChatScopeName}>
+              <span>{activeChatScopeName}</span>
+            </div>
             <AiDatabaseSourcePicker
               nodes={nodes}
               files={files}
