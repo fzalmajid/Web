@@ -1562,26 +1562,27 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
               if (current && isFolderLikeNode(current)) setCustomizeNode(current);
             }}
             onUploadActive={() => setAddOpen(true)}
-            activeContent={current && isFolderLikeNode(current)
+            activeContent={viewingOwnProfile && (!current || isFolderLikeNode(current))
               ? (
-                viewingOwnProfile ? (
-                  <FolderPage
-                    session={session}
-                    user={user}
-                    current={current}
-                    children={children}
-                    nodes={nodes}
-                    entries={entries}
-                    files={files}
-                    recordings={recordings}
-                    onOpen={setCurrentId}
-                    onAdd={() => setAddOpen(true)}
-                    onCustomize={setCustomizeNode}
-                    onDelete={removeNode}
-                    onChange={refresh}
-                    embedded
-                  />
-                ) : (
+                <FolderPage
+                  session={session}
+                  user={user}
+                  current={current && isFolderLikeNode(current) ? current : null}
+                  children={children}
+                  nodes={nodes}
+                  entries={entries}
+                  files={files}
+                  recordings={recordings}
+                  onOpen={setCurrentId}
+                  onAdd={() => setAddOpen(true)}
+                  onCustomize={setCustomizeNode}
+                  onDelete={removeNode}
+                  onChange={refresh}
+                  embedded
+                />
+              )
+              : current && isFolderLikeNode(current)
+                ? (
                   <FriendFolderPage
                     current={current}
                     children={children}
@@ -1592,8 +1593,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                     embedded
                   />
                 )
-              )
-              : null}
+                : null}
           />
         )}
 
@@ -2090,7 +2090,7 @@ async function ensureRawFileText(session: Session, row: SourceFile) {
 async function moveExplorerItemToFolder(
   kind: "file" | "recording" | "entry",
   id: string,
-  targetNodeId: string
+  targetNodeId: string | null
 ) {
   if (kind === "file") {
     const { error } = await supabase.from("source_files").update({ node_id: targetNodeId }).eq("id", id);
@@ -2208,7 +2208,6 @@ async function moveExplorerDraggedItem(
     return true;
   }
 
-  if (!targetNodeId) return false;
   await moveExplorerItemToFolder(item.kind, item.id, targetNodeId);
   return true;
 }
@@ -2439,19 +2438,18 @@ function FolderPage({
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [current?.id]);
 
-  const localFiles = current ? files.filter((item) => item.node_id === current.id) : [];
-  const localRecordings = current ? recordings.filter((item) => item.node_id === current.id) : [];
+  const activeNodeId = current?.id || null;
+  const localFiles = files.filter((item) => (item.node_id || null) === activeNodeId);
+  const localRecordings = recordings.filter((item) => (item.node_id || null) === activeNodeId);
   const recordingEntryIds = new Set(
     localRecordings.map((item) => item.knowledge_entry_id).filter(Boolean)
   );
-  const localEntries = current
-    ? entries.filter(
-        (item) =>
-          item.node_id === current.id &&
-          !item.source_file_id &&
-          !recordingEntryIds.has(item.id)
-      )
-    : [];
+  const localEntries = entries.filter(
+    (item) =>
+      (item.node_id || null) === activeNodeId &&
+      !item.source_file_id &&
+      !recordingEntryIds.has(item.id)
+  );
 
   const hasAssets = !!(localFiles.length || localRecordings.length || localEntries.length);
 
@@ -2543,7 +2541,7 @@ function FolderPage({
     }, 700);
   }
 
-  async function uploadFiles(targetNodeId: string, list: FileList | File[]) {
+  async function uploadFiles(targetNodeId: string | null, list: FileList | File[]) {
     const incoming = Array.from(list);
     if (!incoming.length) return;
     setDropBusy(true);
@@ -2586,8 +2584,8 @@ function FolderPage({
     clearFolderHover();
 
     if (await moveDroppedItem(event, current?.id || null)) return;
-    if (current && event.dataTransfer?.files?.length) {
-      await uploadFiles(current.id, event.dataTransfer.files);
+    if (event.dataTransfer?.files?.length) {
+      await uploadFiles(current?.id || null, event.dataTransfer.files);
     }
   }
 
@@ -2704,9 +2702,12 @@ function FolderPage({
     <section
       className={(embedded ? "folderPage embeddedFolderPage" : "folderPage") + (dropActive ? " explorerDropActive" : "")}
       onDragOver={(event) => {
-        const acceptsRootMove = !current && event.dataTransfer?.types?.includes("application/x-rb-explorer-item");
-        if (!current && !acceptsRootMove) return;
+        const dragTypes = Array.from(event.dataTransfer?.types || []).map(String);
+        const acceptsExplorerMove = hasExplorerDragItem(event);
+        const acceptsFiles = dragTypes.includes("Files");
+        if (!current && !acceptsExplorerMove && !acceptsFiles) return;
         event.preventDefault();
+        event.dataTransfer.dropEffect = acceptsFiles ? "copy" : "move";
         if (!dropTargetId) setDropActive(true);
       }}
       onDragLeave={(event) => {
@@ -2805,12 +2806,11 @@ function FolderPage({
         </div>
       )}
 
-      {current && (
-        <>
+      <>
           {!children.length && !hasAssets && (
             <div className="explorerEmpty compact">
               <span>📂</span>
-              <p>Belum ada isi. Drop file di halaman ini atau tekan +.</p>
+              <p>{current ? "Belum ada isi. Drop file di halaman ini atau tekan +." : "Belum ada isi di Home. Drop file di halaman ini atau tekan + Upload."}</p>
             </div>
           )}
           <div className="explorerItems">
@@ -2880,19 +2880,12 @@ function FolderPage({
                 />
               ))}
             </div>
-            {clipboardItem && (
+            {clipboardItem && current && (
               <button className="pasteFloatingAction" type="button" onClick={pasteIntoCurrent}>
                 Paste di folder ini
               </button>
             )}
         </>
-      )}
-
-      {!children.length && !hasAssets && !current && (
-        <div className="emptyFolder">
-          <p>Belum ada folder. Tekan + untuk membuat folder pertama.</p>
-        </div>
-      )}
 
       {contextMenu && (
         <ExplorerActionMenu
@@ -3581,14 +3574,10 @@ function AddSheet({
 
   const options = [
     { value: "folder", label: "Folder", hint: "Buat folder / subfolder materi" },
-    ...(parent
-      ? [
-          { value: "file" as const, label: "Upload file / foto", hint: "PDF, dokumen, gambar, audio, video, atau file mentah" },
-          { value: "link" as const, label: "Masukkan link", hint: "Simpan halaman web sebagai sumber RAW" },
-          { value: "text" as const, label: "Masukkan teks", hint: "Catatan atau materi mentah langsung ke folder" },
-          { value: "recording" as const, label: "🎙️ Rekam audio", hint: "Rekaman + transkrip verbatim langsung ke folder" },
-        ]
-      : []),
+    { value: "file" as const, label: "Upload file / foto", hint: "PDF, dokumen, gambar, audio, video, atau file mentah" },
+    { value: "link" as const, label: "Masukkan link", hint: "Simpan halaman web sebagai sumber RAW" },
+    { value: "text" as const, label: "Masukkan teks", hint: "Catatan atau materi mentah langsung ke lokasi ini" },
+    { value: "recording" as const, label: "🎙️ Rekam audio", hint: "Rekaman + transkrip verbatim langsung ke lokasi ini" },
     { value: "study", label: "Study", hint: "Atur sumber + model lalu langsung susun Study" },
     { value: "flashcards", label: "Flashcard", hint: "Atur sumber + model lalu langsung buat kartu" },
     { value: "quiz", label: "Kuis", hint: "Atur sumber + model lalu langsung buat soal" },
@@ -3864,15 +3853,16 @@ function AddSheet({
 
   async function addFile(e: FormEvent) {
     e.preventDefault();
-    if (!parent || !selectedFile) return;
+    if (!selectedFile) return;
+    const targetNodeId = parent?.id || null;
     setBusy(true);
     setStatus("Menyimpan file asli...");
     try {
       if (selectedFile.size > STORAGE_OBJECT_LIMIT) {
-        await saveOversizedPdf(session, user, parent.id, selectedFile,
+        await saveOversizedPdf(session, user, targetNodeId, selectedFile,
           defaultSelection("gemini-2.5-flash"), setStatus);
       } else {
-        const row = await saveRawFileToFolder(user, parent.id, selectedFile);
+        const row = await saveRawFileToFolder(user, targetNodeId, selectedFile);
         if (!row.raw_text) {
           setStatus("File asli tersimpan. Membaca RAW...");
           await ensureRawFileText(session, row);
@@ -3890,7 +3880,8 @@ function AddSheet({
 
   async function addLink(e: FormEvent) {
     e.preventDefault();
-    if (!parent || !linkUrl.trim()) return;
+    if (!linkUrl.trim()) return;
+    const targetNodeId = parent?.id || null;
     setBusy(true);
     setStatus("Membaca link RAW...");
     const response = await fetch("/api/import-link", {
@@ -3899,7 +3890,7 @@ function AddSheet({
         "Content-Type": "application/json",
         Authorization: "Bearer " + session.access_token,
       },
-      body: JSON.stringify({ nodeId: parent.id, url: linkUrl.trim() }),
+      body: JSON.stringify({ nodeId: targetNodeId, url: linkUrl.trim() }),
     });
     const result = await response.json().catch(() => ({}));
     setBusy(false);
@@ -3913,12 +3904,13 @@ function AddSheet({
 
   async function addText(e: FormEvent) {
     e.preventDefault();
-    if (!parent || !textContent.trim()) return;
+    if (!textContent.trim()) return;
+    const targetNodeId = parent?.id || null;
     setBusy(true);
     const finalTitle = title.trim() || "Catatan - " + new Date().toLocaleString("id-ID");
     const { error } = await supabase.from("knowledge_entries").insert({
       user_id: user.id,
-      node_id: parent.id,
+      node_id: targetNodeId,
       title: finalTitle,
       category: "Catatan RAW",
       content: textContent.trim(),
@@ -3938,7 +3930,7 @@ function AddSheet({
         <div className="sheetHead">
           <div>
             <p className="eyebrow">UPLOAD</p>
-            <h2>{parent ? "Upload ke " + parent.title : "Upload ke Ruang Belajar"}</h2>
+            <h2>{parent ? "Upload ke " + parent.title : "Upload ke Home"}</h2>
           </div>
           <button className="closeBtn" onClick={onClose}>×</button>
         </div>
@@ -3960,7 +3952,7 @@ function AddSheet({
           ))}
         </div>
 
-        {kind === "file" && parent && (
+        {kind === "file" && (
           <form className="stack" onSubmit={addFile}>
             <label>
               Pilih file
@@ -3977,7 +3969,7 @@ function AddSheet({
           </form>
         )}
 
-        {kind === "link" && parent && (
+        {kind === "link" && (
           <form className="stack" onSubmit={addLink}>
             <label>
               Link
@@ -3995,7 +3987,7 @@ function AddSheet({
           </form>
         )}
 
-        {kind === "text" && parent && (
+        {kind === "text" && (
           <form className="stack" onSubmit={addText}>
             <label>
               Judul (opsional)
@@ -4017,7 +4009,7 @@ function AddSheet({
           </form>
         )}
 
-        {kind === "recording" && parent && (
+        {kind === "recording" && (
           <div className="explorerRecorderSheet">
             <DatabaseAudioRecorder
               session={session}
