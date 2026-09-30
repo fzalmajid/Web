@@ -17,9 +17,13 @@ type UserProfile = {
   display_name: string;
   bio: string;
   avatar_url: string | null;
+  avatar_emoji: string;
+  onboarding_completed?: boolean;
   auto_accept_friends: boolean;
   created_at?: string;
 };
+
+const STUDY_PROFILE_EMOJIS = ["📚","🧠","🎓","🔬","🧪","💡","✍️","🌱","🚀","🧩","📐","🩺"];
 
 type FriendConnection = {
   id: string;
@@ -48,6 +52,8 @@ function ProfileAvatar({ profile, large = false }: { profile: UserProfile | null
     <span className={large ? "socialAvatar socialAvatarLarge" : "socialAvatar"}>
       {profile?.avatar_url ? (
         <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" />
+      ) : profile?.avatar_emoji ? (
+        <span className="socialAvatarEmoji" aria-hidden="true">{profile.avatar_emoji}</span>
       ) : (
         <b aria-hidden="true">{initials(profile)}</b>
       )}
@@ -83,11 +89,9 @@ export default function ProfileHome({
     username: fallbackUsername.length >= 3 ? fallbackUsername : "akun",
     display_name: emailLocal,
     bio: "",
-    avatar_url: String(
-      session.user.user_metadata?.avatar_url ||
-      session.user.user_metadata?.picture ||
-      ""
-    ) || null,
+    avatar_url: null,
+    avatar_emoji: "📚",
+    onboarding_completed: false,
     auto_accept_friends: false,
   }), [me, emailLocal, fallbackUsername, session.user.user_metadata]);
   const [profile, setProfile] = useState<UserProfile | null>(
@@ -356,6 +360,7 @@ function EditProfileSheet({
   const [displayName, setDisplayName] = useState(profile.display_name || "");
   const [username, setUsername] = useState(profile.username || "");
   const [bio, setBio] = useState(profile.bio || "");
+  const [avatarEmoji, setAvatarEmoji] = useState(profile.avatar_emoji || "📚");
   const [autoAccept, setAutoAccept] = useState(profile.auto_accept_friends);
   const [busy, setBusy] = useState(false);
   const [errorText, setErrorText] = useState("");
@@ -374,6 +379,9 @@ function EditProfileSheet({
         username: safeUsername,
         display_name: displayName.trim().slice(0, 80),
         bio: bio.trim().slice(0, 220),
+        avatar_emoji: avatarEmoji || "📚",
+        avatar_url: null,
+        onboarding_completed: true,
         auto_accept_friends: autoAccept,
       })
       .eq("user_id", profile.user_id);
@@ -402,6 +410,22 @@ function EditProfileSheet({
           <label>Username
             <div className="socialUsernameInput"><span>@</span><input value={username} maxLength={32} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ""))} /></div>
           </label>
+          <div className="profileEmojiField">
+            <span className="profileEmojiLabel">Avatar belajar</span>
+            <div className="profileEmojiGrid">
+              {STUDY_PROFILE_EMOJIS.map((emoji) => (
+                <button
+                  type="button"
+                  key={emoji}
+                  className={avatarEmoji === emoji ? "profileEmojiChoice active" : "profileEmojiChoice"}
+                  onClick={() => setAvatarEmoji(emoji)}
+                  aria-label={"Pilih avatar " + emoji}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
           <label>Bio
             <textarea rows={4} value={bio} maxLength={220} onChange={(e) => setBio(e.target.value)} />
             <small className="muted">{bio.length}/220</small>
