@@ -841,7 +841,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const loadGenerationRef = useRef(0);
 
   useEffect(() => {
-    setNodes([]);
+    // Never blank the folder tree on an ordinary refresh. Keeping the previous
+    // structure avoids the "empty profile" flash while fresh rows are fetched.
     setEntries([]);
     setFiles([]);
     setRecordings([]);
@@ -940,26 +941,15 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   async function loadAll() {
     const generation = ++loadGenerationRef.current;
 
-    // Fast path: render the explorer from lightweight structure/metadata first.
-    // Do not make 4k+ knowledge-entry bodies and multi-megabyte RAW text block folder/file paint.
-    const [nodesResult, fileMetaResult, recordingMetaResult] = await Promise.all([
-      supabase
-        .from("study_nodes")
-        .select("*")
-        .eq("user_id", viewedOwnerId)
-        .order("position")
-        .order("created_at"),
-      supabase
-        .from("source_files")
-        .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,processing_status,error_message,source_kind,source_url,ai_copy_mode,ai_copy_ratio,ai_copy_model,ai_copy_updated_at,created_at")
-        .eq("user_id", viewedOwnerId)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("recordings")
-        .select("id,user_id,node_id,title,file_path,mime_type,duration_seconds,knowledge_entry_id,created_at")
-        .eq("user_id", viewedOwnerId)
-        .order("created_at", { ascending: false }),
-    ]);
+    // CRITICAL PAINT PATH: folder structure only.
+    // The profile/folder tree is tiny and must render before any file metadata,
+    // knowledge entries, transcripts, flashcards, or RAW bodies are requested.
+    const nodesResult = await supabase
+      .from("study_nodes")
+      .select("*")
+      .eq("user_id", viewedOwnerId)
+      .order("position")
+      .order("created_at");
 
     if (generation !== loadGenerationRef.current) return;
 
@@ -974,81 +964,66 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
       }
     }
 
-    if (fileMetaResult.error) {
-      console.warn("[EXPLORER_FILES_LOAD_FAILED]", fileMetaResult.error.code || fileMetaResult.error.message);
-    } else {
-      setFiles(
-        (fileMetaResult.data || []).map((row: any) => ({
-          ...row,
-          raw_text: null,
-          structured_text: null,
-          corrections: [],
-        })) as SourceFile[]
-      );
-    }
-
-    if (recordingMetaResult.error) {
-      console.warn("[EXPLORER_RECORDINGS_LOAD_FAILED]", recordingMetaResult.error.code || recordingMetaResult.error.message);
-    } else {
-      setRecordings(
-        (recordingMetaResult.data || []).map((row: any) => ({
-          ...row,
-          transcript: null,
-          raw_transcript: null,
-          structured_transcript: null,
-          corrections: [],
-        })) as Recording[]
-      );
-    }
-
-    // Background hydration must stay lightweight. File/OCR entry bodies can total
-    // tens of megabytes and are fetched on demand by Local AI/Quiz/RAG instead.
-    // Keep full bodies only for manual notes because Explorer preview/edit needs them.
+    // NON-BLOCKING HYDRATION: everything below may arrive after the folder cards.
+    // Never fetch full source_files rows here: raw_text can be very large and was
+    // measurably delaying explorer startup. RAW is fetched only by flows that need it.
     void Promise.all([
       supabase
-        .from("knowledge_entries")
-        .select("id,user_id,node_id,title,category,source_type,source_file_id,created_at")
-        .eq("user_id", viewedOwnerId)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("knowledge_entries")
-        .select("*")
-        .eq("user_id", viewedOwnerId)
-        .eq("source_type", "manual")
-        .order("created_at", { ascending: false }),
-      supabase
         .from("source_files")
-        .select("*")
+        .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,processing_status,error_message,source_kind,source_url,ai_copy_mode,ai_copy_ratio,ai_copy_model,ai_copy_updated_at,created_at")
         .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
         .from("recordings")
-        .select("*")
+        .select("id,user_id,node_id,title,file_path,mime_type,duration_seconds,knowledge_entry_id,created_at")
         .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
-        .from("flashcards")
-        .select("*")
+        .from("knowledge_entries")
+        .select("id,user_id,node_id,title,category,source_type,source_file_id,source_page_start,source_page_end,created_at")
         .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
-        .from("quizzes")
-        .select("*")
+        .from("knowledge_entries")
+        .select("id,user_id,node_id,title,category,content,raw_content,source_type,source_file_id,source_page_start,source_page_end,created_at")
         .eq("user_id", viewedOwnerId)
+        .eq("source_type", "manual")
         .order("created_at", { ascending: false }),
-      supabase
-        .from("study_tasks")
-        .select("*")
-        .eq("user_id", viewedOwnerId)
-        .order("created_at", { ascending: false }),
-    ]).then((result) => {
+    ]).then(async ([fileMetaResult, recordingMetaResult, entryMetaResult, manualResult]) => {
       if (generation !== loadGenerationRef.current) return;
 
-      if (!result[0].error && !result[1].error) {
-        const manualById = new Map(
-          ((result[1].data || []) as KnowledgeEntry[]).map((entry) => [entry.id, entry])
+      if (!fileMetaResult.error) {
+        setFiles(
+          (fileMetaResult.data || []).map((row: any) => ({
+            ...row,
+            raw_text: null,
+            structured_text: null,
+            corrections: [],
+          })) as SourceFile[]
         );
-        const lightweightEntries = (result[0].data || []).map((entry: any) => {
+      } else {
+        console.warn("[EXPLORER_FILES_LOAD_FAILED]", fileMetaResult.error.code || fileMetaResult.error.message);
+      }
+
+      if (!recordingMetaResult.error) {
+        setRecordings(
+          (recordingMetaResult.data || []).map((row: any) => ({
+            ...row,
+            transcript: null,
+            raw_transcript: null,
+            structured_transcript: null,
+            corrections: [],
+          })) as Recording[]
+        );
+      } else {
+        console.warn("[EXPLORER_RECORDINGS_LOAD_FAILED]", recordingMetaResult.error.code || recordingMetaResult.error.message);
+      }
+
+      if (!entryMetaResult.error && !manualResult.error) {
+        const manualById = new Map(
+          ((manualResult.data || []) as KnowledgeEntry[]).map((entry) => [entry.id, entry])
+        );
+        const lightweightEntries = (entryMetaResult.data || []).map((entry: any) => {
           const manual = manualById.get(String(entry.id));
           if (manual) return manual;
           return {
@@ -1062,18 +1037,34 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         console.warn("[EXPLORER_ENTRIES_HYDRATION_FAILED]");
       }
 
-      if (!result[2].error) setFiles((result[2].data || []) as SourceFile[]);
-      else console.warn("[EXPLORER_FILES_HYDRATION_FAILED]");
+      // Own study tools are not required to paint folders and should never compete
+      // with the explorer's first render. Friend profiles do not need these at all.
+      if (viewedOwnerId !== user.id) return;
 
-      if (!result[3].error) setRecordings((result[3].data || []) as Recording[]);
-      else console.warn("[EXPLORER_RECORDINGS_HYDRATION_FAILED]");
+      const [cardsResult, quizzesResult, tasksResult] = await Promise.all([
+        supabase
+          .from("flashcards")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("quizzes")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("study_tasks")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false }),
+      ]);
 
-      if (!result[4].error) setCards((result[4].data || []) as Flashcard[]);
-      if (!result[5].error) setQuizzes((result[5].data || []) as Quiz[]);
-      if (!result[6].error) setTasks((result[6].data || []) as StudyTask[]);
+      if (generation !== loadGenerationRef.current) return;
+      if (!cardsResult.error) setCards((cardsResult.data || []) as Flashcard[]);
+      if (!quizzesResult.error) setQuizzes((quizzesResult.data || []) as Quiz[]);
+      if (!tasksResult.error) setTasks((tasksResult.data || []) as StudyTask[]);
     });
   }
-
   const refresh = () => setRefreshKey((value) => value + 1);
   const viewingOwnProfile = viewedOwnerId === user.id;
   function viewProfile(ownerId: string) {
