@@ -861,6 +861,7 @@ type AccountProfileSummary = {
   username: string;
   avatar_url: string | null;
   avatar_emoji: string | null;
+  avatar_bg_color: string | null;
 };
 
 type SettingsSection = "profile" | "friends" | "plugins" | "appearance" | "account";
@@ -875,7 +876,11 @@ function WorkspaceAccountAvatar({
   className?: string;
 }) {
   return (
-    <span className={className} aria-hidden="true">
+    <span
+      className={className}
+      aria-hidden="true"
+      style={!profile?.avatar_url ? { background: profile?.avatar_bg_color || "#10231d" } : undefined}
+    >
       {profile?.avatar_url ? (
         <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" />
       ) : profile?.avatar_emoji ? (
@@ -940,7 +945,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     let alive = true;
     void supabase
       .from("user_profiles")
-      .select("display_name,username,avatar_url,avatar_emoji")
+      .select("display_name,username,avatar_url,avatar_emoji,avatar_bg_color")
       .eq("user_id", user.id)
       .maybeSingle()
       .then(({ data }) => {
