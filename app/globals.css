@@ -10249,3 +10249,50 @@ body,
 .toolHeader{
   margin-bottom:18px!important;
 }
+
+
+/* FINAL POPOVER PLACEMENT CONTRACT — remove legacy top/bottom conflicts */
+.sheetBackdrop>.addSheet .citationPopover,
+.sheetBackdrop>.addSheet .aiModePopover.aiModelPopover{
+  position:fixed!important;
+  top:84px!important;
+  bottom:auto!important;
+  left:50%!important;
+  right:auto!important;
+  transform:translateX(-50%)!important;
+  width:min(560px,calc(100vw - 32px))!important;
+  max-width:560px!important;
+  max-height:calc(100dvh - 102px)!important;
+  overflow:auto!important;
+  z-index:1200!important;
+}
+.sheetBackdrop>.addSheet .instructionAiBar .citationPopover,
+.sheetBackdrop>.addSheet .studyInstructionAiBar .citationPopover,
+.sheetBackdrop>.addSheet .instructionAiBar .aiModePopover.aiModelPopover,
+.sheetBackdrop>.addSheet .studyInstructionAiBar .aiModePopover.aiModelPopover{
+  position:absolute!important;
+  top:auto!important;
+  bottom:calc(100% + 8px)!important;
+  left:auto!important;
+  right:0!important;
+  transform:none!important;
+  width:min(520px,calc(100vw - 36px))!important;
+  max-height:min(420px,55dvh)!important;
+  z-index:1200!important;
+}
+@media (max-width:760px){
+  .sheetBackdrop>.addSheet .citationPopover,
+  .sheetBackdrop>.addSheet .aiModePopover.aiModelPopover{
+    top:76px!important;
+    max-height:calc(100dvh - 88px)!important;
+    width:min(540px,calc(100vw - 20px))!important;
+  }
+  .sheetBackdrop>.addSheet .instructionAiBar .citationPopover,
+  .sheetBackdrop>.addSheet .studyInstructionAiBar .citationPopover,
+  .sheetBackdrop>.addSheet .instructionAiBar .aiModePopover.aiModelPopover,
+  .sheetBackdrop>.addSheet .studyInstructionAiBar .aiModePopover.aiModelPopover{
+    top:auto!important;
+    bottom:calc(100% + 7px)!important;
+    max-height:min(360px,50dvh)!important;
+  }
+}
