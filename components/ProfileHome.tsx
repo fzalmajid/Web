@@ -85,6 +85,7 @@ export default function ProfileHome({
   activeContent = null,
   onBackToRooms,
   onOpenFolderPath,
+  onBreadcrumbDrop,
   onCustomizeActive,
   onUploadActive,
 }: {
@@ -105,6 +106,7 @@ export default function ProfileHome({
   activeContent?: React.ReactNode;
   onBackToRooms?: () => void;
   onOpenFolderPath?: (folderId: string) => void;
+  onBreadcrumbDrop?: (event: any, targetNodeId: string | null) => void;
   onCustomizeActive?: () => void;
   onUploadActive?: () => void;
 }) {
@@ -313,11 +315,41 @@ export default function ProfileHome({
           {activeFolder ? (
             <>
               <div className="profileFolderBreadcrumb" aria-label="Lokasi folder">
-                <button type="button" onClick={onBackToRooms}>Home</button>
+                <button
+                  type="button"
+                  data-rb-drop-target="__root__"
+                  onClick={onBackToRooms}
+                  onDragOver={(event) => {
+                    if (!ownProfile || !onBreadcrumbDrop) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    if (!ownProfile || !onBreadcrumbDrop) return;
+                    onBreadcrumbDrop(event, null);
+                  }}
+                >
+                  Home
+                </button>
                 {activeFolderPath.map((item) => (
                   <span key={item.id}>
                     <b>/</b>
-                    <button type="button" onClick={() => onOpenFolderPath?.(item.id)}>{item.title}</button>
+                    <button
+                      type="button"
+                      data-rb-drop-target={item.id}
+                      onClick={() => onOpenFolderPath?.(item.id)}
+                      onDragOver={(event) => {
+                        if (!ownProfile || !onBreadcrumbDrop) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                      }}
+                      onDrop={(event) => {
+                        if (!ownProfile || !onBreadcrumbDrop) return;
+                        onBreadcrumbDrop(event, item.id);
+                      }}
+                    >
+                      {item.title}
+                    </button>
                   </span>
                 ))}
               </div>
@@ -328,8 +360,25 @@ export default function ProfileHome({
             </>
           ) : (
             <>
-              <p className="eyebrow">{ownProfile ? "PROFIL SAYA" : "PROFIL TEMAN"}</p>
-              <h2>Home</h2>
+              {!ownProfile && <p className="eyebrow">PROFIL TEMAN</p>}
+              <div className="profileFolderBreadcrumb profileHomeBreadcrumb" aria-label="Lokasi folder">
+                <button
+                  type="button"
+                  data-rb-drop-target="__root__"
+                  onClick={onBackToRooms}
+                  onDragOver={(event) => {
+                    if (!ownProfile || !onBreadcrumbDrop) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    if (!ownProfile || !onBreadcrumbDrop) return;
+                    onBreadcrumbDrop(event, null);
+                  }}
+                >
+                  Home
+                </button>
+              </div>
             </>
           )}
         </div>
