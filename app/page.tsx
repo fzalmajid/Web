@@ -11,6 +11,7 @@ import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart 
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
 import { assertPdfFile } from "@/lib/pdfValidation";
 import ProfileHome from "@/components/ProfileHome";
+import ProfileSetup from "@/components/ProfileSetup";
 import FriendFolderPage from "@/components/FriendFolderPage";
 import { isChunkedPdfPath, getChunkedPdfManifest, downloadChunkedPdf, removeStoredStudyFile, copyChunkedPdf, saveLargePdfToFolder, type LargePdfSourceRow } from "@/lib/largePdfClient";
 import {
@@ -564,6 +565,7 @@ const labels: Record<NodeType, string> = {
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileGate, setProfileGate] = useState<"checking" | "setup" | "ready">("checking");
   const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
 
   useEffect(() => {
@@ -604,10 +606,42 @@ export default function Home() {
     return () => media.removeEventListener?.("change", listener);
   }, [theme]);
 
-  if (loading) {
-    return <main className="center"><div className="loader">Memuat Ruang Belajar...</div></main>;
+  useEffect(() => {
+    if (!session) {
+      setProfileGate("checking");
+      return;
+    }
+
+    let alive = true;
+    setProfileGate("checking");
+
+    void supabase
+      .from("user_profiles")
+      .select("onboarding_completed")
+      .eq("user_id", session.user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!alive) return;
+        if (error) {
+          console.warn("[PROFILE_ONBOARDING_CHECK_FAILED]", error.code || error.message);
+          setProfileGate("setup");
+          return;
+        }
+        setProfileGate(data?.onboarding_completed ? "ready" : "setup");
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [session?.user.id]);
+
+  if (loading || (session && profileGate === "checking")) {
+    return <main className="center"><div className="loader">Menyiapkan profil Ruang Belajar...</div></main>;
   }
   if (!session) return <Auth />;
+  if (profileGate === "setup") {
+    return <ProfileSetup session={session} onComplete={() => setProfileGate("ready")} />;
+  }
   return <Workspace session={session} user={session.user} theme={theme} onThemeChange={setTheme} />;
 }
 
