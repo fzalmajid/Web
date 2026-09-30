@@ -259,12 +259,99 @@ async function lookupEuropePmc(input: ReferenceMetadata): Promise<CatalogMatch |
   }
 }
 
+
+function pubMedMetadata(item: any): ReferenceMetadata {
+  const articleIds = Array.isArray(item?.articleids) ? item.articleids : [];
+  const doi = cleanDoi(articleIds.find((entry: any) =>
+    String(entry?.idtype || "").toLowerCase() === "doi"
+  )?.value);
+  const yearMatch = /\b(19\d{2}|20\d{2})\b/.exec(String(item?.pubdate || item?.sortpubdate || ""));
+  const authors = (Array.isArray(item?.authors) ? item.authors : [])
+    .map((author: any) => String(author?.name || "").trim())
+    .filter(Boolean);
+  const pmid = String(item?.uid || item?.pmid || "");
+  const metadata: ReferenceMetadata = {
+    title: String(item?.title || "").replace(/[.]$/, "") || null,
+    authors,
+    year: yearMatch ? Number(yearMatch[1]) : null,
+    type: "journal_article",
+    container_title: item?.fulljournalname || item?.source || null,
+    volume: item?.volume || null,
+    issue: item?.issue || null,
+    pages: item?.pages || null,
+    doi: doi || null,
+    url: pmid ? "https://pubmed.ncbi.nlm.nih.gov/" + pmid + "/" : doi ? "https://doi.org/" + doi : null,
+    pmid: pmid || null,
+  };
+  metadata.provenance = provenance(metadata, "pubmed", 0.95);
+  return metadata;
+}
+
+async function lookupPubMed(input: ReferenceMetadata): Promise<CatalogMatch | null> {
+  if (input.type === "lecture_slides" || input.type === "book" || !input.title) return null;
+  const apiKey = String(process.env.NCBI_API_KEY || "").trim();
+  try {
+    const doi = cleanDoi(input.doi);
+    const searchUrl = new URL("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi");
+    searchUrl.searchParams.set("db", "pubmed");
+    searchUrl.searchParams.set("retmode", "json");
+    searchUrl.searchParams.set("retmax", "5");
+    searchUrl.searchParams.set(
+      "term",
+      doi
+        ? '"' + doi.replace(/"/g, "") + '"[AID]'
+        : '"' + String(input.title).replace(/"/g, "") + '"[Title]'
+    );
+    if (apiKey) searchUrl.searchParams.set("api_key", apiKey);
+    const searchResponse = await fetch(searchUrl, {
+      headers: { "User-Agent": "RuangBelajar/1.0 (reference validation)" },
+      signal: AbortSignal.timeout(6500),
+      cache: "no-store",
+    });
+    if (!searchResponse.ok) return null;
+    const searchPayload = await searchResponse.json().catch(() => null) as any;
+    const ids = Array.isArray(searchPayload?.esearchresult?.idlist)
+      ? searchPayload.esearchresult.idlist.slice(0, 5)
+      : [];
+    if (!ids.length) return null;
+
+    const summaryUrl = new URL("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi");
+    summaryUrl.searchParams.set("db", "pubmed");
+    summaryUrl.searchParams.set("retmode", "json");
+    summaryUrl.searchParams.set("id", ids.join(","));
+    if (apiKey) summaryUrl.searchParams.set("api_key", apiKey);
+    const summaryResponse = await fetch(summaryUrl, {
+      headers: { "User-Agent": "RuangBelajar/1.0 (reference validation)" },
+      signal: AbortSignal.timeout(6500),
+      cache: "no-store",
+    });
+    if (!summaryResponse.ok) return null;
+    const summaryPayload = await summaryResponse.json().catch(() => null) as any;
+    const ranked = ids
+      .map((id: string) => summaryPayload?.result?.[id])
+      .filter(Boolean)
+      .map((item: any) => {
+        const metadata = pubMedMetadata(item);
+        return {
+          metadata,
+          similarity: doi ? 1 : titleSimilarity(String(input.title), String(metadata.title || "")),
+        };
+      })
+      .sort((a: any,b: any) => b.similarity - a.similarity);
+    if (!ranked[0] || ranked[0].similarity < (doi ? 0.99 : 0.9)) return null;
+    return { source: "pubmed", ...ranked[0] };
+  } catch {
+    return null;
+  }
+}
+
 export async function lookupPublicReferenceCatalogs(input: ReferenceMetadata) {
   const results = await Promise.allSettled([
     lookupDataCite(input),
     lookupOpenAlex(input),
     lookupOpenLibrary(input),
     lookupEuropePmc(input),
+    lookupPubMed(input),
   ]);
   return results
     .filter((item): item is PromiseFulfilledResult<CatalogMatch | null> => item.status === "fulfilled")
