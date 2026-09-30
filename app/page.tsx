@@ -3144,6 +3144,7 @@ function ReferenceMetadataModal({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [mendeleyAvailable, setMendeleyAvailable] = useState(false);
+  const [mendeleyConnected, setMendeleyConnected] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -3158,10 +3159,55 @@ function ReferenceMetadataModal({
         setAuthorsText((next.authors || []).join("; "));
         setStatus(data.file?.bibliographic_metadata_status || "unreviewed");
         setMendeleyAvailable(Boolean(data.mendeleyConfigured));
+        setMendeleyConnected(Boolean(data.mendeleyConnected));
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [file.id, session.access_token]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const mendeleyResult = url.searchParams.get("mendeley");
+    const reason = url.searchParams.get("mendeley_reason") || "";
+    if (mendeleyResult === "success") {
+      setMendeleyConnected(true);
+      setMessage("Mendeley berhasil terhubung. Pencarian metadata dapat memakai Mendeley Catalog.");
+    } else if (mendeleyResult === "failed") {
+      setMessage(
+        reason === "secret_rejected_on_code_exchange"
+          ? "Mendeley menerima login, tetapi menolak Application Secret saat pertukaran token."
+          : "Koneksi Mendeley belum berhasil" + (reason ? " (" + reason + ")." : ".")
+      );
+    }
+    if (mendeleyResult) {
+      url.searchParams.delete("mendeley");
+      url.searchParams.delete("mendeley_reason");
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  function connectMendeley() {
+    if (typeof window === "undefined") return;
+    const returnTo = window.location.pathname + window.location.search;
+    window.location.assign("/api/mendeley/connect?returnTo=" + encodeURIComponent(returnTo));
+  }
+
+  async function disconnectMendeley() {
+    if (busy) return;
+    setBusy(true);
+    setMessage("Memutus koneksi Mendeley...");
+    try {
+      const response = await fetch("/api/mendeley/disconnect", { method: "POST" });
+      if (!response.ok) throw new Error("Gagal memutus koneksi Mendeley.");
+      setMendeleyConnected(false);
+      setMessage("Koneksi Mendeley diputus. Validasi publik lain tetap aktif.");
+    } catch (error: any) {
+      setMessage(error?.message || "Gagal memutus koneksi Mendeley.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function setField(field: keyof ReferenceMetadata, value: any) {
     setMetadata((current) => ({ ...current, [field]: value }));
@@ -3196,6 +3242,7 @@ function ReferenceMetadataModal({
       setAuthorsText((next.authors || []).join("; "));
       setStatus(data.status || "auto");
       setMendeleyAvailable(Boolean(data.mendeleyConfigured));
+      setMendeleyConnected(Boolean(data.mendeleyConnected));
       setMessage(data.mendeleyMatched
         ? "Metadata dicocokkan dengan dokumen + Mendeley Catalog."
         : data.crossrefMatched
@@ -3229,6 +3276,7 @@ function ReferenceMetadataModal({
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Gagal menyimpan metadata.");
       setStatus("manual");
+      setMendeleyConnected(Boolean(data.mendeleyConnected));
       setMessage("Metadata manual disimpan dan menjadi prioritas tertinggi untuk sitasi.");
       window.setTimeout(onSaved, 450);
     } catch (error: any) {
@@ -3254,7 +3302,13 @@ function ReferenceMetadataModal({
             <h2 id="referenceMetadataTitle">{file.file_name}</h2>
             <div className="referenceMetadataStatusRow">
               <span className={"referenceMetadataStatus " + status}>{statusLabel}</span>
-              <small>{mendeleyAvailable ? "Mendeley Catalog tersedia" : "Validasi dokumen lokal aktif"}</small>
+              <small>
+                {mendeleyConnected
+                  ? "Mendeley terhubung"
+                  : mendeleyAvailable
+                    ? "Mendeley siap dihubungkan"
+                    : "Validasi dokumen + katalog publik aktif"}
+              </small>
             </div>
           </div>
           <button type="button" className="closeBtn" aria-label="Tutup" disabled={busy} onClick={onClose}>×</button>
@@ -3336,6 +3390,16 @@ function ReferenceMetadataModal({
           {message && <p className="referenceMetadataMessage" role="status">{message}</p>}
 
           <div className="referenceMetadataActions">
+            {mendeleyAvailable && (
+              <button
+                type="button"
+                className="ghost"
+                disabled={busy}
+                onClick={mendeleyConnected ? disconnectMendeley : connectMendeley}
+              >
+                {mendeleyConnected ? "Putuskan Mendeley" : "Connect Mendeley"}
+              </button>
+            )}
             <button type="button" className="ghost" disabled={busy} onClick={rescan}>
               {busy ? "Memeriksa..." : "Cari metadata ulang"}
             </button>
