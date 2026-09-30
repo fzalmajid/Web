@@ -11441,3 +11441,87 @@ body,
     max-height:210px!important;
   }
 }
+
+
+/* 2026-09-30 tighter AI top controls + wrapped secondary text */
+@media (min-width:768px){
+  /* Pull the left/right controls toward each other instead of wasting the middle. */
+  .gptComposer .askTopControls{
+    grid-template-columns:auto 12px auto auto!important;
+    justify-content:center!important;
+    column-gap:6px!important;
+  }
+  .gptComposer .askTopControls::after{
+    grid-column:2!important;
+    width:12px!important;
+    min-width:12px!important;
+  }
+
+  /* Slightly narrower controls; long secondary labels wrap to a second line. */
+  .gptComposer .askTopControls .chooseSourcesTrigger{
+    min-width:134px!important;
+    max-width:150px!important;
+    height:auto!important;
+    min-height:40px!important;
+    padding:5px 8px!important;
+  }
+  .gptComposer .askTopControls .citationTrigger{
+    min-width:116px!important;
+    max-width:138px!important;
+    height:auto!important;
+    min-height:40px!important;
+    padding:5px 8px!important;
+  }
+  .gptComposer .askTopControls .aiModeTrigger,
+  .gptComposer .askTopControls .chooseModelTrigger{
+    min-width:150px!important;
+    max-width:176px!important;
+    height:auto!important;
+    min-height:40px!important;
+    padding:5px 8px!important;
+  }
+
+  .gptComposer .askTopControls .chooseSourcesTrigger>span:last-of-type,
+  .gptComposer .askTopControls .citationTrigger>span,
+  .gptComposer .askTopControls .aiModeTrigger>span,
+  .gptComposer .askTopControls .chooseModelTrigger>span{
+    min-width:0!important;
+  }
+
+  .gptComposer .askTopControls .chooseSourcesTrigger small,
+  .gptComposer .askTopControls .citationTrigger small,
+  .gptComposer .askTopControls .aiModeTrigger small,
+  .gptComposer .askTopControls .chooseModelTrigger small{
+    white-space:normal!important;
+    overflow:hidden!important;
+    text-overflow:clip!important;
+    display:-webkit-box!important;
+    -webkit-box-orient:vertical!important;
+    -webkit-line-clamp:2!important;
+    line-height:1.14!important;
+    max-height:2.28em!important;
+  }
+
+  .gptComposer .askTopControls>.askScope{
+    max-width:150px!important;
+    white-space:normal!important;
+    overflow:hidden!important;
+    text-overflow:clip!important;
+    display:-webkit-box!important;
+    -webkit-box-orient:vertical!important;
+    -webkit-line-clamp:2!important;
+    line-height:1.16!important;
+    max-height:2.32em!important;
+  }
+
+  /* Popovers can be a touch narrower now that their text is allowed to wrap. */
+  .gptComposer .aiDatabaseSourcePopover{
+    width:min(430px,calc(100vw - 32px))!important;
+  }
+  .gptComposer .citationPopover{
+    width:min(450px,calc(100vw - 32px))!important;
+  }
+  .gptComposer .aiModePopover.aiModelPopover{
+    width:min(470px,calc(100vw - 32px))!important;
+  }
+}
