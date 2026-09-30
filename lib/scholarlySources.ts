@@ -40,16 +40,19 @@ export function isBiomedicalQuery(query: string) {
 }
 
 export function openAlexConfigured() {
+  return true;
+}
+
+export function openAlexHasApiKey() {
   return Boolean(String(process.env.OPENALEX_API_KEY || "").trim());
 }
 
 async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHit[]> {
   const apiKey = String(process.env.OPENALEX_API_KEY || "").trim();
-  if (!apiKey) return [];
   const url = new URL("https://api.openalex.org/works");
   url.searchParams.set("search", query);
   url.searchParams.set("per-page", String(Math.max(1, Math.min(12, limit))));
-  url.searchParams.set("api_key", apiKey);
+  if (apiKey) url.searchParams.set("api_key", apiKey);
   const response = await fetch(url, {
     headers: { "User-Agent": "RuangBelajar/1.0 (scholarly search)" },
     signal: AbortSignal.timeout(7000),
@@ -203,7 +206,7 @@ export async function searchScholarlySources(query: string, limit = 12) {
   if (!clean) return [] as ScholarlyHit[];
   const biomedical = isBiomedicalQuery(clean);
   const jobs: Array<Promise<ScholarlyHit[]>> = [];
-  if (openAlexConfigured()) jobs.push(searchOpenAlex(clean, Math.min(8, limit)));
+  jobs.push(searchOpenAlex(clean, Math.min(8, limit)));
   if (biomedical) {
     jobs.push(searchEuropePmc(clean, Math.min(8, limit)));
     jobs.push(searchPubMed(clean, Math.min(6, limit)));
