@@ -251,9 +251,9 @@ function mapMendeleyDocument(doc: any): ReferenceMetadata {
   };
 }
 
-export async function lookupMendeleyCatalog(metadata: ReferenceMetadata) {
-  if (!mendeleyConfigured() || metadata.type === "lecture_slides" || !metadata.title) return null;
-  const token = await mendeleyToken();
+export async function lookupMendeleyCatalog(metadata: ReferenceMetadata, accessTokenOverride?: string | null) {
+  if ((!accessTokenOverride && !mendeleyConfigured()) || metadata.type === "lecture_slides" || !metadata.title) return null;
+  const token = accessTokenOverride || await mendeleyToken();
   if (!token) return null;
   const url = new URL("https://api.mendeley.com/search/catalog");
   url.searchParams.set("query", metadata.title);
@@ -368,6 +368,7 @@ export async function resolveReferenceMetadata(input: {
   frontMatter?: string | null;
   existing?: ReferenceMetadata | null;
   preserveManual?: boolean;
+  mendeleyAccessToken?: string | null;
 }) {
   let metadata = inferReferenceMetadata(input);
   const existing = input.existing || {};
@@ -380,7 +381,7 @@ export async function resolveReferenceMetadata(input: {
   // Catalogs are independent verifiers. Never skip a stronger public match just
   // because another provider happened to answer first.
   const [mendeleyResult, crossrefResult, publicResult] = await Promise.allSettled([
-    lookupMendeleyCatalog(metadata),
+    lookupMendeleyCatalog(metadata, input.mendeleyAccessToken),
     lookupCrossref(metadata),
     lookupPublicReferenceCatalogs(metadata),
   ]);
