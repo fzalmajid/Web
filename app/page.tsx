@@ -10,6 +10,8 @@ import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrie
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
 import { assertPdfFile } from "@/lib/pdfValidation";
+import ProfileHome from "@/components/ProfileHome";
+import FriendFolderPage from "@/components/FriendFolderPage";
 import { isChunkedPdfPath, getChunkedPdfManifest, downloadChunkedPdf, removeStoredStudyFile, copyChunkedPdf, saveLargePdfToFolder, type LargePdfSourceRow } from "@/lib/largePdfClient";
 import {
   AI_MODEL_CATALOG,
@@ -822,6 +824,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [tasks, setTasks] = useState<StudyTask[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
+  const [viewedOwnerId, setViewedOwnerId] = useState(user.id);
+  const [viewedOwnerReferenceAllowed, setViewedOwnerReferenceAllowed] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [customizeNode, setCustomizeNode] = useState<StudyNode | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -838,7 +842,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
   useEffect(() => {
     void loadAll();
-  }, [refreshKey]);
+  }, [refreshKey, viewedOwnerId]);
 
   useEffect(() => {
     const openPlugins = () => setSettingsOpen(true);
@@ -935,18 +939,18 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
       supabase
         .from("study_nodes")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .order("position")
         .order("created_at"),
       supabase
         .from("source_files")
         .select("id,user_id,node_id,file_path,file_name,mime_type,size_bytes,processing_status,error_message,source_kind,source_url,ai_copy_mode,ai_copy_ratio,ai_copy_model,ai_copy_updated_at,created_at")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
         .from("recordings")
         .select("id,user_id,node_id,title,file_path,mime_type,duration_seconds,knowledge_entry_id,created_at")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
     ]);
 
@@ -955,7 +959,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
     if (nodesResult.error) {
       console.warn("[EXPLORER_NODES_LOAD_FAILED]", nodesResult.error.code || nodesResult.error.message);
     } else {
-      const nextNodes = (nodesResult.data || []) as StudyNode[];
+      const nextNodes = ((nodesResult.data || []) as StudyNode[])
+        .filter((node) => viewedOwnerId === user.id || isFolderLikeNode(node));
       setNodes(nextNodes);
       if (currentId && !nextNodes.some((item) => item.id === currentId)) {
         setCurrentId(null);
@@ -996,38 +1001,38 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
       supabase
         .from("knowledge_entries")
         .select("id,user_id,node_id,title,category,source_type,source_file_id,created_at")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
         .from("knowledge_entries")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .eq("source_type", "manual")
         .order("created_at", { ascending: false }),
       supabase
         .from("source_files")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
         .from("recordings")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
         .from("flashcards")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
         .from("quizzes")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
         .from("study_tasks")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
     ]).then((result) => {
       if (generation !== loadGenerationRef.current) return;
@@ -1063,6 +1068,12 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }
 
   const refresh = () => setRefreshKey((value) => value + 1);
+  const viewingOwnProfile = viewedOwnerId === user.id;
+  function viewProfile(ownerId: string) {
+    setViewedOwnerId(ownerId);
+    setCurrentId(null);
+    setViewedOwnerReferenceAllowed(ownerId === user.id);
+  }
   const current = currentId ? nodes.find((node) => node.id === currentId) || null : null;
   const children = nodes.filter((node) => node.parent_id === currentId);
 
@@ -1184,8 +1195,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         <button
           type="button"
           className="brandButton topbarBrandButton"
-          onClick={() => setCurrentId(null)}
-          aria-label="Ruang Belajar"
+          onClick={() => viewProfile(user.id)}
+          aria-label="Profil Ruang Belajar"
           title="Ruang Belajar"
         >
           <span className="brandMini">RB</span>
@@ -1310,6 +1321,10 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
               type="button"
               className={sidebarAccountOpen ? "leftChatAccountButton active" : "leftChatAccountButton"}
               onClick={() => setSidebarAccountOpen((value) => !value)}
+              onDoubleClick={() => {
+                setSidebarAccountOpen(false);
+                viewProfile(user.id);
+              }}
               aria-expanded={sidebarAccountOpen}
             >
               <span className="leftChatAccountAvatar" aria-hidden="true">
@@ -1349,7 +1364,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                 }}
                 onDrop={(event) => void dropOnBreadcrumb(event, null)}
               >
-                Beranda
+                Profil
               </button>
               {path.map((item) => (
                 <span className="pathSegment" key={item.id}>
@@ -1392,22 +1407,51 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           </div>
         )}
 
-        {!current || isFolderLikeNode(current) ? (
-          <FolderPage
+        {!current ? (
+          <ProfileHome
             session={session}
-            user={user}
-            current={current}
-            children={children}
-            nodes={nodes}
-            entries={entries}
-            files={files}
-            recordings={recordings}
-            onOpen={setCurrentId}
-            onAdd={() => setAddOpen(true)}
-            onCustomize={setCustomizeNode}
-            onDelete={removeNode}
-            onChange={refresh}
+            ownerUserId={viewedOwnerId}
+            rooms={nodes
+              .filter((node) => node.parent_id === null && isFolderLikeNode(node))
+              .map((node) => ({
+                id: node.id,
+                title: node.title,
+                emoji: node.emoji,
+                card_color: node.card_color,
+              }))}
+            onOpenRoom={setCurrentId}
+            onOpenProfile={viewProfile}
+            onAddRoom={() => setAddOpen(true)}
+            onAccessChange={setViewedOwnerReferenceAllowed}
+            onProfileChanged={refresh}
           />
+        ) : isFolderLikeNode(current) ? (
+          viewingOwnProfile ? (
+            <FolderPage
+              session={session}
+              user={user}
+              current={current}
+              children={children}
+              nodes={nodes}
+              entries={entries}
+              files={files}
+              recordings={recordings}
+              onOpen={setCurrentId}
+              onAdd={() => setAddOpen(true)}
+              onCustomize={setCustomizeNode}
+              onDelete={removeNode}
+              onChange={refresh}
+            />
+          ) : (
+            <FriendFolderPage
+              current={current}
+              children={children}
+              entries={entries}
+              files={files}
+              recordings={recordings}
+              onOpen={setCurrentId}
+            />
+          )
         ) : null}
 
         {current?.node_type === "recording" && (
@@ -1456,19 +1500,23 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         )}
       </main>
 
-      <BottomAskBar
-        session={session}
-        scopeNodeId={aiScopeId}
-        scopeName={aiScopeName}
-        entries={entries}
-        files={files}
-        nodes={nodes}
-        onChange={refresh}
-        requestedChatId={activeSidebarChatId}
-        chatRequestVersion={chatRequestVersion}
-        onActiveChatChange={setActiveSidebarChatId}
-        onChatsChange={() => void refreshSidebarChats()}
-      />
+      {(viewingOwnProfile || viewedOwnerReferenceAllowed) && (
+        <BottomAskBar
+          session={session}
+          scopeNodeId={aiScopeId}
+          scopeName={aiScopeName}
+          referenceOwnerId={viewedOwnerId}
+          readOnlyReference={!viewingOwnProfile}
+          entries={entries}
+          files={files}
+          nodes={nodes}
+          onChange={refresh}
+          requestedChatId={activeSidebarChatId}
+          chatRequestVersion={chatRequestVersion}
+          onActiveChatChange={setActiveSidebarChatId}
+          onChatsChange={() => void refreshSidebarChats()}
+        />
+      )}
 
       {settingsOpen && (
         <div className="sheetBackdrop" onMouseDown={() => setSettingsOpen(false)}>
@@ -1544,7 +1592,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         </div>
       )}
 
-      {customizeNode && (
+      {customizeNode && viewingOwnProfile && (
         <CustomizeSheet
           node={customizeNode}
           onClose={() => setCustomizeNode(null)}
@@ -1555,7 +1603,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         />
       )}
 
-      {addOpen && (
+      {addOpen && viewingOwnProfile && (
         <AddSheet
           session={session}
           user={user}
