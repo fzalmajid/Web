@@ -405,8 +405,9 @@ function AvatarCropEditor({
   onCancel: () => void;
   onApply: (blob: Blob) => void;
 }) {
-  const viewport = 260;
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const [viewport, setViewport] = useState(260);
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const [natural, setNatural] = useState({ w: 1, h: 1 });
   const [zoom, setZoom] = useState(1);
@@ -429,7 +430,17 @@ function AvatarCropEditor({
       x: Math.max(-maxX, Math.min(maxX, current.x)),
       y: Math.max(-maxY, Math.min(maxY, current.y)),
     }));
-  }, [zoom, natural.w, natural.h]);
+  }, [zoom, natural.w, natural.h, viewport]);
+
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element) return;
+    const syncSize = () => setViewport(Math.max(1, element.clientWidth || 260));
+    syncSize();
+    const observer = new ResizeObserver(syncSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   async function applyCrop() {
     const img = imgRef.current;
@@ -468,6 +479,7 @@ function AvatarCropEditor({
   return (
     <div className="avatarCropPanel">
       <div
+        ref={viewportRef}
         className="avatarCropViewport"
         onPointerDown={(event) => {
           dragRef.current = { x: event.clientX, y: event.clientY, ox: clamped.x, oy: clamped.y };
