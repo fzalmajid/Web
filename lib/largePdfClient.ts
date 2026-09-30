@@ -103,7 +103,7 @@ export const copyChunkedPdf = copyChunkedFile;
 export type LargePdfSourceRow = {
   id: string;
   user_id: string;
-  node_id: string;
+  node_id: string | null;
   file_path: string;
   file_name: string;
   mime_type: string;
@@ -114,7 +114,7 @@ export type LargePdfSourceRow = {
 
 async function uploadChunkedOriginal(
   user: User,
-  nodeId: string,
+  nodeId: string | null,
   file: File,
   kind: typeof LARGE_PDF_MANIFEST_KIND | typeof LARGE_FILE_MANIFEST_KIND,
   onStatus?: (value: string) => void
@@ -122,7 +122,8 @@ async function uploadChunkedOriginal(
   if (file.size <= STORAGE_OBJECT_LIMIT) throw new Error("File ini bisa diunggah biasa.");
   if (file.size > MAX_LARGE_FILE_BYTES) throw new Error("File maksimal 200 MB.");
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
-  const base = user.id + "/" + nodeId + "/" + crypto.randomUUID() + "-" + safeName;
+  const storageFolder = nodeId || "home";
+  const base = user.id + "/" + storageFolder + "/" + crypto.randomUUID() + "-" + safeName;
   const manifestPath = base + ".rbmanifest.json";
   const parts: Array<{ path: string; bytes: number }> = [];
   const written: string[] = [];
@@ -193,7 +194,7 @@ async function uploadChunkedOriginal(
 }
 
 async function uploadOriginal(
-  user: User, nodeId: string, file: File,
+  user: User, nodeId: string | null, file: File,
   onStatus?: (value: string) => void
 ): Promise<LargePdfSourceRow> {
   checkLargePdf(file);
@@ -204,7 +205,7 @@ async function uploadOriginal(
 /** Store the exact original as 40 MB pieces, OCR short independent PDF page-ranges. */
 export async function saveLargePdfToFolder(
   user: User,
-  nodeId: string,
+  nodeId: string | null,
   file: File,
   onOcrPart: (row: LargePdfSourceRow, path: string, part: PdfOcrPart) => Promise<void>,
   onStatus?: (value: string) => void,
