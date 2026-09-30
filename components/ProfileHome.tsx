@@ -361,6 +361,11 @@ export default function ProfileHome({
                 className="socialRoomCard"
                 data-color={room.card_color || "default"}
                 key={room.id}
+                onContextMenu={(event) => {
+                  if (!ownProfile) return;
+                  event.preventDefault();
+                  setRoomMenuId(room.id);
+                }}
               >
                 <button
                   type="button"
