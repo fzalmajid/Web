@@ -110,3 +110,14 @@
     transform:none!important;
   }
 }
+
+
+/* TRANSIENT UI DISMISSAL CONTRACT — 2026-09-30
+   Explorer's dismiss layer must not block the next card from receiving the same
+   click/right-click. Only the visible context menu itself captures pointer input. */
+.contextDismissLayer{
+  pointer-events:none!important;
+}
+.contextDismissLayer .explorerContextMenu{
+  pointer-events:auto!important;
+}
