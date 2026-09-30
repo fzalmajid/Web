@@ -11774,7 +11774,7 @@ function GeminiAccountConnection({ session }: { session: Session }) {
   async function requestGoogleToken() {
     if (!GOOGLE_OAUTH_CLIENT_ID) {
       throw new Error(
-        "Google connector belum dikonfigurasi admin. NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID perlu dipasang di Vercel. Untuk sementara API key manual tetap bisa dipakai."
+        "Koneksi Google belum tersedia saat ini. Gunakan opsi API key bila diperlukan."
       );
     }
 
@@ -11911,10 +11911,7 @@ function GeminiAccountConnection({ session }: { session: Session }) {
         ? " Model tersedia: " + data.recommendedAvailable.join(", ") + "."
         : "";
     setMessage(
-      "Terhubung. Request berikutnya memakai quota Google Cloud project " +
-        nextProjectId +
-        "." +
-        modelInfo
+      "Gemini berhasil terhubung ke project " + nextProjectId + "." + modelInfo
     );
   }
 
@@ -11956,7 +11953,7 @@ function GeminiAccountConnection({ session }: { session: Session }) {
     setProjectId("");
     setKeyInput("");
     emitPluginChange();
-    setMessage("API key user aktif untuk sesi browser ini.");
+    setMessage("Gemini berhasil terhubung untuk sesi ini.");
   }
 
   function disconnect() {
@@ -11970,7 +11967,7 @@ function GeminiAccountConnection({ session }: { session: Session }) {
     setKeyInput("");
     setProvider("none");
     setProjectId("");
-    setMessage("Gemini akun sendiri sudah diputus. Aplikasi kembali memakai provider bersama.");
+    setMessage("Koneksi Gemini sudah diputus.");
   }
 
   const connected = provider !== "none";
@@ -12006,7 +12003,7 @@ function GeminiAccountConnection({ session }: { session: Session }) {
               <small>STATUS</small>
               <strong>{providerLabel}</strong>
               <span>
-                Token OAuth/API key disimpan hanya untuk sesi browser ini, bukan di Database Ruang Belajar.
+                Koneksi ini hanya berlaku selama sesi browser saat ini.
               </span>
             </div>
 
@@ -12039,7 +12036,7 @@ function GeminiAccountConnection({ session }: { session: Session }) {
               </button>
               {!GOOGLE_OAUTH_CLIENT_ID && (
                 <small className="muted">
-                  Admin belum memasang NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID, jadi tombol Google belum bisa membuka consent.
+                  Koneksi Google belum tersedia saat ini.
                 </small>
               )}
             </div>
@@ -12101,7 +12098,7 @@ function GeminiAccountConnection({ session }: { session: Session }) {
                   placeholder={provider === "api-key" ? "API key sesi ini aktif" : "Tempel API key Google AI Studio"}
                 />
                 <small className="muted">
-                  Fallback manual. Key hanya disimpan di sessionStorage browser dan tidak disimpan ke Supabase.
+                  API key hanya digunakan selama sesi browser ini.
                 </small>
               </label>
               <div className="geminiConnectActions">
