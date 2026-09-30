@@ -1912,13 +1912,13 @@ function clientReadableTextFile(file: File) {
   );
 }
 
-async function saveRawFileToFolder(user: User, nodeId: string, file: File) {
+async function saveRawFileToFolder(user: User, nodeId: string | null, file: File) {
   const mimeType = inferMime(file) || "application/octet-stream";
   await assertPdfFile(file);
   if (file.size > STORAGE_OBJECT_LIMIT) throw new Error("File terlalu besar untuk unggah biasa; gunakan alur PDF hingga 200 MB di Database.");
 
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
-  const path = user.id + "/" + nodeId + "/" + crypto.randomUUID() + "-" + safeName;
+  const path = user.id + "/" + (nodeId || "home") + "/" + crypto.randomUUID() + "-" + safeName;
 
   const upload = await supabase.storage.from("study-files").upload(path, file, { contentType: mimeType });
   if (upload.error) throw upload.error;
@@ -3273,12 +3273,14 @@ function FolderTreePicker({
   onChange,
   allowedIds,
   placeholder = "Pilih folder",
+  allowHome = false,
 }: {
   nodes: StudyNode[];
   value: string;
   onChange: (id: string) => void;
   allowedIds?: Set<string>;
   placeholder?: string;
+  allowHome?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const folderNodes = useMemo(
@@ -3292,7 +3294,8 @@ function FolderTreePicker({
     () => new Map(folderNodes.map((node) => [node.id, node])),
     [folderNodes]
   );
-  const selected = folderMap.get(value) || nodes.find((node) => node.id === value) || null;
+  const homeSelected = allowHome && value === "__home__";
+  const selected = homeSelected ? null : (folderMap.get(value) || nodes.find((node) => node.id === value) || null);
 
   const selectedPath = useMemo(() => {
     if (!selected) return "";
@@ -3391,19 +3394,33 @@ function FolderTreePicker({
         className={open ? "folderTreeSelected open" : "folderTreeSelected"}
         onClick={() => setOpen((current) => !current)}
       >
-        <span>{selected?.emoji || "📁"}</span>
+        <span>{homeSelected ? "⌂" : (selected?.emoji || "📁")}</span>
         <span className="folderTreeSelectedCopy">
-          <strong>{selected?.title || placeholder}</strong>
-          {selectedPath && <small>{selectedPath}</small>}
+          <strong>{homeSelected ? "Home" : (selected?.title || placeholder)}</strong>
+          {!homeSelected && selectedPath && <small>{selectedPath}</small>}
         </span>
         <b>{open ? "⌄" : ">"}</b>
       </button>
       {open && (
         <div className="folderTreePanel">
-          <div className="folderTreeHome">
-            <span>⌂</span>
-            <strong>Beranda</strong>
-          </div>
+          {allowHome ? (
+            <button
+              type="button"
+              className={homeSelected ? "folderTreeHome selected" : "folderTreeHome"}
+              onClick={() => {
+                onChange("__home__");
+                setOpen(false);
+              }}
+            >
+              <span>⌂</span>
+              <strong>Home</strong>
+            </button>
+          ) : (
+            <div className="folderTreeHome">
+              <span>⌂</span>
+              <strong>Home</strong>
+            </div>
+          )}
           {renderBranch(null, 0)}
           {!folderNodes.length && <small className="muted">Belum ada folder.</small>}
         </div>
@@ -10761,9 +10778,10 @@ function BottomAskBar({
     // Supabase and use its authenticated JSON import route instead of sending a
     // 4–50 MB PDF/PPTX/image through /api/ask-attachment as multipart data.
     if (file.size > 4 * 1024 * 1024 && file.size <= STORAGE_OBJECT_LIMIT) {
-      const target = askVoiceDatabases.find((item) => item.id === attachmentDbId) || askVoiceDatabases[0];
-      if (!target) {
-        alert("File di atas 4 MB perlu disimpan ke Database agar bisa dibaca. Buat atau pilih folder Database terlebih dahulu.");
+      const saveToHome = attachmentDbId === "__home__";
+      const target = saveToHome ? null : (askVoiceDatabases.find((item) => item.id === attachmentDbId) || askVoiceDatabases[0] || null);
+      if (!saveToHome && !target) {
+        alert("File di atas 4 MB perlu disimpan ke Database agar bisa dibaca. Pilih Home atau folder tujuan terlebih dahulu.");
         return;
       }
       if (aiSelection.model === "local" && !clientReadableTextFile(file)) {
@@ -10773,7 +10791,7 @@ function BottomAskBar({
       setAttachmentBusy(true);
       setAttachmentStatus("Mengunggah file langsung ke Database tanpa melewati batas lampiran Vercel...");
       try {
-        const row = await saveRawFileToFolder(session.user, target.id, file);
+        const row = await saveRawFileToFolder(session.user, target?.id || null, file);
         onChange();
         if (!row.raw_text?.trim()) {
           await importStoredRawFile(session, row, aiSelection, (progress) => {
@@ -10932,11 +10950,14 @@ function BottomAskBar({
 
   async function savePendingAttachmentToDatabase() {
     if (!pendingAttachment || !attachmentDbId) return;
-    const target = askVoiceDatabases.find((item) => item.id === attachmentDbId);
-    if (!target) return;
+    const saveToHome = attachmentDbId === "__home__";
+    const target = saveToHome ? null : askVoiceDatabases.find((item) => item.id === attachmentDbId);
+    if (!saveToHome && !target) return;
+    const targetNodeId = target?.id || null;
+    const targetLabel = target?.title || "Home";
 
     setAttachmentBusy(true);
-    setAttachmentStatus("Menyimpan file asli ke Database dan menyiapkan versi tertata...");
+    setAttachmentStatus("Menyimpan file asli ke Database...");
 
     const file = pendingAttachment.file;
     const mimeType = pendingAttachment.mimeType || inferMime(file);
@@ -10946,7 +10967,7 @@ function BottomAskBar({
       .from("source_files")
       .insert({
         user_id: session.user.id,
-        node_id: target.id,
+        node_id: targetNodeId,
         file_path: path,
         file_name: file.name,
         mime_type: mimeType,
@@ -10970,7 +10991,7 @@ function BottomAskBar({
     if (aiSelection.model === "local") {
       const { error: entryError } = await supabase.from("knowledge_entries").insert({
         user_id: session.user.id,
-        node_id: target.id,
+        node_id: targetNodeId,
         title: file.name,
         category: "Lampiran RAW",
         content: pendingAttachment.rawText || file.name,
@@ -10982,12 +11003,17 @@ function BottomAskBar({
       if (entryError) return alert(entryError.message);
     } else {
       try {
-        await importStoredRawFile(session, { id: row.id, file_path: path, file_name: file.name, mime_type: mimeType, node_id: target.id }, aiSelection, (progress) => {
-          setAttachmentStatus(
-            "PDF: halaman " + progress.processedThroughPage + "/" +
-            progress.totalPages + (progress.nextStartPage ? " · melanjutkan OCR..." : " · selesai.")
-          );
-        });
+        await importStoredRawFile(
+          session,
+          { id: row.id, file_path: path, file_name: file.name, mime_type: mimeType, node_id: targetNodeId as any },
+          aiSelection,
+          (progress) => {
+            setAttachmentStatus(
+              "PDF: halaman " + progress.processedThroughPage + "/" +
+              progress.totalPages + (progress.nextStartPage ? " · melanjutkan OCR..." : " · selesai.")
+            );
+          }
+        );
       } catch (error: any) {
         setAttachmentBusy(false);
         setAttachmentStatus(
@@ -11001,9 +11027,7 @@ function BottomAskBar({
       setAttachmentBusy(false);
     }
 
-    setAttachmentStatus(
-      "File asli + RAW sudah masuk Database: " + target.title + "."
-    );
+    setAttachmentStatus("File sudah masuk Database: " + targetLabel + ".");
     setPendingAttachment(null);
     if (askAttachmentInputRef.current) askAttachmentInputRef.current.value = "";
     onChange();
@@ -11624,40 +11648,40 @@ function BottomAskBar({
         )}
 
         {(attachmentStatus || pendingAttachment) && (
-          <div className="askAttachmentPanel">
-            {attachmentStatus && <small>{attachmentStatus}</small>}
+          <div className={pendingAttachment ? "askAttachmentPanel askAttachmentPanelCompact" : "askAttachmentPanel"}>
+            {!pendingAttachment && attachmentStatus && <small>{attachmentStatus}</small>}
             {pendingAttachment && (
-              <>
+              <div className="askAttachmentCompactRow">
                 <div className="askAttachmentName">
-                  <strong>{pendingAttachment.fileName}</strong>
-                  <small>{formatBytes(pendingAttachment.file.size)} · file asli + RAW siap dibaca AI</small>
+                  <strong title={pendingAttachment.fileName}>{pendingAttachment.fileName}</strong>
+                  <small>{formatBytes(pendingAttachment.file.size)} · RAW siap dibaca AI</small>
                 </div>
-                <div className="askVoiceSaveRow">
-                  <FolderTreePicker
-                    nodes={nodes}
-                    value={attachmentDbId}
-                    onChange={setAttachmentDbId}
-                    allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
-                    placeholder="Pilih folder"
-                  />
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={attachmentBusy}
-                    onClick={() => void discardPendingAttachment()}
-                  >
-                    Abaikan
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={attachmentBusy || !attachmentDbId}
-                    onClick={() => void savePendingAttachmentToDatabase()}
-                  >
-                    Simpan ke Database
-                  </button>
-                </div>
-              </>
+                <FolderTreePicker
+                  nodes={nodes}
+                  value={attachmentDbId}
+                  onChange={setAttachmentDbId}
+                  allowedIds={new Set(askVoiceDatabases.map((database) => database.id))}
+                  placeholder="Pilih folder"
+                  allowHome
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={attachmentBusy}
+                  onClick={() => void discardPendingAttachment()}
+                >
+                  Abaikan
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={attachmentBusy || !attachmentDbId}
+                  onClick={() => void savePendingAttachmentToDatabase()}
+                  title="Simpan ke Database"
+                >
+                  Simpan
+                </button>
+              </div>
             )}
           </div>
         )}
