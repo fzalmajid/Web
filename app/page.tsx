@@ -3185,7 +3185,9 @@ function ReferenceMetadataModal({
       setMendeleyAvailable(Boolean(data.mendeleyConfigured));
       setMessage(data.mendeleyMatched
         ? "Metadata dicocokkan dengan dokumen + Mendeley Catalog."
-        : "Metadata dibaca ulang dari dokumen asli.");
+        : data.crossrefMatched
+          ? "Metadata dicocokkan dengan dokumen + Crossref."
+          : "Metadata dibaca ulang dari dokumen asli.");
     } catch (error: any) {
       setMessage(error?.message || "Gagal memeriksa metadata.");
     } finally {
