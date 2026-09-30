@@ -10340,3 +10340,73 @@ body,
     display:none!important;
   }
 }
+
+
+/* SIDEBAR PUSH LAYOUT CONTRACT — 2026-09-30 */
+/* Hamburger/top rail stay put. The opened chat rail only claims the space below it;
+   every workspace layer that is centered/fixed is then re-centered in the remaining area. */
+@media (min-width:900px){
+  .appShell.leftChatSidebarOpen{
+    --rb-workspace-left:var(--rb-left-rail-w);
+    --rb-workspace-center-shift:calc(var(--rb-left-rail-w) / 2);
+  }
+
+  /* The hamburger never moves. The session/history rail starts directly underneath it. */
+  .appShell.leftChatSidebarOpen .topbar{
+    left:0!important;
+    right:0!important;
+    width:100%!important;
+    inset:0 0 auto 0!important;
+  }
+  .appShell.leftChatSidebarOpen .topbarStart,
+  .appShell.leftChatSidebarOpen .topbarChatToggle,
+  .appShell.leftChatSidebarOpen .topbarNewChat{
+    transform:none!important;
+  }
+  .appShell.leftChatSidebarOpen .leftChatSidebar.open{
+    left:0!important;
+    top:var(--rb-topbar-h)!important;
+    bottom:0!important;
+    width:var(--rb-left-rail-w)!important;
+    max-width:var(--rb-left-rail-w)!important;
+    padding-top:10px!important;
+  }
+
+  /* Main page, sticky/fixed AI bars, and the answer room use the same remaining workspace. */
+  .appShell.leftChatSidebarOpen .pageShell{
+    width:min(1080px,calc(100% - var(--rb-left-rail-w) - 28px))!important;
+    margin-left:calc(var(--rb-left-rail-w) + max(14px,(100vw - var(--rb-left-rail-w) - 1080px)/2))!important;
+    margin-right:auto!important;
+  }
+  .appShell.leftChatSidebarOpen .bottomAsk,
+  .appShell.leftChatSidebarOpen .aiAnswer{
+    left:calc(50% + var(--rb-workspace-center-shift))!important;
+    width:min(920px,calc(100% - var(--rb-left-rail-w) - 28px))!important;
+  }
+
+  /* Full-screen sheets/modals are no longer centered behind the history rail. */
+  .appShell.leftChatSidebarOpen .sheetBackdrop{
+    left:var(--rb-workspace-left)!important;
+    right:0!important;
+    width:auto!important;
+  }
+
+  /* Fixed popovers inside sheets must follow the shifted sheet center too. */
+  .appShell.leftChatSidebarOpen .sheetBackdrop>.addSheet .citationPopover,
+  .appShell.leftChatSidebarOpen .sheetBackdrop>.addSheet .aiModePopover.aiModelPopover{
+    left:calc(50% + var(--rb-workspace-center-shift))!important;
+    width:min(560px,calc(100vw - var(--rb-left-rail-w) - 32px))!important;
+  }
+
+  /* Drag/drop feedback is part of the workspace as well, not the drawer. */
+  .appShell.leftChatSidebarOpen .explorerDropOverlay{
+    left:calc(var(--rb-left-rail-w) + 16px)!important;
+    right:16px!important;
+  }
+
+  /* Any content-level fixed model chooser that is viewport-centered follows the workspace center.
+     Composer-anchored popovers stay attached to the composer through their later absolute rules. */
+  .appShell.leftChatSidebarOpen .aiModePopover.aiModelPopover:not(.gptComposer *){
+    left:calc(50% + var(--rb-workspace-center-shift))!important;
+  }
+}
