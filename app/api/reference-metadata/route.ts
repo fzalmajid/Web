@@ -132,6 +132,8 @@ export async function POST(req: NextRequest) {
       confidence: resolved.confidence,
       mendeleyMatched: resolved.mendeleyMatched,
       mendeleySimilarity: resolved.mendeleySimilarity,
+      crossrefMatched: resolved.crossrefMatched,
+      crossrefSimilarity: resolved.crossrefSimilarity,
       mendeleyConfigured: mendeleyConfigured(),
     });
   } catch (error: any) {
