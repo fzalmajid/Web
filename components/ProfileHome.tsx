@@ -84,6 +84,8 @@ export default function ProfileHome({
   activeFolderPath = [],
   activeContent = null,
   onBackToRooms,
+  onOpenFolderPath,
+  onCustomizeActive,
   onUploadActive,
 }: {
   session: Session;
@@ -102,6 +104,8 @@ export default function ProfileHome({
   activeFolderPath?: Array<{ id: string; title: string }>;
   activeContent?: React.ReactNode;
   onBackToRooms?: () => void;
+  onOpenFolderPath?: (folderId: string) => void;
+  onCustomizeActive?: () => void;
   onUploadActive?: () => void;
 }) {
   const me = session.user.id;
@@ -310,10 +314,10 @@ export default function ProfileHome({
             <>
               <div className="profileFolderBreadcrumb" aria-label="Lokasi folder">
                 <button type="button" onClick={onBackToRooms}>Ruang Belajar</button>
-                {activeFolderPath.map((item, index) => (
+                {activeFolderPath.map((item) => (
                   <span key={item.id}>
                     <b>/</b>
-                    <span>{item.title}</span>
+                    <button type="button" onClick={() => onOpenFolderPath?.(item.id)}>{item.title}</button>
                   </span>
                 ))}
               </div>
@@ -330,13 +334,20 @@ export default function ProfileHome({
           )}
         </div>
         {ownProfile && (
-          <button
-            type="button"
-            className="primary socialAddRoom"
-            onClick={activeFolder ? onUploadActive : onAddRoom}
-          >
-            + Upload
-          </button>
+          <div className="socialRoomHeadActions">
+            {activeFolder && onCustomizeActive && (
+              <button type="button" className="ghost socialFolderCustomize" onClick={onCustomizeActive}>
+                Sesuaikan
+              </button>
+            )}
+            <button
+              type="button"
+              className="primary socialAddRoom"
+              onClick={activeFolder ? onUploadActive : onAddRoom}
+            >
+              + Upload
+            </button>
+          </div>
         )}
       </div>
 
