@@ -3102,6 +3102,227 @@ function FolderPage({
   );
 }
 
+
+function ReferenceMetadataModal({
+  file,
+  session,
+  onClose,
+  onSaved,
+}: {
+  file: SourceFile;
+  session: Session;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [metadata, setMetadata] = useState<ReferenceMetadata>(file.bibliographic_metadata || {});
+  const [authorsText, setAuthorsText] = useState((file.bibliographic_metadata?.authors || []).join("; "));
+  const [status, setStatus] = useState(file.bibliographic_metadata_status || "unreviewed");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [mendeleyAvailable, setMendeleyAvailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/reference-metadata?sourceFileId=" + encodeURIComponent(file.id), {
+      headers: { Authorization: "Bearer " + session.access_token },
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || cancelled) return;
+        const next = (data.file?.bibliographic_metadata || {}) as ReferenceMetadata;
+        setMetadata(next);
+        setAuthorsText((next.authors || []).join("; "));
+        setStatus(data.file?.bibliographic_metadata_status || "unreviewed");
+        setMendeleyAvailable(Boolean(data.mendeleyConfigured));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [file.id, session.access_token]);
+
+  function setField(field: keyof ReferenceMetadata, value: any) {
+    setMetadata((current) => ({ ...current, [field]: value }));
+  }
+
+  function editableMetadata() {
+    const next: ReferenceMetadata = {
+      ...metadata,
+      authors: authorsText.split(";").map((value) => value.trim()).filter(Boolean),
+    };
+    delete next.provenance;
+    return next;
+  }
+
+  async function rescan() {
+    if (busy) return;
+    setBusy(true);
+    setMessage("Membaca halaman awal dan mencocokkan metadata...");
+    try {
+      const response = await fetch("/api/reference-metadata", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + session.access_token,
+        },
+        body: JSON.stringify({ action: "resolve", sourceFileId: file.id }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Gagal memeriksa metadata.");
+      const next = (data.metadata || {}) as ReferenceMetadata;
+      setMetadata(next);
+      setAuthorsText((next.authors || []).join("; "));
+      setStatus(data.status || "auto");
+      setMendeleyAvailable(Boolean(data.mendeleyConfigured));
+      setMessage(data.mendeleyMatched
+        ? "Metadata dicocokkan dengan dokumen + Mendeley Catalog."
+        : "Metadata dibaca ulang dari dokumen asli.");
+    } catch (error: any) {
+      setMessage(error?.message || "Gagal memeriksa metadata.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setMessage("Menyimpan metadata manual...");
+    try {
+      const response = await fetch("/api/reference-metadata", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + session.access_token,
+        },
+        body: JSON.stringify({
+          action: "save",
+          sourceFileId: file.id,
+          metadata: editableMetadata(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Gagal menyimpan metadata.");
+      setStatus("manual");
+      setMessage("Metadata manual disimpan dan menjadi prioritas tertinggi untuk sitasi.");
+      window.setTimeout(onSaved, 450);
+    } catch (error: any) {
+      setMessage(error?.message || "Gagal menyimpan metadata.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const provenance = metadata.provenance || {};
+  const statusLabel =
+    status === "manual" ? "Manual · terkunci" :
+    status === "verified" ? "Terverifikasi" :
+    status === "auto" ? "Otomatis" :
+    status === "conflict" ? "Perlu ditinjau" : "Belum diperiksa";
+
+  return (
+    <div className="sheetBackdrop referenceMetadataBackdrop" onMouseDown={() => { if (!busy) onClose(); }}>
+      <section className="addSheet referenceMetadataSheet" role="dialog" aria-modal="true" aria-labelledby="referenceMetadataTitle" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="sheetHead referenceMetadataHead">
+          <div>
+            <p className="eyebrow">METADATA REFERENSI</p>
+            <h2 id="referenceMetadataTitle">{file.file_name}</h2>
+            <div className="referenceMetadataStatusRow">
+              <span className={"referenceMetadataStatus " + status}>{statusLabel}</span>
+              <small>{mendeleyAvailable ? "Mendeley Catalog tersedia" : "Validasi dokumen lokal aktif"}</small>
+            </div>
+          </div>
+          <button type="button" className="closeBtn" aria-label="Tutup" disabled={busy} onClick={onClose}>×</button>
+        </div>
+
+        <form className="referenceMetadataForm" onSubmit={save}>
+          <div className="referenceMetadataGrid">
+            <label className="span2">Judul
+              <input value={metadata.title || ""} onChange={(event) => setField("title", event.target.value)} />
+            </label>
+            <label className="span2">Penulis / presenter
+              <input value={authorsText} onChange={(event) => setAuthorsText(event.target.value)} placeholder="Pisahkan beberapa penulis dengan ;" />
+            </label>
+            <label className="span2">Corporate author
+              <input value={metadata.corporate_author || ""} onChange={(event) => setField("corporate_author", event.target.value)} placeholder="Hanya bila organisasi memang author" />
+            </label>
+            <label>Tahun
+              <input inputMode="numeric" value={metadata.year || ""} onChange={(event) => setField("year", event.target.value ? Number(event.target.value) : null)} />
+            </label>
+            <label>Jenis sumber
+              <select value={metadata.type || "other"} onChange={(event) => setField("type", event.target.value)}>
+                <option value="book">Buku</option>
+                <option value="report">Laporan / pedoman</option>
+                <option value="journal_article">Artikel jurnal</option>
+                <option value="lecture_slides">Slide kuliah</option>
+                <option value="chapter">Bab buku</option>
+                <option value="thesis">Skripsi / tesis</option>
+                <option value="webpage">Web</option>
+                <option value="other">Lainnya</option>
+              </select>
+            </label>
+            <label>Institusi
+              <input value={metadata.institution || ""} onChange={(event) => setField("institution", event.target.value)} />
+            </label>
+            <label>Penerbit
+              <input value={metadata.publisher || ""} onChange={(event) => setField("publisher", event.target.value)} />
+            </label>
+            <label>Edisi
+              <input value={metadata.edition || ""} onChange={(event) => setField("edition", event.target.value)} />
+            </label>
+            <label>Jurnal / container
+              <input value={metadata.container_title || ""} onChange={(event) => setField("container_title", event.target.value)} />
+            </label>
+            <label>Volume
+              <input value={metadata.volume || ""} onChange={(event) => setField("volume", event.target.value)} />
+            </label>
+            <label>Issue
+              <input value={metadata.issue || ""} onChange={(event) => setField("issue", event.target.value)} />
+            </label>
+            <label>Halaman
+              <input value={metadata.pages || ""} onChange={(event) => setField("pages", event.target.value)} />
+            </label>
+            <label>DOI
+              <input value={metadata.doi || ""} onChange={(event) => setField("doi", event.target.value)} />
+            </label>
+            <label>ISBN
+              <input value={metadata.isbn || ""} onChange={(event) => setField("isbn", event.target.value)} />
+            </label>
+            <label className="span2">URL publikasi
+              <input value={metadata.url || ""} onChange={(event) => setField("url", event.target.value)} />
+            </label>
+          </div>
+
+          {!!Object.keys(provenance).length && (
+            <details className="referenceMetadataProvenance">
+              <summary>Asal metadata</summary>
+              <div>
+                {Object.entries(provenance).map(([field, info]: any) => (
+                  <p key={field}>
+                    <strong>{field}</strong>
+                    <span>{info?.source || "unknown"} · {Math.round((Number(info?.confidence) || 0) * 100)}%</span>
+                    {info?.note && <small>{info.note}</small>}
+                  </p>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {message && <p className="referenceMetadataMessage" role="status">{message}</p>}
+
+          <div className="referenceMetadataActions">
+            <button type="button" className="ghost" disabled={busy} onClick={rescan}>
+              {busy ? "Memeriksa..." : "Cari metadata ulang"}
+            </button>
+            <button type="submit" className="primary" disabled={busy}>
+              {busy ? "Menyimpan..." : "Simpan manual"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function RawNoteEditor({
   entry,
   onClose,
