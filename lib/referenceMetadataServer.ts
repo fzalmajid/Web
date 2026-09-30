@@ -7,33 +7,112 @@ import { lookupPublicReferenceCatalogs } from "@/lib/referenceCatalogsServer";
 let cachedMendeley: { token: string; expiresAt: number } | null = null;
 
 export function mendeleyConfigured() {
-  return Boolean(process.env.MENDELEY_CLIENT_ID && process.env.MENDELEY_CLIENT_SECRET);
+  return Boolean(
+    String(process.env.MENDELEY_CLIENT_ID || "").trim() &&
+    String(process.env.MENDELEY_CLIENT_SECRET || "").trim()
+  );
+}
+
+type MendeleyTokenAttempt = {
+  token: string | null;
+  expiresIn: number;
+  status: number | null;
+  method: "basic" | "body";
+};
+
+async function requestMendeleyToken(): Promise<{
+  token: string | null;
+  expiresIn: number;
+  basicStatus: number | null;
+  bodyStatus: number | null;
+  method: "basic" | "body" | null;
+}> {
+  const id = String(process.env.MENDELEY_CLIENT_ID || "").trim();
+  const secret = String(process.env.MENDELEY_CLIENT_SECRET || "").trim();
+  if (!id || !secret) {
+    return { token: null, expiresIn: 0, basicStatus: null, bodyStatus: null, method: null };
+  }
+
+  async function attempt(method: "basic" | "body"): Promise<MendeleyTokenAttempt> {
+    const headers: Record<string,string> = {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    };
+    let body = new URLSearchParams({
+      grant_type: "client_credentials",
+      scope: "all",
+    });
+    if (method === "basic") {
+      headers.Authorization = "Basic " + Buffer.from(id + ":" + secret).toString("base64");
+    } else {
+      body.set("client_id", id);
+      body.set("client_secret", secret);
+    }
+
+    try {
+      const response = await fetch("https://api.mendeley.com/oauth/token", {
+        method: "POST",
+        headers,
+        body: body.toString(),
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null) as any;
+      const token = response.ok ? String(data?.access_token || "") : "";
+      return {
+        token: token || null,
+        expiresIn: Math.max(300, Number(data?.expires_in) || 3600),
+        status: response.status,
+        method,
+      };
+    } catch {
+      return { token: null, expiresIn: 0, status: null, method };
+    }
+  }
+
+  const basic = await attempt("basic");
+  if (basic.token) {
+    return {
+      token: basic.token,
+      expiresIn: basic.expiresIn,
+      basicStatus: basic.status,
+      bodyStatus: null,
+      method: "basic",
+    };
+  }
+
+  // Mendeley officially supports supplying client_id/client_secret in the
+  // form body when Authorization headers are problematic. Try that too so a
+  // proxy/header quirk can never look like a bad secret.
+  const body = await attempt("body");
+  if (body.token) {
+    return {
+      token: body.token,
+      expiresIn: body.expiresIn,
+      basicStatus: basic.status,
+      bodyStatus: body.status,
+      method: "body",
+    };
+  }
+
+  return {
+    token: null,
+    expiresIn: 0,
+    basicStatus: basic.status,
+    bodyStatus: body.status,
+    method: null,
+  };
 }
 
 async function mendeleyToken() {
   if (!mendeleyConfigured()) return null;
   if (cachedMendeley && cachedMendeley.expiresAt > Date.now() + 60_000) return cachedMendeley.token;
-  const id = String(process.env.MENDELEY_CLIENT_ID);
-  const secret = String(process.env.MENDELEY_CLIENT_SECRET);
-  const basic = Buffer.from(id + ":" + secret).toString("base64");
-  const response = await fetch("https://api.mendeley.com/oauth/token", {
-    method: "POST",
-    headers: {
-      Authorization: "Basic " + basic,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: "grant_type=client_credentials&scope=all",
-    cache: "no-store",
-  });
-  if (!response.ok) return null;
-  const data = await response.json().catch(() => null) as any;
-  const token = String(data?.access_token || "");
-  if (!token) return null;
+  const result = await requestMendeleyToken();
+  if (!result.token) return null;
   cachedMendeley = {
-    token,
-    expiresAt: Date.now() + Math.max(300, Number(data?.expires_in) || 3600) * 1000,
+    token: result.token,
+    expiresAt: Date.now() + result.expiresIn * 1000,
   };
-  return token;
+  return result.token;
 }
 
 export async function testMendeleyCatalogConnection() {
@@ -42,64 +121,46 @@ export async function testMendeleyCatalogConnection() {
     return {
       configured: false,
       reachable: false,
-      tokenStatus: null,
+      basicStatus: null,
+      bodyStatus: null,
+      authMethod: null,
       reason: "missing_environment",
     };
   }
 
-  const id = String(process.env.MENDELEY_CLIENT_ID || "");
-  const secret = String(process.env.MENDELEY_CLIENT_SECRET || "");
-  try {
-    const basic = Buffer.from(id + ":" + secret).toString("base64");
-    const response = await fetch("https://api.mendeley.com/oauth/token", {
-      method: "POST",
-      headers: {
-        Authorization: "Basic " + basic,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: "grant_type=client_credentials&scope=all",
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      return {
-        configured: true,
-        reachable: false,
-        tokenStatus: response.status,
-        reason:
-          response.status === 401 ? "credentials_rejected" :
-          response.status === 400 ? "oauth_request_rejected" :
-          response.status >= 500 ? "mendeley_server_error" :
-          "token_request_failed",
-      };
-    }
-    const data = await response.json().catch(() => null) as any;
-    const token = String(data?.access_token || "");
-    if (!token) {
-      return {
-        configured: true,
-        reachable: false,
-        tokenStatus: response.status,
-        reason: "token_missing_in_response",
-      };
-    }
+  const result = await requestMendeleyToken();
+  if (result.token) {
     cachedMendeley = {
-      token,
-      expiresAt: Date.now() + Math.max(300, Number(data?.expires_in) || 3600) * 1000,
+      token: result.token,
+      expiresAt: Date.now() + result.expiresIn * 1000,
     };
     return {
       configured: true,
       reachable: true,
-      tokenStatus: response.status,
+      basicStatus: result.basicStatus,
+      bodyStatus: result.bodyStatus,
+      authMethod: result.method,
       reason: "ok",
     };
-  } catch {
-    return {
-      configured: true,
-      reachable: false,
-      tokenStatus: null,
-      reason: "network_error",
-    };
   }
+
+  const statuses = [result.basicStatus, result.bodyStatus].filter((value): value is number => typeof value === "number");
+  const all401 = statuses.length > 0 && statuses.every((value) => value === 401);
+  const has400 = statuses.includes(400);
+  const has5xx = statuses.some((value) => value >= 500);
+  return {
+    configured: true,
+    reachable: false,
+    basicStatus: result.basicStatus,
+    bodyStatus: result.bodyStatus,
+    authMethod: null,
+    reason:
+      all401 ? "credentials_rejected_by_mendeley_both_methods" :
+      has400 ? "oauth_request_rejected" :
+      has5xx ? "mendeley_server_error" :
+      statuses.length ? "token_request_failed" :
+      "network_error",
+  };
 }
 
 function mapMendeleyDocument(doc: any): ReferenceMetadata {
