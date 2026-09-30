@@ -30,3 +30,5 @@ retry-final-home-folder-chat-ui-after-ready=2026-09-30
 post-build-success-production-trigger=2026-09-30T13:03+07:00
 
 mendeley-env-production-redeploy=2026-09-30T19:17+07:00
+
+mendeley-secret-refresh-redeploy=2026-09-30T20:05+07:00
