@@ -9637,3 +9637,29 @@ body,
     max-height:calc(100dvh - 88px)!important;
   }
 }
+
+
+/* Tall AI/source popovers outside sheets also respect the fixed top bar. */
+.aiModePopover.aiModelPopover,
+.gptComposer .aiModePopover.aiModelPopover{
+  top:84px!important;
+  bottom:auto!important;
+  transform:translateX(-50%)!important;
+  max-height:calc(100dvh - 102px)!important;
+}
+.gptComposer .citationPopover,
+.gptComposer .aiDatabaseSourcePopover{
+  max-height:min(520px,calc(100dvh - 190px))!important;
+}
+
+@media (max-width:760px){
+  .aiModePopover.aiModelPopover,
+  .gptComposer .aiModePopover.aiModelPopover{
+    top:76px!important;
+    max-height:calc(100dvh - 88px)!important;
+  }
+  .gptComposer .citationPopover,
+  .gptComposer .aiDatabaseSourcePopover{
+    max-height:calc(100dvh - 165px)!important;
+  }
+}
