@@ -38,6 +38,7 @@ export default function FriendFolderPage({
   files,
   recordings,
   onOpen,
+  embedded = false,
 }: {
   current: FriendFolderNode;
   children: FriendFolderNode[];
@@ -45,6 +46,7 @@ export default function FriendFolderPage({
   files: FriendReferenceFile[];
   recordings: FriendReferenceRecording[];
   onOpen: (id: string) => void;
+  embedded?: boolean;
 }) {
   const localFiles = files.filter((item) => item.node_id === current.id);
   const recordingEntryIds = new Set(
@@ -57,19 +59,21 @@ export default function FriendFolderPage({
 
   return (
     <section className="friendFolderPage">
-      <div className="friendFolderHero">
-        <div>
-          <p className="eyebrow">REFERENCE TEMAN · READ ONLY</p>
-          <h1>
-            <span aria-hidden="true">{current.emoji || "📁"}</span>
-            {current.title}
-          </h1>
-          <p className="muted">
-            Kamu sedang melihat Ruang Belajar teman. Isi tidak dapat diubah, tetapi Tanya AI di bawah otomatis memakai Reference dari profil ini.
-          </p>
+      {!embedded && (
+        <div className="friendFolderHero">
+          <div>
+            <p className="eyebrow">REFERENCE TEMAN · READ ONLY</p>
+            <h1>
+              <span aria-hidden="true">{current.emoji || "📁"}</span>
+              {current.title}
+            </h1>
+            <p className="muted">
+              Kamu sedang melihat Ruang Belajar teman. Isi tidak dapat diubah, tetapi Tanya AI di bawah otomatis memakai Reference dari profil ini.
+            </p>
+          </div>
+          <span className="friendReadOnlyBadge">Teman · hanya baca</span>
         </div>
-        <span className="friendReadOnlyBadge">Teman · hanya baca</span>
-      </div>
+      )}
 
       {!!children.length && (
         <div className="socialRoomGrid friendSubfolderGrid">
