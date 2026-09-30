@@ -10459,3 +10459,91 @@ body,
     right:16px!important;
   }
 }
+
+
+/* 2026-09-30: compact AI attachment destination + upward folder popover */
+.gptComposer .askAttachmentPanel,
+.gptComposer .askVoicePanel{
+  position:relative!important;
+  overflow:visible!important;
+}
+
+.gptComposer .askAttachmentPanelCompact{
+  padding:6px 8px!important;
+  gap:0!important;
+}
+
+.gptComposer .askAttachmentCompactRow{
+  display:grid!important;
+  grid-template-columns:minmax(180px,1fr) minmax(260px,420px) auto auto!important;
+  align-items:center!important;
+  gap:8px!important;
+  min-width:0;
+}
+
+.gptComposer .askAttachmentCompactRow .askAttachmentName{
+  min-width:0;
+}
+
+.gptComposer .askAttachmentCompactRow .folderTreePicker,
+.gptComposer .askVoiceSaveRow .folderTreePicker{
+  grid-column:auto!important;
+  min-width:0!important;
+}
+
+.gptComposer .askVoiceSaveRow{
+  grid-template-columns:minmax(220px,1fr) auto auto!important;
+  align-items:center!important;
+}
+
+.gptComposer .folderTreePanel{
+  position:absolute!important;
+  left:0!important;
+  right:auto!important;
+  top:auto!important;
+  bottom:calc(100% + 6px)!important;
+  z-index:140!important;
+  width:100%!important;
+  min-width:100%!important;
+  max-width:min(460px,calc(100vw - 32px))!important;
+  max-height:min(330px,46vh)!important;
+  margin:0!important;
+  overflow:auto!important;
+  box-shadow:0 18px 48px rgba(24,38,33,.20)!important;
+}
+
+.gptComposer .folderTreeHomeRow{
+  margin-bottom:4px;
+  border-bottom:1px solid var(--line);
+  border-radius:9px 9px 0 0;
+}
+
+.gptComposer .folderTreeHomeRow .folderTreeToggle{
+  opacity:.45;
+}
+
+@media (max-width:900px){
+  .gptComposer .askAttachmentCompactRow{
+    grid-template-columns:minmax(0,1fr) auto auto!important;
+  }
+  .gptComposer .askAttachmentCompactRow .askAttachmentName{
+    grid-column:1/-1;
+  }
+  .gptComposer .askAttachmentCompactRow .folderTreePicker{
+    grid-column:1/2!important;
+  }
+}
+
+@media (max-width:620px){
+  .gptComposer .askAttachmentCompactRow,
+  .gptComposer .askVoiceSaveRow{
+    grid-template-columns:minmax(0,1fr) auto auto!important;
+  }
+  .gptComposer .askAttachmentCompactRow .askAttachmentName{
+    grid-column:1/-1;
+  }
+  .gptComposer .folderTreePanel{
+    width:min(420px,calc(100vw - 32px))!important;
+    min-width:0!important;
+  }
+}
