@@ -76,7 +76,23 @@ export default function ProfileHome({
 }) {
   const me = session.user.id;
   const ownProfile = ownerUserId === me;
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const emailLocal = String(session.user.email || "akun").split("@")[0] || "akun";
+  const fallbackUsername = emailLocal.toLowerCase().replace(/[^a-z0-9._]/g, "").slice(0, 32) || "akun";
+  const ownFallbackProfile = useMemo<UserProfile>(() => ({
+    user_id: me,
+    username: fallbackUsername.length >= 3 ? fallbackUsername : "akun",
+    display_name: emailLocal,
+    bio: "",
+    avatar_url: String(
+      session.user.user_metadata?.avatar_url ||
+      session.user.user_metadata?.picture ||
+      ""
+    ) || null,
+    auto_accept_friends: false,
+  }), [me, emailLocal, fallbackUsername, session.user.user_metadata]);
+  const [profile, setProfile] = useState<UserProfile | null>(
+    ownProfile ? ownFallbackProfile : null
+  );
   const [stats, setStats] = useState({ study_rooms: 0, friends: 0 });
   const [relationship, setRelationship] = useState<RelationshipState>(ownProfile ? "self" : "none");
   const [connection, setConnection] = useState<FriendConnection | null>(null);
@@ -134,11 +150,13 @@ export default function ProfileHome({
   }
 
   useEffect(() => {
-    setProfile(null);
+    // Own profile never renders as "memuat..."—the email local-part is an
+    // immediate, deterministic fallback until the editable profile row arrives.
+    setProfile(ownProfile ? ownFallbackProfile : null);
     setRelationship(ownProfile ? "self" : "none");
     setConnection(null);
     void refreshProfile();
-  }, [ownerUserId, me]);
+  }, [ownerUserId, me, ownProfile, ownFallbackProfile]);
 
   async function sendRequest() {
     setBusy(true);
@@ -190,8 +208,8 @@ export default function ProfileHome({
         <div className="socialProfileIdentity">
           <div className="socialProfileNameRow">
             <div>
-              <h1>{profile?.display_name || profile?.username || "Profil Ruang Belajar"}</h1>
-              <p>@{profile?.username || "memuat..."}</p>
+              <h1>{profile?.display_name || profile?.username || (ownProfile ? emailLocal : "Profil")}</h1>
+              <p>@{profile?.username || (ownProfile ? fallbackUsername : "profil")}</p>
             </div>
             <div className="socialProfileActions">
               {ownProfile ? (
