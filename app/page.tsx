@@ -1468,7 +1468,37 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                 Home
               </button>
               {path.map((item) => (
-                <span className="pathSegment" key={item.id}>
+                <span
+                  className={
+                    item.id !== current.id && breadcrumbDropId === item.id
+                      ? "pathSegment dropAvailable active"
+                      : item.id !== current.id
+                        ? "pathSegment dropAvailable"
+                        : "pathSegment"
+                  }
+                  key={item.id}
+                  data-rb-drop-target={item.id === current.id ? undefined : item.id}
+                  onDragEnter={(event) => {
+                    if (item.id === current.id || !hasExplorerDragItem(event)) return;
+                    event.preventDefault();
+                    setBreadcrumbDropId(item.id);
+                  }}
+                  onDragOver={(event) => {
+                    if (item.id === current.id || !hasExplorerDragItem(event)) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setBreadcrumbDropId(item.id);
+                  }}
+                  onDragLeave={(event) => {
+                    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                    clearBreadcrumbHover();
+                    setBreadcrumbDropId(null);
+                  }}
+                  onDrop={(event) => {
+                    if (item.id === current.id) return;
+                    void dropOnBreadcrumb(event, item.id);
+                  }}
+                >
                   <b className="pathSlash">/</b>
                   <button
                     className={
@@ -1478,27 +1508,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                           ? "pathCrumb dropAvailable active"
                           : "pathCrumb dropAvailable"
                     }
-                    data-rb-drop-target={item.id === current.id ? undefined : item.id}
                     aria-disabled={item.id === current.id}
                     onClick={() => setCurrentId(item.id)}
-                    onDragEnter={(event) => {
-                      if (item.id === current.id || !hasExplorerDragItem(event)) return;
-                      event.preventDefault();
-                      setBreadcrumbDropId(item.id);
-                    }}
-                    onDragOver={(event) => {
-                      if (item.id === current.id || !hasExplorerDragItem(event)) return;
-                      event.preventDefault();
-                      event.dataTransfer.dropEffect = "move";
-                    }}
-                    onDragLeave={() => {
-                      clearBreadcrumbHover();
-                      setBreadcrumbDropId(null);
-                    }}
-                    onDrop={(event) => {
-                      if (item.id === current.id) return;
-                      void dropOnBreadcrumb(event, item.id);
-                    }}
                   >
                     {item.title}
                   </button>
