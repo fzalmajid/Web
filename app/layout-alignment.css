@@ -81,3 +81,32 @@
     box-sizing:border-box!important;
   }
 }
+
+
+/* CHAT HEADER NEW-CHAT PLACEMENT — 2026-09-30
+   When the history drawer is open, the existing New Chat (+) control moves out
+   of the top rail and occupies the former RIWAYAT slot. Closing the drawer
+   restores the same button to its normal top-rail position. */
+@media (min-width:900px){
+  .appShell.leftChatSidebarOpen .leftChatPanelTitle small{
+    display:none!important;
+  }
+
+  .appShell.leftChatSidebarOpen .topbarNewChat{
+    position:fixed!important;
+    left:calc(var(--rb-left-rail-w) - 49px)!important;
+    right:auto!important;
+    top:calc(var(--rb-topbar-h) + 13px)!important;
+    width:32px!important;
+    min-width:32px!important;
+    max-width:32px!important;
+    height:32px!important;
+    min-height:32px!important;
+    max-height:32px!important;
+    margin:0!important;
+    padding:0!important;
+    z-index:102!important;
+    border-radius:9px!important;
+    transform:none!important;
+  }
+}
