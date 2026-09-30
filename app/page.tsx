@@ -2671,14 +2671,14 @@ function FolderPage({
           </h1>
           {current && (
             <p className="muted explorerHint">
-              Folder ini sekaligus Database. Drop file/foto/audio di sini, atau gunakan Tambah untuk file, link, teks, rekaman, subfolder, Study, Flashcard, Kuis, atau Tugas.
+              Folder ini sekaligus Database. Drop file/foto/audio di sini, atau gunakan Upload untuk file, link, teks, rekaman, subfolder, Study, Flashcard, Kuis, atau Tugas.
             </p>
           )}
         </div>
         {current && (
           <div className="explorerFolderHeaderActions">
             <button className="ghost customizeTop" onClick={() => onCustomize(current)}>Sesuaikan</button>
-            <button className="primary socialAddRoom explorerHeaderAdd" onClick={onAdd}>+ Tambah</button>
+            <button className="primary socialAddRoom explorerHeaderAdd" onClick={onAdd}>+ Upload</button>
           </div>
         )}
       </div>
