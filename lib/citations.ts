@@ -186,6 +186,120 @@ export function citationInstruction(
   ].join("\n");
 }
 
+function cleanPersonName(value: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parts = raw.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parts.length > 1 && /(?:S\.?\s*Farm|M\.?\s*(?:Biomed|Farm|Si)|Apt\.?|Dr\.?|Ph\.?D|Sp\.?)/i.test(parts.slice(1).join(" "))) {
+    return parts[0];
+  }
+  return raw;
+}
+
+function apaPerson(value: string) {
+  const clean = cleanPersonName(value);
+  if (!clean) return "";
+  if (clean.includes(",")) return clean;
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0];
+  const family = parts.pop() || "";
+  const initials = parts.map((part) => {
+    const letters = part.replace(/[^A-Za-zÀ-ÿ]/g, "");
+    return letters ? letters[0].toUpperCase() + "." : "";
+  }).filter(Boolean).join(" ");
+  return family + ", " + initials;
+}
+
+function apaAuthors(source: any) {
+  const authors = Array.isArray(source?.bibliographic_authors)
+    ? source.bibliographic_authors.map((item: unknown) => apaPerson(String(item))).filter(Boolean)
+    : [];
+  if (authors.length) {
+    if (authors.length === 1) return authors[0];
+    if (authors.length === 2) return authors[0] + ", & " + authors[1];
+    return authors.slice(0, -1).join(", ") + ", & " + authors[authors.length - 1];
+  }
+  return String(source?.bibliographic_corporate_author || "").trim();
+}
+
+function exactApaReference(source: any) {
+  const author = apaAuthors(source);
+  const year = String(source?.bibliographic_year || "n.d.");
+  const title = String(source?.bibliographic_work_title || source?.title || "Untitled")
+    .replace(/\s*\((?:Edisi\s+[^)]*|\d{4})\)\s*$/i, "")
+    .trim();
+  const type = String(source?.bibliographic_type || "");
+  const edition = String(source?.bibliographic_edition || "").trim();
+  const publisher = String(source?.bibliographic_publisher || "").trim();
+  const institution = String(source?.bibliographic_institution || "").trim();
+  const corporate = String(source?.bibliographic_corporate_author || "").trim();
+  const doi = String(source?.bibliographic_doi || "").trim();
+  const url = String(source?.bibliographic_url || "").trim();
+  const container = String(source?.bibliographic_container_title || "").trim();
+  const volume = String(source?.bibliographic_volume || "").trim();
+  const issue = String(source?.bibliographic_issue || "").trim();
+  const pages = String(source?.bibliographic_pages || "").trim();
+
+  if (type === "journal_article" && container) {
+    const creator = author ? author + ". " : "";
+    const journal = "*" + container + (volume ? ", " + volume : "") + "*" + (issue ? "(" + issue + ")" : "");
+    return creator + "(" + year + "). " + title + ". " + journal +
+      (pages ? ", " + pages : "") + "." + (doi ? " https://doi.org/" + doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "") : "");
+  }
+
+  const descriptor = type === "lecture_slides" ? " [PowerPoint slides]" : "";
+  const editionText = edition ? " (" + edition + " ed.)" : "";
+  const tailParts: string[] = [];
+  if (type === "lecture_slides" && institution) tailParts.push(institution);
+  if (publisher && (!corporate || publisher.toLowerCase() !== corporate.toLowerCase())) tailParts.push(publisher);
+  if (url) tailParts.push(url);
+  if (doi) tailParts.push("https://doi.org/" + doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, ""));
+
+  if (author) {
+    return author + ". (" + year + "). *" + title + "*" + descriptor + editionText + "." +
+      (tailParts.length ? " " + tailParts.join(". ") + "." : "");
+  }
+  return "*" + title + "*" + descriptor + ". (" + year + ")." +
+    (tailParts.length ? " " + tailParts.join(". ") + "." : "");
+}
+
+/**
+ * Gives the model an immutable bibliography identity per retrieved work. This is
+ * intentionally redundant with the structured context: the model may choose which
+ * sources to cite, but it must not rewrite author/year/publisher from surrounding text.
+ */
+export function buildCitationMetadataInventory(style: CitationStyle, rows: any[]) {
+  if (style === "none" || !Array.isArray(rows) || !rows.length) return "";
+  const unique = new Map<string, any>();
+  for (const row of rows) {
+    const key = String(row?.bibliographic_work_id || row?.source_file_id || row?.id || "");
+    if (key && !unique.has(key)) unique.set(key, row);
+  }
+  const lines = [...unique.values()].map((source, index) => {
+    const author = Array.isArray(source?.bibliographic_authors) && source.bibliographic_authors.length
+      ? source.bibliographic_authors.join("; ")
+      : source?.bibliographic_corporate_author || "[AUTHOR TIDAK TERVERIFIKASI]";
+    const metadata = [
+      "author=" + author,
+      "year=" + (source?.bibliographic_year || "[YEAR TIDAK TERVERIFIKASI]"),
+      "title=" + (source?.bibliographic_work_title || source?.title || ""),
+      "type=" + (source?.bibliographic_type || "[TYPE TIDAK TERVERIFIKASI]"),
+      "publisher=" + (source?.bibliographic_publisher || "[PUBLISHER TIDAK TERVERIFIKASI]"),
+      "institution=" + (source?.bibliographic_institution || "[INSTITUTION TIDAK TERSEDIA]"),
+      "doi=" + (source?.bibliographic_doi || "[DOI TIDAK TERSEDIA]"),
+      "status=" + (source?.bibliographic_metadata_status || "unreviewed"),
+    ].join(" | ");
+    const exact = style === "apa" ? "\n  APA7 EXACT JIKA SUMBER INI DIPAKAI: " + exactApaReference(source) : "";
+    return "SOURCE " + (index + 1) + ": " + metadata + exact;
+  });
+  return [
+    "",
+    "INVENTARIS METADATA SITASI — NILAI INI TIDAK BOLEH DIUBAH/DITERKA:",
+    "Pilih hanya sumber yang benar-benar mendukung jawaban. Bila dipakai, author/year/type/publisher WAJIB mengikuti inventaris ini.",
+    ...lines,
+  ].join("\n");
+}
+
 /**
  * Structural-only verification of generated citations. This cannot verify that a
  * publication exists, its metadata is correct, or it supports a given factual claim.
