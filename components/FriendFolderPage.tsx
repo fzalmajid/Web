@@ -62,16 +62,16 @@ export default function FriendFolderPage({
       {!embedded && (
         <div className="friendFolderHero">
           <div>
-            <p className="eyebrow">REFERENCE TEMAN · READ ONLY</p>
+            <p className="eyebrow">RUANG BELAJAR TEMAN</p>
             <h1>
               <span aria-hidden="true">{current.emoji || "📁"}</span>
               {current.title}
             </h1>
             <p className="muted">
-              Kamu sedang melihat Ruang Belajar teman. Isi tidak dapat diubah, tetapi Tanya AI di bawah otomatis memakai Reference dari profil ini.
+              Kamu sedang melihat Ruang Belajar teman. Isinya hanya dapat dilihat; Tanya AI tetap memakai sumber dari profil ini.
             </p>
           </div>
-          <span className="friendReadOnlyBadge">Teman · hanya baca</span>
+          <span className="friendReadOnlyBadge">Hanya lihat</span>
         </div>
       )}
 
