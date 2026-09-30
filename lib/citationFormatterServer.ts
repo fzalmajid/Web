@@ -1,0 +1,141 @@
+import { Cite } from "@citation-js/core";
+import "@citation-js/plugin-csl";
+import type { ReferenceMetadata } from "@/lib/referenceMetadata";
+
+function splitPerson(value: string) {
+  const name = String(value || "").trim();
+  if (!name) return null;
+  if (name.includes(",")) {
+    const [family, ...given] = name.split(",").map((part) => part.trim());
+    return { family, given: given.join(" ") || undefined };
+  }
+  const parts = name.split(/\s+/);
+  if (parts.length === 1) return { literal: name };
+  return { family: parts.pop(), given: parts.join(" ") };
+}
+
+function cslType(type: ReferenceMetadata["type"]) {
+  switch (type) {
+    case "journal_article": return "article-journal";
+    case "book": return "book";
+    case "chapter": return "chapter";
+    case "report": return "report";
+    case "thesis": return "thesis";
+    case "webpage": return "webpage";
+    case "lecture_slides": return "speech";
+    default: return "document";
+  }
+}
+
+export function referenceToCsl(metadata: ReferenceMetadata) {
+  const authors = (metadata.authors || []).map(splitPerson).filter(Boolean);
+  if (!authors.length && metadata.corporate_author) {
+    authors.push({ literal: metadata.corporate_author } as any);
+  }
+  return {
+    id: metadata.doi || metadata.isbn || metadata.openalex_id || metadata.openlibrary_id ||
+      metadata.pmid || metadata.title || "reference",
+    type: cslType(metadata.type),
+    title: metadata.title || undefined,
+    author: authors.length ? authors : undefined,
+    issued: metadata.year ? { "date-parts": [[metadata.year]] } : undefined,
+    publisher: metadata.publisher || metadata.institution || undefined,
+    "container-title": metadata.container_title || undefined,
+    volume: metadata.volume || undefined,
+    issue: metadata.issue || undefined,
+    page: metadata.pages || undefined,
+    edition: metadata.edition || undefined,
+    DOI: metadata.doi || undefined,
+    ISBN: metadata.isbn || undefined,
+    URL: metadata.url || undefined,
+  };
+}
+
+export function formatVerifiedReference(
+  metadata: ReferenceMetadata,
+  style: "apa" | "vancouver"
+) {
+  if (!metadata.title) return null;
+  try {
+    const cite = new Cite([referenceToCsl(metadata)]);
+    const result = String(cite.format("bibliography", {
+      format: "text",
+      template: style,
+      lang: "en-US",
+    }) || "").replace(/\s+/g, " ").trim();
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+
+export function formatVerifiedReferences(
+  items: ReferenceMetadata[],
+  style: "apa" | "vancouver"
+) {
+  if (!items.length) return "";
+  try {
+    const cite = new Cite(items.filter((item) => item.title).map(referenceToCsl));
+    return String(cite.format("bibliography", {
+      format: "text",
+      template: style,
+      lang: "en-US",
+    }) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+
+function metadataFromKnowledgeSource(source: any): ReferenceMetadata {
+  return {
+    title: source?.bibliographic_work_title || source?.title || null,
+    authors: Array.isArray(source?.bibliographic_authors) ? source.bibliographic_authors : [],
+    corporate_author: source?.bibliographic_corporate_author || null,
+    year: Number(source?.bibliographic_year) || null,
+    publisher: source?.bibliographic_publisher || null,
+    institution: source?.bibliographic_institution || null,
+    type: source?.bibliographic_type || null,
+    edition: source?.bibliographic_edition || null,
+    container_title: source?.bibliographic_container_title || null,
+    volume: source?.bibliographic_volume || null,
+    issue: source?.bibliographic_issue || null,
+    pages: source?.bibliographic_pages || null,
+    doi: source?.bibliographic_doi || null,
+    isbn: source?.bibliographic_isbn || null,
+    url: source?.bibliographic_url || null,
+  };
+}
+
+export function buildDeterministicCitationInventory(
+  style: string,
+  rows: any[]
+) {
+  if (style !== "apa" && style !== "vancouver") return "";
+  const unique = new Map<string, any>();
+  for (const row of rows) {
+    const key = String(row?.bibliographic_work_id || row?.source_file_id || row?.id || "");
+    if (key && !unique.has(key)) unique.set(key, row);
+  }
+  const items: string[] = [];
+  let index = 1;
+  for (const [key, row] of unique) {
+    const metadata = metadataFromKnowledgeSource(row);
+    const formatted = formatVerifiedReference(metadata, style);
+    if (!formatted) continue;
+    const clean = style === "vancouver"
+      ? formatted.replace(/^\s*\d+[.)]\s*/, "")
+      : formatted;
+    items.push(
+      "WORK_ID=" + key + "\n" +
+      "  CSL_" + style.toUpperCase() + "_EXACT=" + clean
+    );
+    index++;
+  }
+  if (!items.length) return "";
+  return "\n\nFORMAT REFERENSI DETERMINISTIK (Citation.js/CSL; hanya pakai entri jika karya itu benar-benar mendukung jawaban):\n" +
+    items.join("\n") +
+    (style === "vancouver"
+      ? "\nUntuk Vancouver, nomor urut mengikuti urutan sitasi pertama dalam jawaban; jangan mengubah teks bibliografi setelah nomor."
+      : "\nUntuk APA, gunakan teks referensi persis seperti hasil CSL ini untuk karya yang benar-benar dipakai.");
+}

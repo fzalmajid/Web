@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { mendeleyConfigured, resolveReferenceMetadata } from "@/lib/referenceMetadataServer";
+import { formatVerifiedReference } from "@/lib/citationFormatterServer";
 
 function bearer(req: NextRequest) {
   const header = req.headers.get("authorization") || "";
@@ -12,7 +13,7 @@ function sanitizeMetadata(value: any): ReferenceMetadata {
   const safe: ReferenceMetadata = {};
   const stringFields = [
     "title","corporate_author","publisher","institution","edition","container_title",
-    "volume","issue","pages","doi","isbn","url","mendeley_id"
+    "volume","issue","pages","doi","isbn","url","mendeley_id","datacite_id","openalex_id","openlibrary_id","pmid","pmcid"
   ];
   for (const key of stringFields) {
     const raw = value?.[key];
@@ -98,7 +99,15 @@ export async function POST(req: NextRequest) {
         bibliographic_metadata_updated_at: new Date().toISOString(),
       }).eq("id", sourceFileId).eq("user_id", userData.user.id);
       if (error) throw error;
-      return NextResponse.json({ metadata, status: "manual", mendeleyConfigured: mendeleyConfigured() });
+      return NextResponse.json({
+        metadata,
+        status: "manual",
+        citationPreview: {
+          apa: formatVerifiedReference(metadata, "apa"),
+          vancouver: formatVerifiedReference(metadata, "vancouver"),
+        },
+        mendeleyConfigured: mendeleyConfigured(),
+      });
     }
 
     const frontMatter = await frontMatterForFile(supabase, sourceFileId);
@@ -115,7 +124,7 @@ export async function POST(req: NextRequest) {
       .filter((item: any) => Number(item?.confidence) >= 0.9).length;
     const status = file.bibliographic_metadata_status === "manual"
       ? "manual"
-      : resolved.mendeleyMatched || highConfidence >= 3
+      : resolved.mendeleyMatched || resolved.crossrefMatched || resolved.catalogMatches.length > 0 || highConfidence >= 3
         ? "verified"
         : "auto";
 
@@ -134,6 +143,11 @@ export async function POST(req: NextRequest) {
       mendeleySimilarity: resolved.mendeleySimilarity,
       crossrefMatched: resolved.crossrefMatched,
       crossrefSimilarity: resolved.crossrefSimilarity,
+      catalogMatches: resolved.catalogMatches,
+      citationPreview: {
+        apa: formatVerifiedReference(resolved.metadata, "apa"),
+        vancouver: formatVerifiedReference(resolved.metadata, "vancouver"),
+      },
       mendeleyConfigured: mendeleyConfigured(),
     });
   } catch (error: any) {

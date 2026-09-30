@@ -3,8 +3,10 @@
 // Production UI baseline: Choose Model + AI / Reference / Web + Plugin center.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import katex from "katex";
+import "katex/contrib/mhchem";
 import { createPortal } from "react-dom";
-import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { ClipboardEvent as ReactClipboardEvent, FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrieval } from "@/lib/hfIndexing";
@@ -30,6 +32,7 @@ import {
   type AiResponseLength,
   type AiSelection,
 } from "@/lib/aiModels";
+import { applyFsrsRating, fsrsDueLabel, fsrsIsDue, fsrsStateLabel, type FsrsRating } from "@/lib/fsrsScheduling";
 
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
@@ -123,6 +126,16 @@ type Flashcard = {
   back: string;
   material_id: string | null;
   scope_node_id: string | null;
+  fsrs_due?: string | null;
+  fsrs_stability?: number | null;
+  fsrs_difficulty?: number | null;
+  fsrs_elapsed_days?: number | null;
+  fsrs_scheduled_days?: number | null;
+  fsrs_learning_steps?: number | null;
+  fsrs_reps?: number | null;
+  fsrs_lapses?: number | null;
+  fsrs_state?: number | null;
+  fsrs_last_review?: string | null;
 };
 type Quiz = {
   id: string;
@@ -8246,7 +8259,7 @@ function renderScientificInline(value: string, keyPrefix: string) {
   return parts.length ? parts : value;
 }
 
-function RichText({ text, className = "" }: { text: string; className?: string }) {
+function RichTextPlain({ text, className = "" }: { text: string; className?: string }) {
   const value = normalizeRichTextSource(text);
   const parts: any[] = [];
   // Parse scientific scripts before WA-style emphasis. This makes r^{2}, C_2,
@@ -8312,6 +8325,135 @@ function RichText({ text, className = "" }: { text: string; className?: string }
   return <span className={"richText " + className}>{parts}</span>;
 }
 
+
+const SUPERSCRIPT_COPY: Record<string, string> = {
+  "0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹",
+  "+":"⁺","-":"⁻","=":"⁼","(":"⁽",")":"⁾",
+};
+const SUBSCRIPT_COPY: Record<string, string> = {
+  "0":"₀","1":"₁","2":"₂","3":"₃","4":"₄","5":"₅","6":"₆","7":"₇","8":"₈","9":"₉",
+  "+":"₊","-":"₋","=":"₌","(":"₍",")":"₎",
+};
+
+function unicodeScriptCopy(value: string, mode: "sup" | "sub") {
+  const map = mode === "sup" ? SUPERSCRIPT_COPY : SUBSCRIPT_COPY;
+  return Array.from(value).map((char) => map[char] || char).join("");
+}
+
+function chemistryToPlainUnicode(value: string) {
+  return value
+    .replace(/([A-Za-z)])(\d+)/g, (_all, atom, digits) => atom + unicodeScriptCopy(digits, "sub"))
+    .replace(/\^\{?([+\-]\d*|\d+[+\-])\}?/g, (_all, charge) => unicodeScriptCopy(charge, "sup"));
+}
+
+function latexToPlainUnicode(source: string) {
+  let text = String(source || "").trim();
+  text = text.replace(/\\ce\{([^{}]+)\}/g, (_all, body) => chemistryToPlainUnicode(body));
+  const replacements: Array<[RegExp, string]> = [
+    [/\\rightarrow|\\to/g, "→"], [/\\leftarrow/g, "←"], [/\\leftrightarrow/g, "↔"],
+    [/\\Rightarrow/g, "⇒"], [/\\Leftarrow/g, "⇐"], [/\\Leftrightarrow/g, "⇔"],
+    [/\\pi/g, "π"], [/\\sigma/g, "σ"], [/\\lambda/g, "λ"], [/\\alpha/g, "α"],
+    [/\\beta/g, "β"], [/\\gamma/g, "γ"], [/\\delta/g, "δ"], [/\\Delta/g, "Δ"],
+    [/\\epsilon|\\varepsilon/g, "ε"], [/\\mu/g, "μ"], [/\\rho/g, "ρ"], [/\\theta/g, "θ"],
+    [/\\times/g, "×"], [/\\cdot/g, "·"], [/\\pm/g, "±"], [/\\leq?|\\le/g, "≤"],
+    [/\\geq?|\\ge/g, "≥"], [/\\neq/g, "≠"], [/\\approx/g, "≈"], [/\\infty/g, "∞"],
+  ];
+  for (const [pattern, value] of replacements) text = text.replace(pattern, value);
+  text = text.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)");
+  text = text.replace(/\\(?:mathrm|mathbf|mathit|text|operatorname)\{([^{}]*)\}/g, "$1");
+  for (let pass = 0; pass < 3; pass++) {
+    text = text
+      .replace(/\^\{([^{}]+)\}/g, (_all, value) => unicodeScriptCopy(value, "sup"))
+      .replace(/_\{([^{}]+)\}/g, (_all, value) => unicodeScriptCopy(value, "sub"))
+      .replace(/\^([0-9+\-*]+)/g, (_all, value) => unicodeScriptCopy(value, "sup"))
+      .replace(/_([0-9+\-]+)/g, (_all, value) => unicodeScriptCopy(value, "sub"));
+  }
+  return text
+    .replace(/\\,/g, " ")
+    .replace(/\\[a-zA-Z]+/g, "")
+    .replace(/[{}]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function copyRichTextAsPlain(event: ReactClipboardEvent<HTMLSpanElement>) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+  const fragment = selection.getRangeAt(0).cloneContents();
+  const container = document.createElement("div");
+  container.appendChild(fragment);
+
+  container.querySelectorAll<HTMLElement>("[data-copy-plain]").forEach((element) => {
+    element.replaceWith(document.createTextNode(element.dataset.copyPlain || ""));
+  });
+  container.querySelectorAll<HTMLElement>("sup.mathSup, sub.mathSub").forEach((element) => {
+    const mode = element.tagName.toLowerCase() === "sup" ? "sup" : "sub";
+    element.replaceWith(document.createTextNode(unicodeScriptCopy(element.textContent || "", mode)));
+  });
+
+  const plain = (container.textContent || "").replace(/\u00a0/g, " ");
+  if (!plain) return;
+  event.preventDefault();
+  event.clipboardData.setData("text/plain", plain);
+}
+
+function explicitMathParts(value: string) {
+  const pattern = /(\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$\$[\s\S]+?\$\$|\$[^$\n]+\$)/g;
+  const result: Array<{ kind: "text" | "math"; value: string; display?: boolean }> = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value))) {
+    if (match.index > last) result.push({ kind: "text", value: value.slice(last, match.index) });
+    const token = match[0];
+    const display = token.startsWith("$$") || token.startsWith("\\[");
+    let body = token.startsWith("$$") ? token.slice(2, -2)
+      : token.startsWith("$") ? token.slice(1, -1)
+      : token.slice(2, -2);
+    const explicitLatex = /[\\_^{}]|\\ce\b|\\frac\b/.test(body);
+    if (token.startsWith("$") && !token.startsWith("$$") && !explicitLatex) {
+      result.push({ kind: "text", value: token });
+    } else {
+      result.push({ kind: "math", value: body.trim(), display });
+    }
+    last = pattern.lastIndex;
+  }
+  if (last < value.length) result.push({ kind: "text", value: value.slice(last) });
+  return result.length ? result : [{ kind: "text" as const, value }];
+}
+
+function RichText({ text, className = "" }: { text: string; className?: string }) {
+  const normalized = normalizeRichTextSource(text);
+  const parts = explicitMathParts(normalized);
+  return (
+    <span className={"richText " + className} onCopy={copyRichTextAsPlain}>
+      {parts.map((part, index) => {
+        if (part.kind === "text") {
+          return <RichTextPlain key={"txt" + index} text={part.value} />;
+        }
+        const plain = latexToPlainUnicode(part.value);
+        try {
+          const html = katex.renderToString(part.value, {
+            throwOnError: false,
+            strict: "ignore",
+            trust: false,
+            displayMode: Boolean(part.display),
+            output: "htmlAndMathml",
+          });
+          return (
+            <span
+              key={"math" + index}
+              className={part.display ? "rbKatex rbKatexDisplay" : "rbKatex"}
+              data-copy-plain={plain}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          );
+        } catch {
+          return <span key={"math" + index} data-copy-plain={plain}>{plain}</span>;
+        }
+      })}
+    </span>
+  );
+}
 function normalizeQuizAnswer(value: string) {
   return value
     .trim()
@@ -8349,7 +8491,13 @@ function PracticePage({
   type ManualKind = "mcq-fixed" | "essay-fixed" | "mcq-ai" | "essay-ai";
 
   const mode = node.node_type === "flashcards" ? "flashcards" : "quiz";
-  const localCards = cards.filter((item) => item.scope_node_id === node.id);
+  const localCards = cards
+    .filter((item) => item.scope_node_id === node.id)
+    .sort((a, b) => {
+      const dueOrder = Number(fsrsIsDue(b)) - Number(fsrsIsDue(a));
+      if (dueOrder) return dueOrder;
+      return new Date(a.fsrs_due || 0).getTime() - new Date(b.fsrs_due || 0).getTime();
+    });
   const localQuizzes = quizzes.filter((item) => item.scope_node_id === node.id);
 
   const fixedMcq = localQuizzes.filter((item) => item.quiz_type === "mcq" && item.grading_mode === "fixed");
@@ -8360,6 +8508,7 @@ function PracticePage({
 
   const [busy, setBusy] = useState(false);
   const [grading, setGrading] = useState(false);
+  const [reviewingCardId, setReviewingCardId] = useState("");
   const [flipped, setFlipped] = useState<Record<string, boolean>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [essayAnswers, setEssayAnswers] = useState<Record<string, string>>({});
@@ -8374,6 +8523,42 @@ function PracticePage({
   const [manualChoices, setManualChoices] = useState(["", "", "", ""]);
   const [manualCorrect, setManualCorrect] = useState(0);
   const [manualExpectedAnswer, setManualExpectedAnswer] = useState("");
+
+  async function rateFlashcard(card: Flashcard, rating: FsrsRating) {
+    if (reviewingCardId) return;
+    setReviewingCardId(card.id);
+    const now = new Date();
+    try {
+      const scheduled = applyFsrsRating(card, rating, now);
+      const { error: updateError } = await supabase
+        .from("flashcards")
+        .update(scheduled.update)
+        .eq("id", card.id)
+        .eq("user_id", session.user.id);
+      if (updateError) throw updateError;
+
+      const { error: logError } = await supabase.from("flashcard_reviews").insert({
+        user_id: session.user.id,
+        flashcard_id: card.id,
+        rating,
+        reviewed_at: now.toISOString(),
+        due_before: card.fsrs_due || null,
+        due_after: scheduled.card.due.toISOString(),
+        stability: scheduled.card.stability,
+        difficulty: scheduled.card.difficulty,
+        state: scheduled.card.state,
+        scheduled_days: scheduled.card.scheduled_days,
+        elapsed_days: scheduled.card.elapsed_days,
+      });
+      if (logError) console.warn("[FSRS_REVIEW_LOG]", logError.message);
+      setFlipped((value) => ({ ...value, [card.id]: false }));
+      onChange();
+    } catch (error: any) {
+      alert(error?.message || "Gagal menyimpan jadwal review flashcard.");
+    } finally {
+      setReviewingCardId("");
+    }
+  }
 
   const answeredMcq = [...fixedMcq, ...aiMcq].filter((quiz) => answers[quiz.id]).length;
   const answeredEssay = [...fixedEssay, ...aiEssay].filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
@@ -8761,15 +8946,28 @@ function PracticePage({
       {mode === "flashcards" && (
         <div className="flashGrid">
           {localCards.map((card) => (
-            <button
-              className="flash"
-              key={card.id}
-              onClick={() => setFlipped((value) => ({ ...value, [card.id]: !value[card.id] }))}
-            >
-              <small>{flipped[card.id] ? "JAWABAN" : "PERTANYAAN"}</small>
-              <strong><RichText text={flipped[card.id] ? card.back : card.front} /></strong>
-              <span>Ketuk untuk balik</span>
-            </button>
+            <div className={"flashStack " + (fsrsIsDue(card) ? "due" : "scheduled")} key={card.id}>
+              <button
+                className="flash"
+                onClick={() => setFlipped((value) => ({ ...value, [card.id]: !value[card.id] }))}
+              >
+                <small>{flipped[card.id] ? "JAWABAN" : "PERTANYAAN"}</small>
+                <strong><RichText text={flipped[card.id] ? card.back : card.front} /></strong>
+                <span>Ketuk untuk balik</span>
+              </button>
+              <div className="fsrsCardMeta">
+                <span>{fsrsStateLabel(card.fsrs_state)}</span>
+                <span>{fsrsDueLabel(card)}</span>
+              </div>
+              {flipped[card.id] && (
+                <div className="fsrsReviewActions" aria-label="Nilai seberapa mudah kartu diingat">
+                  <button type="button" disabled={reviewingCardId === card.id} onClick={() => rateFlashcard(card, 1)}>Lupa</button>
+                  <button type="button" disabled={reviewingCardId === card.id} onClick={() => rateFlashcard(card, 2)}>Sulit</button>
+                  <button type="button" disabled={reviewingCardId === card.id} onClick={() => rateFlashcard(card, 3)}>Baik</button>
+                  <button type="button" disabled={reviewingCardId === card.id} onClick={() => rateFlashcard(card, 4)}>Mudah</button>
+                </div>
+              )}
+            </div>
           ))}
           {!localCards.length && <p className="muted">Belum ada flashcard.</p>}
         </div>

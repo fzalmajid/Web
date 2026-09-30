@@ -32,6 +32,8 @@ import {
 } from "@/lib/aiQuota";
 import { buildCitationMetadataInventory, citationInstruction, citationStructuralWarnings, normalizeCitationOptions, type CitationOutput, type CitationStyle } from "@/lib/citations";
 import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } from "@/lib/artifacts";
+import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
+import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -1281,6 +1283,12 @@ export async function POST(req: NextRequest) {
       : aiSelection.length === "long"
         ? (aiMode === "high" ? 63000 : aiMode === "medium" ? 48000 : 35000)
         : (aiMode === "high" ? 44000 : aiMode === "medium" ? 34000 : 25000);
+    const scholarlyHits =
+      useWeb && !casualAiQuestion
+        ? await searchScholarlySources(question.trim(), aiMode === "high" ? 16 : 12).catch(() => [])
+        : [];
+    const scholarlyContext = scholarlyPromptContext(scholarlyHits);
+
     const context = data.length
       ? buildKnowledgeContext(data, contextLimit, question.trim())
       : databaseWarning
@@ -1348,6 +1356,10 @@ export async function POST(req: NextRequest) {
       useDatabase && !databaseWarning && !casualAiQuestion
         ? buildCitationMetadataInventory(citationStyle, data)
         : "";
+    const deterministicCitationInventory =
+      useDatabase && !databaseWarning && !casualAiQuestion
+        ? buildDeterministicCitationInventory(citationStyle, data)
+        : "";
 
     const prompt = buildPrompt({
       question,
@@ -1362,7 +1374,7 @@ export async function POST(req: NextRequest) {
       citationStyle,
       citationOutputs,
       artifactFormat,
-    }) + citationMetadataInventory +
+    }) + citationMetadataInventory + deterministicCitationInventory + scholarlyContext +
       (/\b(eksipien|excipients?)\b/i.test(question.trim()) && data.length
         ? "\n\nPRIORITAS RELEVANSI: Untuk fungsi atau pemilihan eksipien tablet, gunakan monografi eksipien yang benar-benar cocok dari Handbook of Pharmaceutical Excipients atau referensi eksipien lain. Farmakope dipakai untuk fakta zat aktif/spesifikasi yang relevan, bukan sebagai satu-satunya sumber eksipien. Eksipien yang tidak menyebut PCT tetap bisa relevan sebagai bahan tambahan, tetapi jangan mengklaim formula tablet PCT sudah terbukti tanpa sumber formulasi. Sitasi hanya halaman yang memuat fakta terkait."
         : "") +
@@ -1606,7 +1618,7 @@ export async function POST(req: NextRequest) {
         warning: [databaseWarning, semanticNotice].filter(Boolean).join(" · ") || undefined,
         semanticStatus,
         semanticModel,
-        webSources: result.webSources,
+        webSources: mergeWebSources(result.webSources, scholarlyHits),
         grounded: !useAi,
         publicWeb: useWeb,
         selectedSources,
@@ -1675,7 +1687,7 @@ export async function POST(req: NextRequest) {
           answer: alternate.result.text,
           citationWarnings: citationStructuralWarnings(alternate.result.text, citationStyle, citationOutputs),
           sources: databaseSources,
-          webSources: alternate.result.webSources,
+          webSources: mergeWebSources(alternate.result.webSources, scholarlyHits),
           grounded: !useAi,
           publicWeb: true,
           selectedSources,

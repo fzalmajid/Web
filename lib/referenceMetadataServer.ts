@@ -1,5 +1,6 @@
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { inferReferenceMetadata, mergeReferenceMetadata, titleSimilarity } from "@/lib/referenceMetadata";
+import { lookupPublicReferenceCatalogs } from "@/lib/referenceCatalogsServer";
 
 // Server-only Mendeley credentials are read from Vercel environment variables.
 // Never expose the client secret to the browser bundle.
@@ -264,14 +265,30 @@ export async function resolveReferenceMetadata(input: {
     metadata = mergeReferenceMetadata(existing, metadata, "document", 0);
   }
 
-  const mendeley = await lookupMendeleyCatalog(metadata);
-  if (mendeley) {
-    metadata = mergeReferenceMetadata(metadata, mendeley.metadata, "mendeley", 0.78);
-  }
+  // Catalogs are independent verifiers. Never skip a stronger public match just
+  // because another provider happened to answer first.
+  const [mendeleyResult, crossrefResult, publicResult] = await Promise.allSettled([
+    lookupMendeleyCatalog(metadata),
+    lookupCrossref(metadata),
+    lookupPublicReferenceCatalogs(metadata),
+  ]);
+  const mendeley = mendeleyResult.status === "fulfilled" ? mendeleyResult.value : null;
+  const crossref = crossrefResult.status === "fulfilled" ? crossrefResult.value : null;
+  const publicMatches = publicResult.status === "fulfilled" ? publicResult.value : [];
 
-  const crossref = mendeley ? null : await lookupCrossref(metadata);
   if (crossref) {
     metadata = mergeReferenceMetadata(metadata, crossref.metadata, "crossref", 0.86);
+  }
+  for (const match of publicMatches) {
+    metadata = mergeReferenceMetadata(
+      metadata,
+      match.metadata,
+      match.source,
+      match.source === "openlibrary" ? 0.88 : 0.9
+    );
+  }
+  if (mendeley) {
+    metadata = mergeReferenceMetadata(metadata, mendeley.metadata, "mendeley", 0.78);
   }
 
   const confidenceValues = Object.values(metadata.provenance || {}).map((item) => Number(item.confidence) || 0);
@@ -285,5 +302,9 @@ export async function resolveReferenceMetadata(input: {
     mendeleySimilarity: mendeley?.similarity || null,
     crossrefMatched: Boolean(crossref),
     crossrefSimilarity: crossref?.similarity || null,
+    catalogMatches: publicMatches.map((match) => ({
+      source: match.source,
+      similarity: match.similarity,
+    })),
   };
 }

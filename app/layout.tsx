@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import TransientUiManager from "@/components/TransientUiManager";
 import "./globals.css";
 import "./layout-alignment.css";
+import "katex/dist/katex.min.css";
 
 export const metadata: Metadata = {
   title: "Ruang Belajar",
