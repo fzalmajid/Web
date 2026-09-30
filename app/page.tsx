@@ -1463,7 +1463,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                 }}
                 onDrop={(event) => void dropOnBreadcrumb(event, null)}
               >
-                Profil
+                Home
               </button>
               {path.map((item) => (
                 <span className="pathSegment" key={item.id}>
@@ -1544,6 +1544,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
               : []}
             onBackToRooms={() => setCurrentId(null)}
             onOpenFolderPath={setCurrentId}
+            onBreadcrumbDrop={(event, targetNodeId) => void dropOnBreadcrumb(event, targetNodeId)}
             onCustomizeActive={() => {
               if (current && isFolderLikeNode(current)) setCustomizeNode(current);
             }}
