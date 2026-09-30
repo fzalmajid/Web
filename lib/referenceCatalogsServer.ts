@@ -129,7 +129,7 @@ function openAlexMetadata(work: any): ReferenceMetadata {
 
 async function lookupOpenAlex(input: ReferenceMetadata): Promise<CatalogMatch | null> {
   const apiKey = String(process.env.OPENALEX_API_KEY || "").trim();
-  if (!apiKey || input.type === "lecture_slides") return null;
+  if (input.type === "lecture_slides") return null;
   try {
     const url = new URL("https://api.openalex.org/works");
     const doi = cleanDoi(input.doi);
@@ -137,7 +137,7 @@ async function lookupOpenAlex(input: ReferenceMetadata): Promise<CatalogMatch | 
     else if (input.title) url.searchParams.set("search", input.title);
     else return null;
     url.searchParams.set("per-page", "5");
-    url.searchParams.set("api_key", apiKey);
+    if (apiKey) url.searchParams.set("api_key", apiKey);
     const response = await fetch(url, {
       headers: { "User-Agent": "RuangBelajar/1.0 (reference validation)" },
       signal: AbortSignal.timeout(6500),
