@@ -615,6 +615,13 @@ export default function Home() {
     let alive = true;
     setProfileGate("checking");
 
+    // A real authenticated app visit is the signal used for social recommendations.
+    // This write is own-row only through RLS and must not block profile rendering.
+    void supabase
+      .from("user_profiles")
+      .update({ last_active_at: new Date().toISOString() })
+      .eq("user_id", session.user.id);
+
     void supabase
       .from("user_profiles")
       .select("onboarding_completed")
@@ -1468,6 +1475,14 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             onOpenRoom={setCurrentId}
             onOpenProfile={viewProfile}
             onAddRoom={() => setAddOpen(true)}
+            onCustomizeRoom={(roomId) => {
+              const room = nodes.find((node) => node.id === roomId);
+              if (room) setCustomizeNode(room);
+            }}
+            onDeleteRoom={(roomId) => {
+              const room = nodes.find((node) => node.id === roomId);
+              if (room) void removeNode(room);
+            }}
             onAccessChange={setViewedOwnerReferenceAllowed}
             onProfileChanged={refresh}
           />
