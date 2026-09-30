@@ -3255,6 +3255,46 @@ function ReferenceMetadataModal({
     }
   }
 
+  async function auditReferenceLibrary() {
+    if (busy) return;
+    setBusy(true);
+    let total = 0;
+    let verified = 0;
+    let remaining = 0;
+    try {
+      for (let round = 0; round < 16; round++) {
+        setMessage(total
+          ? "Audit metadata berjalan... " + total + " file sudah diperiksa."
+          : "Memeriksa metadata seluruh library secara bertahap...");
+        const response = await fetch("/api/reference-metadata/backfill", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + session.access_token,
+          },
+          body: JSON.stringify({ limit: 4 }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Audit metadata gagal.");
+        const processed = Array.isArray(data.processed) ? data.processed : [];
+        total += processed.length;
+        verified += processed.filter((item: any) => item?.status === "verified").length;
+        remaining = Number(data.remainingUnreviewed || 0);
+        setMendeleyConnected(Boolean(data.mendeleyConnected));
+        if (!processed.length || remaining <= 0) break;
+      }
+      setMessage(
+        remaining <= 0
+          ? "Audit metadata selesai: " + total + " file diperiksa, " + verified + " tervalidasi kuat."
+          : "Audit sementara selesai: " + total + " file diperiksa, masih " + remaining + " file untuk batch berikutnya."
+      );
+    } catch (error: any) {
+      setMessage(error?.message || "Audit metadata gagal.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
@@ -3400,6 +3440,9 @@ function ReferenceMetadataModal({
                 {mendeleyConnected ? "Putuskan Mendeley" : "Connect Mendeley"}
               </button>
             )}
+            <button type="button" className="ghost" disabled={busy} onClick={auditReferenceLibrary}>
+              Audit library
+            </button>
             <button type="button" className="ghost" disabled={busy} onClick={rescan}>
               {busy ? "Memeriksa..." : "Cari metadata ulang"}
             </button>
