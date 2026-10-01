@@ -11731,3 +11731,77 @@ body,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* AI Ruang Belajar experience modes. The model picker stays behind an
+   explicit debug disclosure so normal users choose depth, not providers. */
+.aiExperiencePicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+}
+.aiExperienceLabel {
+  color: var(--muted, #6f6a64);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+.aiExperienceChoices {
+  display: inline-flex;
+  gap: 0.18rem;
+  padding: 0.16rem;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 0.72rem;
+  background: color-mix(in srgb, var(--surface, #fff) 86%, transparent);
+}
+.aiExperienceChoices button {
+  border: 0;
+  border-radius: 0.52rem;
+  padding: 0.34rem 0.52rem;
+  color: var(--muted, #6f6a64);
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+.aiExperienceChoices button:hover,
+.aiExperienceChoices button.active {
+  color: var(--text, #28231f);
+  background: color-mix(in srgb, var(--accent, #c7774f) 18%, transparent);
+}
+.aiDebugModelDetails {
+  position: relative;
+  min-width: 0;
+}
+.aiDebugModelDetails > summary {
+  cursor: pointer;
+  color: var(--muted, #6f6a64);
+  font-size: 0.68rem;
+  font-weight: 700;
+  list-style: none;
+  white-space: nowrap;
+}
+.aiDebugModelDetails > summary::-webkit-details-marker {
+  display: none;
+}
+.aiDebugModelDetails[open] > summary {
+  color: var(--accent, #c7774f);
+}
+.aiDebugModelDetails .aiModeSelect {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  top: calc(100% + 0.45rem);
+}
+@media (max-width: 760px) {
+  .aiExperiencePicker {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.18rem;
+  }
+  .aiExperienceChoices button {
+    padding-inline: 0.42rem;
+  }
+}
