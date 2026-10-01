@@ -1361,6 +1361,15 @@ export async function POST(req: NextRequest) {
         ? buildDeterministicCitationInventory(citationStyle, data)
         : "";
 
+    const visualLearningIntent =
+      /\\b(diagram|flowchart|mind\\s*map|mindmap|peta\\s+konsep|concept\\s+map|bagan|alur|network\\s+graph|graf\\s+relasi|hubungan\\s+antar|relasi\\s+antar)\\b/i.test(question.trim());
+    const interactiveGraphIntent =
+      /\\b(interaktif|interactive|network\\s+graph|graf\\s+relasi|hubungan\\s+antar|relasi\\s+antar)\\b/i.test(question.trim());
+    const visualLearningInstruction = visualLearningIntent
+      ? interactiveGraphIntent
+        ? "\\n\\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:\\\"cose\\\"|\\\"breadthfirst\\\"|\\\"circle\\\"|\\\"grid\\\"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok."
+        : "\\n\\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
+      : "";
     const prompt = buildPrompt({
       question,
       historyText,
@@ -1374,7 +1383,7 @@ export async function POST(req: NextRequest) {
       citationStyle,
       citationOutputs,
       artifactFormat,
-    }) + citationMetadataInventory + deterministicCitationInventory + scholarlyContext +
+    }) + citationMetadataInventory + deterministicCitationInventory + scholarlyContext + visualLearningInstruction +
       (/\b(eksipien|excipients?)\b/i.test(question.trim()) && data.length
         ? "\n\nPRIORITAS RELEVANSI: Untuk fungsi atau pemilihan eksipien tablet, gunakan monografi eksipien yang benar-benar cocok dari Handbook of Pharmaceutical Excipients atau referensi eksipien lain. Farmakope dipakai untuk fakta zat aktif/spesifikasi yang relevan, bukan sebagai satu-satunya sumber eksipien. Eksipien yang tidak menyebut PCT tetap bisa relevan sebagai bahan tambahan, tetapi jangan mengklaim formula tablet PCT sudah terbukti tanpa sumber formulasi. Sitasi hanya halaman yang memuat fakta terkait."
         : "") +
