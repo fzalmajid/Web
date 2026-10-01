@@ -10,6 +10,7 @@ export default function DataLab() {
   const host = useRef<HTMLDivElement>(null), chart = useRef<any>(null), generation = useRef(0);
   useEffect(() => () => { generation.current++; chart.current?.dispose(); }, []);
   useEffect(()=>{generation.current++;setFit(null);setSample(null);chart.current?.clear();},[text,x,y,unit]);
+  useEffect(()=>{setSample(null);},[response,dilution]);
   async function draw() {
     const id = ++generation.current; setBusy(true); setFit(null); setSample(null); setMessage("");
     try {
@@ -29,7 +30,7 @@ export default function DataLab() {
       ] });
       setFit(fitted); setMessage("Grafik dihitung dari data, bukan dibuat oleh AI.");
     } catch (e: any) { setMessage(e.message || "Data tidak dapat dianalisis."); }
-    finally { if (id === generation.current) setBusy(false); }
+    finally { setBusy(false); }
   }
   async function queryTable() {
     if (busy) return; setBusy(true); let db: any, connection: any, worker: Worker | undefined, timer: ReturnType<typeof setTimeout> | undefined;

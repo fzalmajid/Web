@@ -10,12 +10,19 @@ export default function OfflineStudy() {
   const [saved, setSaved] = useState(""), [message, setMessage] = useState(""), [flipped, setFlipped] = useState(false), [busy, setBusy] = useState(false);
   async function load() {
     const session = (await supabase.auth.getSession()).data.session;
-    if (!session) { setAccount(""); setCards([]); setNotes([]); return; }
+    if (!session) { setAccount(""); setCards([]); setNotes([]); setSaved(""); return; }
     setAccount(session.user.id);
     const data = await learningStore.snapshots.get(session.user.id);
     setCards(data?.cards || []); setNotes(data?.notes || []); setSaved(data?.savedAt || "");
   }
-  useEffect(() => { void load().catch(e => setMessage(e.message)); }, []);
+  useEffect(() => {
+    void load().catch(e => setMessage(e.message));
+    const {data}=supabase.auth.onAuthStateChange((event,session)=>{
+      if(!session){setAccount("");setCards([]);setNotes([]);setSaved("");setFlipped(false);}
+      else if(event==="SIGNED_IN")window.setTimeout(()=>{void load().catch(e=>setMessage(e.message));},0);
+    });
+    return()=>data.subscription.unsubscribe();
+  }, []);
   async function prepare() {
     setBusy(true);
     try {
@@ -31,7 +38,13 @@ export default function OfflineStudy() {
       if (await learningStore.reviews.where("account").equals(session.user.id).count()) throw new Error("Sinkronkan atau tangani review tertunda sebelum memperbarui snapshot.");
       await learningStore.snapshots.put(data); await load();
       localStorage.setItem("rb-offline-enabled","1");
-      if ("serviceWorker" in navigator) await navigator.serviceWorker.register("/learning-sw.js", { scope: "/" });
+      if ("serviceWorker" in navigator) {
+        setMessage("Snapshot tersimpan; menyiapkan halaman offline…");
+        await navigator.serviceWorker.register("/learning-sw.js", { scope: "/" });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try { await Promise.race([navigator.serviceWorker.ready,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error("Snapshot tersimpan, tetapi halaman offline belum siap. Coba siapkan kembali saat koneksi stabil.")),30000);})]); }
+        finally { clearTimeout(timer); }
+      }
       setMessage("Snapshot disimpan di perangkat ini. Buka /offline satu kali saat online untuk menyiapkan halaman dan berkas tampilannya. Gambar kartu belum tersedia offline; review gambar hanya saat online.");
     } catch (e: any) { setMessage(e.message); } finally { setBusy(false); }
   }

@@ -11870,3 +11870,8 @@ body,
     padding-inline: 0.42rem;
   }
 }
+
+.aiAnswerTable { overflow-x: auto; margin: 0.8rem 0; white-space: normal; }
+.aiAnswerTable table { border-collapse: collapse; width: 100%; font: inherit; }
+.aiAnswerTable th, .aiAnswerTable td { border: 1px solid #7891ad55; padding: 0.5rem 0.7rem; text-align: left; }
+.aiChatSources > summary { cursor: pointer; width: 100%; }

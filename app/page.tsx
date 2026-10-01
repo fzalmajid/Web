@@ -1,4 +1,5 @@
 "use client";
+import { answerBlocks } from "@/lib/answerLayout";
 
 // Normal UI exposes AI Ruang Belajar modes; the model picker remains available
 // only as an explicit debugging escape hatch while provider integrations settle.
@@ -7909,12 +7910,6 @@ function RecordingPage({
       localFinalTranscript=local.text.trim();localSegments=local.chunks;localSucceeded=true;
     }catch(error:any){console.warn("[LOCAL_WHISPER_RECORDING_FALLBACK]",error?.message||"unknown");}
     if (localSucceeded || aiSelection.model === "local") {
-      try {
-        setStatus("Menyiapkan Silero VAD + Whisper lokal · WebGPU/WASM adaptif...");
-        if(!localSucceeded)throw new Error("Whisper lokal tidak tersedia; transkrip live dipertahankan.");
-      } catch (error: any) {
-        console.warn("[LOCAL_WHISPER_RECORDING_FALLBACK]", error?.message || "unknown");
-      }
 
       if (!localFinalTranscript) {
         setBusy(false);
@@ -8684,7 +8679,9 @@ function AiMessageContent({ text }: { text: string }) {
         if (part.kind === "cytoscape") return <CytoscapeDiagram key={"c" + index} code={part.value} />;
         return part.value ? (
           <div className="aiRichTextPart" key={"t" + index}>
-            <RichText text={part.value} />
+            {answerBlocks(part.value).map((block, blockIndex) => block.kind === "text"
+              ? <RichText key={blockIndex} text={block.value} />
+              : <div className="aiAnswerTable" key={blockIndex}><table><thead><tr>{block.headers.map((cell, cellIndex) => <th scope="col" key={cellIndex}><RichText text={cell} /></th>)}</tr></thead><tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}><RichText text={cell} /></td>)}</tr>)}</tbody></table></div>)}
           </div>
         ) : null;
       })}
@@ -12340,7 +12337,8 @@ function BottomAskBar({
                 </div>
                 {message.role === "assistant" &&
                   (!!message.sources?.length || !!message.web_sources?.length) && (
-                    <div className="aiSources aiChatSources">
+                    <details className="aiSources aiChatSources">
+                      <summary>Sumber ditemukan ({(message.sources?.length || 0) + (message.web_sources?.length || 0)}) · bukan berarti semuanya disitasi</summary>
                       {(message.sources || []).map((source) => (
                         <span key={source.id}>Database · {source.title}</span>
                       ))}
@@ -12349,7 +12347,7 @@ function BottomAskBar({
                           Web · {source.title}
                         </a>
                       ))}
-                    </div>
+                    </details>
                   )}
               </article>
             ))}

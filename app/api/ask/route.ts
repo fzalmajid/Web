@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { visualLearningRequest } from "@/lib/visualIntent";
+import { calibrationEvidence } from "@/lib/calibrationEvidence";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   geminiGenerateDetailed,
@@ -740,6 +741,8 @@ function buildPrompt({
     citationInstruction(citationStyle, citationOutputs),
     aiModeInstruction(aiMode),
     "- Jawab dengan jelas dan terstruktur.",
+    "- Jika user meminta tabel, berikan tabel Markdown dengan baris header dan pemisah | --- |, bukan daftar berpoin yang disebut tabel. Jangan bungkus tabel dalam blok kode.",
+    "- Untuk kalibrasi dan pengenceran, konsentrasi yang dihitung dari respons adalah konsentrasi larutan yang diukur (setelah pengenceran); kalikan faktor pengenceran untuk mendapatkan konsentrasi sampel asal. R² tinggi saja bukan bukti validasi metode.",
     WHATSAPP_FORMAT_INSTRUCTION
   );
 
@@ -1150,6 +1153,9 @@ export async function POST(req: NextRequest) {
         // Never ground an answer in a file whose ingestion is still processing
         // or failed. Partial historical chunks must not masquerade as a complete source.
         data = await filterReadyDatabaseRows(supabase, data);
+        // Only broad automatic retrieval is gated. Explicitly selected sources
+        // remain eligible for literal lookup, OCR and source-specific questions.
+        if (!hasExplicitDatabaseSources && !broadDatabaseQuestion) data = calibrationEvidence(data, question.trim());
 
         // First identify the *published work* (edition/year), not just the PDF.
         // Multiple file chunks/copies of one edition become one bibliography unit.

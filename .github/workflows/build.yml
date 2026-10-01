@@ -15,7 +15,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      - run: npm ci
+      - run: npm test
       - run: npm run build
         env:
           GEMINI_API_KEY: test_key_for_build_only
+      - run: npm run typecheck
