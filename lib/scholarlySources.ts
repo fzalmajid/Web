@@ -1,5 +1,5 @@
 export type ScholarlyHit = {
-  provider: "openalex" | "europepmc" | "pubmed";
+  provider: "openalex" | "europepmc" | "pubmed" | "semanticscholar";
   id: string;
   title: string;
   authors: string[];
@@ -82,6 +82,62 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
       journal: cleanText(best?.source?.display_name || work?.primary_location?.source?.display_name, 500) || null,
       uri,
       openAccess: Boolean(work?.open_access?.is_oa || best?.is_oa),
+    };
+  }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
+}
+
+
+export function semanticScholarHasApiKey() {
+  return Boolean(String(process.env.SEMANTIC_SCHOLAR_API_KEY || "").trim());
+}
+
+async function searchSemanticScholar(query: string, limit: number): Promise<ScholarlyHit[]> {
+  const key = String(process.env.SEMANTIC_SCHOLAR_API_KEY || "").trim();
+  const url = new URL("https://api.semanticscholar.org/graph/v1/paper/search");
+  url.searchParams.set("query", query.replace(/-/g, " "));
+  url.searchParams.set("limit", String(Math.max(1, Math.min(12, limit))));
+  url.searchParams.set(
+    "fields",
+    "title,authors,year,venue,url,externalIds,openAccessPdf,abstract"
+  );
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "RuangBelajar/1.0 (scholarly search)",
+      ...(key ? { "x-api-key": key } : {}),
+    },
+    signal: AbortSignal.timeout(7000),
+    cache: "no-store",
+  });
+  if (!response.ok) return [];
+  const payload = await response.json().catch(() => null) as any;
+  const papers = Array.isArray(payload?.data) ? payload.data : [];
+  return papers.map((paper: any): ScholarlyHit | null => {
+    const title = cleanText(paper?.title, 1000);
+    if (!title) return null;
+    const doi = cleanDoi(paper?.externalIds?.DOI);
+    const pmid = cleanText(paper?.externalIds?.PubMed, 80) || null;
+    const paperId = cleanText(paper?.paperId, 240);
+    const paperUrl = cleanText(
+      paper?.openAccessPdf?.url ||
+      paper?.url ||
+      (paperId ? "https://www.semanticscholar.org/paper/" + paperId : ""),
+      1500
+    );
+    if (!/^https?:\/\//i.test(paperUrl)) return null;
+    return {
+      provider: "semanticscholar",
+      id: paperId || doi || pmid || title,
+      title,
+      authors: (Array.isArray(paper?.authors) ? paper.authors : [])
+        .map((author: any) => cleanText(author?.name, 240)).filter(Boolean).slice(0, 30),
+      year: Number(paper?.year) || null,
+      doi,
+      pmid,
+      pmcid: null,
+      journal: cleanText(paper?.venue, 500) || null,
+      uri: paperUrl,
+      openAccess: Boolean(paper?.openAccessPdf?.url),
+      abstract: cleanText(paper?.abstract, 2200) || null,
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
@@ -207,6 +263,7 @@ export async function searchScholarlySources(query: string, limit = 12) {
   const biomedical = isBiomedicalQuery(clean);
   const jobs: Array<Promise<ScholarlyHit[]>> = [];
   jobs.push(searchOpenAlex(clean, Math.min(8, limit)));
+  jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));
   if (biomedical) {
     jobs.push(searchEuropePmc(clean, Math.min(8, limit)));
     jobs.push(searchPubMed(clean, Math.min(6, limit)));
