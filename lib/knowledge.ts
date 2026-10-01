@@ -716,7 +716,18 @@ export function fuseHybridKnowledge(
       /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible|beer[\s-]?lambert|absorbansi|absorbance|panjang gelombang|wavelength|kurva kalibrasi|calibration curve|penetapan kadar|assay)\b/i.test(question);
     const analyticalEvidence =
       /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible|beer[\s-]?lambert|absorbansi|absorbance|panjang gelombang|wavelength|transmitansi|transmittance|kurva kalibrasi|calibration curve|molar absorptivity|absorptivitas)\b/i.test(raw);
-    if (!prior && namedPct && !chunkHasPct && !excipientIntent && !(analyticalIntent && analyticalEvidence)) continue;
+    const dissolutionIntent =
+      /\b(disolusi|dissolution|uji\s+disolusi|dissolution\s+test)\b/i.test(question);
+    const dissolutionEvidence =
+      /\b(disolusi|dissolution|dissolution\s+test|uji\s+disolusi|apparatus\s+[12]|basket|paddle|dayung|keranjang)\b/i.test(raw);
+    if (
+      !prior &&
+      namedPct &&
+      !chunkHasPct &&
+      !excipientIntent &&
+      !(analyticalIntent && analyticalEvidence) &&
+      !(dissolutionIntent && dissolutionEvidence)
+    ) continue;
     const minimumOnlySemantic = semanticModel === "intfloat/multilingual-e5-small" ? 0.85 : 0.82;
     if (!prior && (Number(row.score) || 0) < minimumOnlySemantic * 100000) continue;
     // Semantic search refines ranking; it must not become an indexing gate.
