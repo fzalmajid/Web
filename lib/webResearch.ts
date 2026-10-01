@@ -4,21 +4,34 @@ export type WebResearchHit = {
   snippet: string;
   content: string;
   provider: "searxng" | "crawl4ai" | "direct-fetch";
+  contentKind?: "page" | "snippet";
 };
+import { isIP } from "node:net";
+import { crawl4aiContent, readResearchJson } from "./crawl4aiResult";
+import { isPublicAddress } from "./publicPageFetch";
 
 function cleanText(value: unknown, max = 8000) {
-  return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
 
 function endpoint(name: string) {
-  return String(process.env[name] || "").trim().replace(/\/+$/, "");
+  const raw = String(process.env[name] || "").trim().replace(/\/+$/, "");
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    if (url.username || url.password || url.search || url.hash || !["https:", "http:"].includes(url.protocol)) return "";
+    if (process.env.NODE_ENV === "production" && url.protocol !== "https:") return "";
+    return raw;
+  } catch { return ""; }
 }
 
 function isSafePublicUrl(raw: string) {
   try {
     const url = new URL(raw);
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    const host = url.hostname.toLowerCase();
+    if (url.username || url.password) return false;
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (isIP(host)) return isPublicAddress(host);
     return !(
       host === "localhost" ||
       host === "::1" ||
@@ -63,7 +76,7 @@ function normalizeResult(item: any): { title: string; uri: string; snippet: stri
 export function webResearchStatus() {
   return {
     searxng: { configured: Boolean(endpoint("SEARXNG_URL")), required: false },
-    crawl4ai: { configured: Boolean(endpoint("CRAWL4AI_URL")), required: false },
+    crawl4ai: { configured: Boolean(endpoint("CRAWL4AI_URL")), authenticated: Boolean(String(process.env.CRAWL4AI_API_TOKEN || "").trim()), required: false },
     directFetchFallback: true,
     providerFallback: "existing provider Web grounding remains active",
   };
@@ -82,9 +95,10 @@ export async function searchSearxng(query: string, limit = 8):Promise<Array<{tit
     headers: { Accept: "application/json", "User-Agent": "RuangBelajar/1.0" },
     signal: AbortSignal.timeout(8000),
     cache: "no-store",
+    redirect: "error",
   });
   if (!response.ok) return [];
-  const data = await response.json().catch(() => ({}));
+  const data = await readResearchJson(response);
   return (Array.isArray(data?.results) ? data.results : [])
     .map(normalizeResult)
     .filter((item: any): item is { title: string; uri: string; snippet: string } => Boolean(item))
@@ -93,11 +107,11 @@ export async function searchSearxng(query: string, limit = 8):Promise<Array<{tit
 
 async function crawl4ai(uri: string) {
   const base = endpoint("CRAWL4AI_URL");
-  if (!base) return null;
+  if (!base || !isSafePublicUrl(uri)) return null;
   const url = base.endsWith("/crawl") ? base : base + "/crawl";
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...(process.env.CRAWL4AI_API_TOKEN ? { Authorization: "Bearer " + process.env.CRAWL4AI_API_TOKEN.trim() } : {}) },
     body: JSON.stringify({
       urls: [uri],
       bypass_cache: true,
@@ -106,12 +120,10 @@ async function crawl4ai(uri: string) {
     }),
     signal: AbortSignal.timeout(15000),
     cache: "no-store",
+    redirect: "error",
   });
   if (!response.ok) return null;
-  const data = await response.json().catch(() => ({}));
-  const first = Array.isArray(data?.results) ? data.results[0] : Array.isArray(data) ? data[0] : data;
-  const markdown = cleanText(first?.markdown || first?.cleaned_html || first?.html || first?.text, 12000);
-  return markdown || null;
+  return crawl4aiContent(await readResearchJson(response), htmlToReadableText);
 }
 
 async function directFetch(uri: string) {
@@ -133,13 +145,15 @@ export async function researchWeb(query: string, limit = 6) {
         content = await directFetch(result.uri).catch(() => null);
         provider = "direct-fetch";
       }
+      if (!content) provider = "searxng";
       return {
         ...result,
         content: content || result.snippet,
         provider,
+        contentKind: content ? "page" as const : "snippet" as const,
       };
     }));hits.push(...batch);}
-    return { hits, status: endpoint("CRAWL4AI_URL") ? "searxng-crawl4ai" : "searxng-direct-fetch" };
+    return { hits, status: hits.some(hit => hit.provider === "crawl4ai") ? "searxng-crawl4ai" : hits.some(hit => hit.provider === "direct-fetch") ? "searxng-direct-fetch" : "searxng-snippets" };
   } catch (error: any) {
     console.warn("[WEB_RESEARCH_ADAPTER_FAILED]", String(error?.message || "unknown").slice(0, 200));
     return { hits: [] as WebResearchHit[], status: "provider-fallback" };
@@ -153,6 +167,7 @@ export function webResearchPromptContext(hits: WebResearchHit[]) {
       `${index + 1}. ${hit.title}`,
       `url=${hit.uri}`,
       `provider=${hit.provider}`,
+      `evidence=${hit.contentKind === "snippet" || hit.provider === "searxng" ? "search snippet only; halaman belum berhasil dibaca, bukan bukti full text" : "fetched page content"}`,
       hit.content ? `content=${hit.content}` : `snippet=${hit.snippet}`,
     ].join(" | ")).join("\n") +
     "\nGunakan hanya halaman yang relevan dan jangan mengarang klaim yang tidak didukung isi halaman.";

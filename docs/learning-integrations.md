@@ -35,6 +35,10 @@ The worker must implement bearer authentication, input/output limits, concurrenc
 
 Existing optional research variables remain `SEARXNG_URL`, `CRAWL4AI_URL`, `OPENROUTER_API_KEY`, `OPENROUTER_FREE_MODEL`; normal provider grounding is the fallback. Public page fetching pins DNS to validated public addresses, forbids redirects, limits response size, and uses a timeout. No single public SearXNG instance is required.
 
+For authenticated Crawl4AI deployments, set server-only `CRAWL4AI_API_TOKEN` as well. Production research endpoints must be HTTPS and must not redirect authentication headers. Crawl4AI accepts legacy string Markdown and structured `raw_markdown`/`fit_markdown`; failed pages and oversized responses are rejected. Search snippets are identified as snippets, never relabeled as fetched full text. The crawler host must enforce private-address/redirect egress restrictions independently.
+
+`Alat belajar → Audio & transkrip` imports an audio file locally (40 MB / 20 minutes maximum), transcribes Indonesian, supports cancellation and timestamps, and does not upload or ingest into RAG. The shared Record pipeline now uses native filtered resampling instead of nearest-sample decimation, verifies WebGPU adapter availability, and isolates Silero VAD in an owned worker with a timeout. VAD workers are terminated after every job; idle Whisper workers are released after 30 seconds while model weights remain cached. Cancelling never initiates a cloud fallback in the local import module. Exact silence skips Whisper. File audio does not retroactively receive WebRTC noise suppression.
+
 `GET /api/integrations/status` reports configured versus browser versus adapter states without secret values. Run `npm test`, `npm run typecheck`, `npm run build`, then UI smoke tests before merging. Build copies public WASM/worker assets from pinned npm packages; generated assets are not committed.
 
 ## Licenses and data rights
