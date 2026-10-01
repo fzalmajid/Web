@@ -177,7 +177,7 @@ async function main() {
   }
   const failed = results.filter((result) => !result.ok);
   console.log("\nTOTAL=" + results.length + " PASS=" + (results.length - failed.length) + " FAIL=" + failed.length);
-  if (failed.length) process.exit(1);
+  process.exit(failed.length ? 1 : 0);
 }
 
 main().catch((error) => {
