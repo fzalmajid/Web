@@ -120,6 +120,7 @@ function openAlexMetadata(work: any): ReferenceMetadata {
     doi: doi || null,
     url: primary?.landing_page_url || (doi ? "https://doi.org/" + doi : work?.id) || null,
     openalex_id: work?.id || null,
+    pmid: /(\d+)\/?$/.exec(String(work?.ids?.pmid || ""))?.[1] || null,
   };
   metadata.provenance = provenance(metadata, "openalex", 0.94);
   return metadata;

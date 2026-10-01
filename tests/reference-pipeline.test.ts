@@ -145,3 +145,18 @@ test("OAuth is disabled by default and private citation endpoint requires own-Li
     if (previous !== undefined) process.env.ENABLE_LEGACY_MENDELEY = previous;
   }
 });
+
+test("OpenAlex PMID lookup retains exact PMID evidence in the audit", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: any) => String(url).includes("api.openalex.org") ?
+    Response.json({ results: [{ title: article.title, doi: article.doi, type: "article", publication_year: 1953,
+      ids: { pmid: "https://pubmed.ncbi.nlm.nih.gov/13054692" },
+      authorships: [{ author: { display_name: "James Watson" } }] }] }) : new Response("", { status: 404 })) as typeof fetch;
+  try {
+    const result = await resolveReferenceMetadata({ fileName: "article.pdf", frontMatter: "PMID: 13054692" });
+    assert.equal(result.status, "verified");
+    assert.equal(result.metadata.pmid, "13054692");
+    assert.equal(result.catalogMatches[0].method, "pmid");
+    assert.deepEqual(result.metadata.audit?.issues, []);
+  } finally { globalThis.fetch = originalFetch; }
+});
