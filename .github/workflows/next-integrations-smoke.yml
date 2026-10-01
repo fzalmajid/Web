@@ -15,5 +15,5 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: npm install --no-save tsx wavefile
+      - run: npm install --no-save tsx wavefile jsdom
       - run: npx tsx scripts/smoke-next-integrations.ts
