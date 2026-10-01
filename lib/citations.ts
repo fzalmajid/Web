@@ -316,7 +316,9 @@ export function citationStructuralWarnings(
 ): string[] {
   if (style === "none" || !selectedOutputs.includes("bibliography")) return [];
   const heading = style === "mla" ? "Works Cited" : "(?:References|Daftar Pustaka)";
-  const headingRegex = new RegExp("^(?:#{1,6}\\s*)?" + heading + "\\s*:?\\s*$", "im");
+  // The normal answer formatter requires WhatsApp-style *bold*. Match the
+  // entire heading line without consuming the first bibliography entry.
+  const headingRegex = new RegExp("^[\\t ]*(?:#{1,6}[\\t ]*)?(?:\\*{1,2}|_{1,2})?" + heading + "[\\t ]*:?[\\t ]*(?:\\*{1,2}|_{1,2})?[\\t ]*:?[\\t ]*$", "im");
   const match = headingRegex.exec(answer);
   if (!match) {
     return ["Bagian " + (style === "mla" ? "Works Cited" : "References") + " tidak ditemukan; periksa keluaran sitasi."];
