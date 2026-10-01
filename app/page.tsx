@@ -1,6 +1,7 @@
 "use client";
 
-// Production UI baseline: Choose Model + AI / Reference / Web + Plugin center.
+// Normal UI exposes AI Ruang Belajar modes; the model picker remains available
+// only as an explicit debugging escape hatch while provider integrations settle.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import katex from "katex";
@@ -27,6 +28,7 @@ import {
   modelCapability,
   modelProvider,
   providerModelId,
+  selectionFromExperienceMode,
   selectionFromLegacyMode,
   type AiEffort,
   type AiModelId,
@@ -34,7 +36,9 @@ import {
   type AiSelection,
 } from "@/lib/aiModels";
 import { applyFsrsRating, fsrsDueLabel, fsrsIsDue, fsrsStateLabel, type FsrsRating } from "@/lib/fsrsScheduling";
-import { preloadLocalWhisper, transcribeBlobLocally } from "@/lib/localWhisper";
+import { normalizeAiExperienceMode, type AiExperienceMode } from "@/lib/aiOrchestration";
+import { buildLocalHelperHints, localHelperContext } from "@/lib/localAiHelper";
+import { preloadLocalWhisper, transcribeBlobLocally, transcribeBrowserAudio } from "@/lib/localWhisper";
 
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
@@ -509,7 +513,17 @@ function getSessionGoogleGeminiAuth() {
   return { accessToken, projectId };
 }
 
-function aiRequestHeaders(session: Session, selection?: AiSelection) {
+function readAiExperienceMode(): AiExperienceMode {
+  if (typeof window === "undefined") return "instant";
+  return normalizeAiExperienceMode(window.localStorage.getItem("rb-ai-experience-mode") || "instant");
+}
+
+function aiRequestHeaders(
+  session: Session,
+  selection?: AiSelection,
+  experienceMode?: AiExperienceMode,
+  debugModel = false
+) {
   const googleAuth = getSessionGoogleGeminiAuth();
   const geminiKey = googleAuth.accessToken && googleAuth.projectId ? "" : getSessionGeminiKey();
   const openAIKey = getSessionOpenAIKey();
@@ -529,6 +543,8 @@ function aiRequestHeaders(session: Session, selection?: AiSelection) {
     ...(openAIKey ? { "X-RB-OpenAI-Key": openAIKey } : {}),
     ...(anthropicKey ? { "X-RB-Anthropic-Key": anthropicKey } : {}),
     ...(selection ? { "X-RB-AI-Model": selection.model, "X-RB-AI-Effort": selection.effort, "X-RB-AI-Length": selection.length || "medium" } : {}),
+    ...(experienceMode ? { "X-RB-AI-Mode": experienceMode } : {}),
+    ...(debugModel ? { "X-RB-AI-Debug-Model": "1" } : {}),
   };
 }
 
@@ -6390,24 +6406,37 @@ function DatabaseAudioRecorder({
     const browserDraft = liveDraftRef.current.trim() || transcriptRef.current.trim() || liveText.trim();
     let raw = browserDraft;
 
-    setStatus("Mendengarkan audio asli secara verbatim · tanpa koreksi atau penyesuaian...");
-    const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
-    const response = await fetch("/api/transcribe", {
-      method: "POST",
-      headers: aiRequestHeaders(session, transcriptionSelection),
-      body: JSON.stringify({
-        recordingId: row.id,
-        filePath: path,
-        mimeType,
-        purpose: "recording",
-        contextNodeId: nodeId,
-        browserTranscript: browserDraft,
-        aiMode: legacyModeForSelection(transcriptionSelection),
-      }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (response.ok) {
-      raw = String(data.rawTranscript || browserDraft).trim();
+    let localWhisper = false;
+    try {
+      setStatus("Menyiapkan Silero VAD + Whisper lokal · WebGPU/WASM adaptif...");
+      const result = await transcribeBrowserAudio(blob, {
+        mode: "instant",
+        onProgress: (message) => setStatus(message),
+      });
+      raw = result.text.trim();
+      localWhisper = Boolean(raw);
+    } catch (error: any) {
+      console.warn("[LOCAL_WHISPER_RECORDING_FALLBACK]", error?.message || "unknown");
+    }
+
+    if (!localWhisper) {
+      setStatus("Whisper lokal belum siap · memakai fallback transkripsi provider...");
+      const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: aiRequestHeaders(session, transcriptionSelection),
+        body: JSON.stringify({
+          recordingId: row.id,
+          filePath: path,
+          mimeType,
+          purpose: "recording",
+          contextNodeId: nodeId,
+          browserTranscript: browserDraft,
+          aiMode: legacyModeForSelection(transcriptionSelection),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) raw = String(data.rawTranscript || browserDraft).trim();
     }
 
     let knowledgeEntryId: string | null = null;
@@ -6445,7 +6474,7 @@ function DatabaseAudioRecorder({
     transcriptRef.current = "";
     setStatus(
       raw
-        ? "Rekaman + transkrip mentah sudah masuk ke lokasi ini. Belum dirapikan atau dikoreksi."
+        ? "Rekaman + transkrip mentah sudah masuk · " + (localWhisper ? "Whisper lokal + Silero VAD" : "provider fallback") + ". Belum dirapikan atau dikoreksi."
         : "Audio sudah masuk ke lokasi ini. Transkrip belum tersedia; audio tetap bisa didengar ulang."
     );
     onChange();
@@ -7858,25 +7887,20 @@ function RecordingPage({
       return alert(error.message);
     }
 
+    let localFinalTranscript = currentLiveTranscript;
     if (aiSelection.model === "local") {
-      let localTranscript = "";
-      let localDevice = "";
       try {
-        setStatus("Whisper lokal sedang mentranskripsikan audio · tanpa kredit AI…");
-        const local = await transcribeBlobLocally(blob, (progress) => {
-          if (progress.status === "progress" && progress.total > 0) {
-            const percent = Math.max(0, Math.min(100, Math.round(progress.loaded / progress.total * 100)));
-            setStatus("Menyiapkan Whisper lokal " + percent + "% · model akan di-cache browser.");
-          }
+        setStatus("Menyiapkan Silero VAD + Whisper lokal · WebGPU/WASM adaptif...");
+        const local = await transcribeBrowserAudio(blob, {
+          mode: aiMode,
+          onProgress: (message) => setStatus(message),
         });
-        localTranscript = String(local.text || "").trim();
-        localDevice = String(local.device || "");
+        localFinalTranscript = local.text.trim() || localFinalTranscript;
       } catch (error: any) {
-        console.warn("[LOCAL_WHISPER_FALLBACK]", error?.message || "unknown");
+        console.warn("[LOCAL_WHISPER_RECORDING_FALLBACK]", error?.message || "unknown");
       }
 
-      const finalTranscript = localTranscript || currentLiveTranscript;
-      if (!finalTranscript) {
+      if (!localFinalTranscript) {
         setBusy(false);
         setStatus("Audio tersimpan. Whisper lokal dan transkrip live belum menghasilkan teks; audio tetap aman untuk dicoba ulang.");
         onChange();
@@ -7886,9 +7910,9 @@ function RecordingPage({
       await supabase
         .from("recordings")
         .update({
-          raw_transcript: finalTranscript,
-          structured_transcript: finalTranscript,
-          transcript: finalTranscript,
+          raw_transcript: localFinalTranscript,
+          structured_transcript: localFinalTranscript,
+          transcript: localFinalTranscript,
           corrections: [],
         })
         .eq("id", row.id);
@@ -7896,17 +7920,13 @@ function RecordingPage({
       setBusy(false);
       setResult({
         recordingId: row.id,
-        raw: finalTranscript,
-        structured: finalTranscript,
+        raw: localFinalTranscript,
+        structured: localFinalTranscript,
         summary: "",
         corrections: [],
         added: false,
       });
-      setStatus(
-        localTranscript
-          ? "Selesai · Whisper lokal" + (localDevice ? " · " + localDevice.toUpperCase() : "") + " · tanpa Gemini API."
-          : "Selesai · Browser fallback · Whisper lokal belum berhasil · tanpa Gemini API."
-      );
+      setStatus("Selesai · Local Whisper + Silero VAD · tanpa Gemini API.");
       onChange();
       return;
     }
@@ -10216,6 +10236,43 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
   );
 }
 
+function AiExperiencePicker({
+  value,
+  onChange,
+}: {
+  value: AiExperienceMode;
+  onChange: (value: AiExperienceMode) => void;
+}) {
+  const options: Array<{ value: AiExperienceMode; label: string; hint: string }> = [
+    { value: "simple", label: "Simple", hint: "Local/browser" },
+    { value: "instant", label: "Instant", hint: "Jawaban cepat" },
+    { value: "medium", label: "Medium", hint: "Dua sudut pandang" },
+    { value: "high", label: "High", hint: "Council + verifier" },
+  ];
+  return (
+    <div className="aiExperiencePicker" role="group" aria-label="Mode AI Ruang Belajar">
+      <span className="aiExperienceLabel">AI RUANG BELAJAR</span>
+      <div className="aiExperienceChoices">
+        {options.map((option) => (
+          <button
+            type="button"
+            key={option.value}
+            className={value === option.value ? "active" : ""}
+            onClick={() => {
+              onChange(option.value);
+              window.localStorage.setItem("rb-ai-experience-mode", option.value);
+            }}
+            aria-pressed={value === option.value}
+            title={option.hint}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AiSourceModelBar({
   sources,
   onSourcesChange,
@@ -10226,6 +10283,9 @@ function AiSourceModelBar({
   allowLocal = false,
   context = "general",
   showSources = true,
+  experienceMode,
+  onExperienceModeChange,
+  showModelDebug = false,
 }: {
   sources: AiSourceKind[];
   onSourcesChange: (sources: AiSourceKind[]) => void;
@@ -10236,6 +10296,9 @@ function AiSourceModelBar({
   allowLocal?: boolean;
   context?: "general" | "chat";
   showSources?: boolean;
+  experienceMode?: AiExperienceMode;
+  onExperienceModeChange?: (mode: AiExperienceMode) => void;
+  showModelDebug?: boolean;
 }) {
   useEffect(() => {
     if (selection.model === "local" && (sources.length !== 1 || sources[0] !== "database")) {
@@ -10278,14 +10341,33 @@ function AiSourceModelBar({
         </div>
       )}
       <CitationPicker compact={compact} />
-      <AiModePicker
-        value={selection}
-        onChange={onSelectionChange}
-        action={action === "ask" && sources.includes("web") ? "ask_web" : action}
-        context={context}
-        compact={compact}
-        allowLocal={allowLocal}
-      />
+      {experienceMode && onExperienceModeChange ? (
+        <>
+          <AiExperiencePicker value={experienceMode} onChange={onExperienceModeChange} />
+          {showModelDebug ? (
+            <details className="aiDebugModelDetails">
+              <summary>Debug: Choose Model</summary>
+              <AiModePicker
+                value={selection}
+                onChange={onSelectionChange}
+                action={action === "ask" && sources.includes("web") ? "ask_web" : action}
+                context={context}
+                compact={compact}
+                allowLocal={allowLocal}
+              />
+            </details>
+          ) : null}
+        </>
+      ) : (
+        <AiModePicker
+          value={selection}
+          onChange={onSelectionChange}
+          action={action === "ask" && sources.includes("web") ? "ask_web" : action}
+          context={context}
+          compact={compact}
+          allowLocal={allowLocal}
+        />
+      )}
     </div>
   );
 }
@@ -10431,7 +10513,9 @@ function BottomAskBar({
   } | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
-  const aiMode = legacyModeForSelection(aiSelection);
+  const [aiExperienceMode, setAiExperienceMode] = useState<AiExperienceMode>(readAiExperienceMode);
+  const [debugModel, setDebugModel] = useState(false);
+  const aiMode = aiExperienceMode;
   const [composerBottom, setComposerBottom] = useState(16);
   const [composerHeight, setComposerHeight] = useState(118);
   const dragRef = useRef<{ y: number; bottom: number } | null>(null);
@@ -10492,10 +10576,26 @@ function BottomAskBar({
   }, [nodes, scopeNodeId]);
 
   useEffect(() => {
-    if (aiSelection.model === "local") {
+    if (aiExperienceMode === "simple") {
       setSelectedSources(["database"]);
     }
-  }, [aiSelection.model]);
+  }, [aiExperienceMode]);
+
+  function changeExperienceMode(mode: AiExperienceMode) {
+    setAiExperienceMode(mode);
+    window.localStorage.setItem("rb-ai-experience-mode", mode);
+    if (mode === "simple") {
+      setAiSelection(defaultSelection("local", "chat"));
+      setSelectedSources(["database"]);
+      return;
+    }
+    if (aiExperienceMode === "simple") {
+      setSelectedSources(["ai", "database"]);
+    }
+    if (aiSelection.model === "local") {
+      setAiSelection(selectionFromExperienceMode(mode, "chat"));
+    }
+  }
 
   useEffect(() => {
     setSelectedSourceNodeIds([]);
@@ -10606,6 +10706,7 @@ function BottomAskBar({
           referenceOwnerId,
           readOnlyReference,
           aiSelection,
+          aiExperienceMode,
           scopeName,
         },
         updated_at: now,
@@ -10663,6 +10764,7 @@ function BottomAskBar({
           referenceOwnerId,
           readOnlyReference,
           aiSelection: selectionOverride,
+          aiExperienceMode,
           scopeName,
         },
         updated_at: now,
@@ -10709,6 +10811,7 @@ function BottomAskBar({
     if (Array.isArray(settings.sourceNodeIds)) setSelectedSourceNodeIds(settings.sourceNodeIds.map(String));
     if (Array.isArray(settings.sourceFileIds)) setSelectedSourceFileIds(settings.sourceFileIds.map(String));
     if (settings.aiSelection?.model) setAiSelection(settings.aiSelection as AiSelection);
+    if (settings.aiExperienceMode) setAiExperienceMode(normalizeAiExperienceMode(settings.aiExperienceMode));
   }
 
   function closeChatRoom() {
@@ -11966,7 +12069,7 @@ function BottomAskBar({
 
     const response = await fetch("/api/ask", {
       method: "POST",
-      headers: aiRequestHeaders(session, nextSelection),
+      headers: aiRequestHeaders(session, nextSelection, aiExperienceMode, debugModel),
       body: JSON.stringify(requestBody),
     });
     const data = await response.json().catch(() => ({}));
@@ -12103,6 +12206,10 @@ function BottomAskBar({
       }
     }
 
+    const localHelper = aiMode === "medium" || aiMode === "high"
+      ? await buildLocalHelperHints(asked, getSessionLocalAiConfig())
+      : null;
+
     const requestBody = {
       question: asked,
       history,
@@ -12121,12 +12228,13 @@ function BottomAskBar({
       attachmentMimeType: pendingAttachment?.mimeType || "",
       attachmentUrl: effectiveUrl,
       semanticEmbedding,
+      helperContext: localHelper ? localHelperContext(localHelper) : "",
       ...citationRequestFields(),
     };
 
     const response = await fetch("/api/ask", {
       method: "POST",
-      headers: aiRequestHeaders(session, aiSelection),
+      headers: aiRequestHeaders(session, aiSelection, aiExperienceMode, debugModel),
       body: JSON.stringify(requestBody),
     });
 
@@ -12325,7 +12433,13 @@ function BottomAskBar({
               sources={selectedSources}
               onSourcesChange={setSelectedSources}
               selection={aiSelection}
-              onSelectionChange={setAiSelection}
+              onSelectionChange={(next) => {
+                setDebugModel(true);
+                setAiSelection(next);
+              }}
+              experienceMode={aiExperienceMode}
+              onExperienceModeChange={changeExperienceMode}
+              showModelDebug
               action="ask"
               context="chat"
               compact

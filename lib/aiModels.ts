@@ -420,6 +420,20 @@ export function selectionFromLegacyMode(
   return { model: "gemini-2.5-flash-lite", effort: "none" };
 }
 
+// Normal experience modes intentionally use stable provider defaults. The
+// legacy selector can still request newer/experimental IDs in debug mode.
+export function selectionFromExperienceMode(
+  mode: AiLegacyMode,
+  context: AiContext = "general"
+): AiSelection {
+  if (mode === "simple") return defaultSelection("local", context);
+  if (context === "transcription") return defaultSelection("gemini-3.5-transcribe", context);
+  if (mode === "medium" || mode === "high") {
+    return defaultSelection("gemini-2.5-flash", context);
+  }
+  return defaultSelection("gemini-2.5-flash-lite", context);
+}
+
 export function legacyModeForSelection(selection: AiSelection): AiLegacyMode {
   if (selection.model === "local") return "simple";
   if (selection.effort === "high" || selection.effort === "xhigh" || selection.effort === "max") return "high";
