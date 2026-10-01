@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
-import { resolveReferenceMetadata } from "@/lib/referenceMetadataServer";
-import { getFreshMendeleySession, setMendeleySessionCookie } from "@/lib/mendeleySessionServer";
+import { resolveReferenceMetadata } from "@/lib/referencePipelineServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,18 +26,6 @@ async function frontMatterForFile(supabase: any, sourceFileId: string) {
     .slice(0, 24000);
 }
 
-function resolvedStatus(file: any, resolved: any) {
-  if (file.bibliographic_metadata_status === "manual") return "manual";
-  const highConfidence = Object.values(resolved.metadata?.provenance || {})
-    .filter((item: any) => Number(item?.confidence) >= 0.9).length;
-  return resolved.mendeleyMatched ||
-    resolved.crossrefMatched ||
-    resolved.catalogMatches?.length > 0 ||
-    highConfidence >= 3
-    ? "verified"
-    : "auto";
-}
-
 export async function POST(req: NextRequest) {
   try {
     const token = bearer(req);
@@ -48,16 +35,17 @@ export async function POST(req: NextRequest) {
     if (!userData.user) return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
-    const limit = Math.max(1, Math.min(6, Number(body?.limit) || 4));
-    const mendeleySession = await getFreshMendeleySession(req);
+    const limit = Math.max(1, Math.min(2, Math.floor(Number(body?.limit) || 2)));
+    const afterId = String(body?.afterId || "");
 
-    const { data: files, error } = await supabase
+    let query = supabase
       .from("source_files")
       .select("id,file_name,mime_type,source_url,bibliographic_metadata,bibliographic_metadata_status,created_at")
       .eq("user_id", userData.user.id)
-      .eq("bibliographic_metadata_status", "unreviewed")
-      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
       .limit(limit);
+    if (afterId) query = query.gt("id", afterId);
+    const { data: files, error } = await query;
 
     if (error) throw error;
     const sourceFiles = files || [];
@@ -75,10 +63,9 @@ export async function POST(req: NextRequest) {
           sourceUrl: file.source_url,
           frontMatter,
           existing: file.bibliographic_metadata || {},
-          preserveManual: false,
-          mendeleyAccessToken: mendeleySession.session?.accessToken || null,
+          preserveManual: file.bibliographic_metadata_status === "manual",
         });
-        const status = resolvedStatus(file, resolved);
+        const status = resolved.status;
         const { error: updateError } = await supabase
           .from("source_files")
           .update({
@@ -94,21 +81,22 @@ export async function POST(req: NextRequest) {
       processed.push(...results);
     }
 
-    const { count: remaining } = await supabase
+    const { count: remaining, error: countError } = await supabase
       .from("source_files")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userData.user.id)
-      .eq("bibliographic_metadata_status", "unreviewed");
+      .gt("id", sourceFiles.at(-1)?.id || afterId || "00000000-0000-0000-0000-000000000000");
+    if (countError) throw countError;
 
     const response = NextResponse.json({
       processed,
       processedCount: processed.length,
       remainingUnreviewed: Number(remaining || 0),
-      mendeleyConnected: mendeleySession.connected,
+      remainingFiles: Number(remaining || 0),
+      nextCursor: sourceFiles.at(-1)?.id || null,
     }, {
       headers: { "Cache-Control": "no-store" },
     });
-    if (mendeleySession.cookieValue) setMendeleySessionCookie(response, mendeleySession.cookieValue);
     return response;
   } catch (error: any) {
     return NextResponse.json({

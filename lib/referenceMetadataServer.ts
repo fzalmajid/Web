@@ -7,6 +7,7 @@ import { lookupPublicReferenceCatalogs } from "@/lib/referenceCatalogsServer";
 let cachedMendeley: { token: string; expiresAt: number } | null = null;
 
 export function mendeleyConfigured() {
+  if (process.env.ENABLE_LEGACY_MENDELEY !== "true") return false;
   return Boolean(
     String(process.env.MENDELEY_CLIENT_ID || "").trim() &&
     String(process.env.MENDELEY_CLIENT_SECRET || "").trim()

@@ -1,21 +1,18 @@
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
-import { titleSimilarity } from "@/lib/referenceMetadata";
+import { titleSimilarity, normalizeDoi, normalizeIsbn, isbnIdentity } from "@/lib/referenceMetadata";
 
 export type CatalogMatch = {
-  source: "datacite" | "openalex" | "openlibrary" | "europepmc" | "pubmed";
+  source: "crossref" | "datacite" | "openalex" | "openlibrary" | "europepmc" | "pubmed";
   metadata: ReferenceMetadata;
   similarity: number;
 };
 
 function cleanDoi(value: unknown) {
-  return String(value || "").trim()
-    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "")
-    .replace(/^doi:\s*/i, "")
-    .replace(/[.,;)]$/, "");
+  return normalizeDoi(value);
 }
 
 function cleanIsbn(value: unknown) {
-  return String(value || "").replace(/[^0-9X]/gi, "").toUpperCase();
+  return normalizeIsbn(value);
 }
 
 function authorsFromDataCite(items: any[]) {
@@ -44,7 +41,7 @@ function dataCiteMetadata(item: any): ReferenceMetadata {
   const container = Array.isArray(attributes?.container) ? attributes.container?.title : attributes?.container?.title;
   const doi = cleanDoi(attributes?.doi || item?.id);
   const isbn = (Array.isArray(attributes?.relatedIdentifiers) ? attributes.relatedIdentifiers : [])
-    .find((entry: any) => /isbn/i.test(String(entry?.relatedIdentifierType || "")))?.relatedIdentifier || null;
+    .find((entry: any) => /isbn/i.test(String(entry?.relatedIdentifierType || "")) && /IsIdenticalTo/i.test(String(entry?.relationType || "")))?.relatedIdentifier || null;
   const typeName = String(attributes?.types?.resourceTypeGeneral || "").toLowerCase();
   const type: ReferenceMetadata["type"] =
     typeName.includes("journal") ? "journal_article" :
@@ -68,6 +65,7 @@ function dataCiteMetadata(item: any): ReferenceMetadata {
 }
 
 async function lookupDataCite(input: ReferenceMetadata): Promise<CatalogMatch | null> {
+  if ((input.isbn || input.pmid) && !input.doi) return null;
   try {
     const doi = cleanDoi(input.doi);
     if (doi) {
@@ -129,11 +127,12 @@ function openAlexMetadata(work: any): ReferenceMetadata {
 
 async function lookupOpenAlex(input: ReferenceMetadata): Promise<CatalogMatch | null> {
   const apiKey = String(process.env.OPENALEX_API_KEY || "").trim();
-  if (input.type === "lecture_slides") return null;
+  if (input.type === "lecture_slides" || (input.isbn && !input.doi)) return null;
   try {
     const url = new URL("https://api.openalex.org/works");
     const doi = cleanDoi(input.doi);
     if (doi) url.searchParams.set("filter", "doi:" + doi);
+    else if (input.pmid) url.searchParams.set("filter", "pmid:" + input.pmid);
     else if (input.title) url.searchParams.set("search", input.title);
     else return null;
     url.searchParams.set("per-page", "5");
@@ -150,7 +149,7 @@ async function lookupOpenAlex(input: ReferenceMetadata): Promise<CatalogMatch | 
       const metadata = openAlexMetadata(work);
       return {
         metadata,
-        similarity: doi ? 1 : titleSimilarity(String(input.title || ""), String(metadata.title || "")),
+        similarity: doi || input.pmid ? 1 : titleSimilarity(String(input.title || ""), String(metadata.title || "")),
       };
     }).sort((a: any, b: any) => b.similarity - a.similarity);
     if (!ranked[0] || ranked[0].similarity < (doi ? 0.99 : 0.88)) return null;
@@ -166,11 +165,12 @@ function openLibraryMetadata(doc: any): ReferenceMetadata {
   const metadata: ReferenceMetadata = {
     title: doc?.title || null,
     authors: Array.isArray(doc?.author_name) ? doc.author_name : [],
-    year: Number(doc?.first_publish_year || doc?.publish_year?.[0]) || null,
-    publisher: Array.isArray(doc?.publisher) ? doc.publisher[0] : null,
+    // A work-level search result cannot tell us which edition was uploaded.
+    year: null,
+    publisher: null,
     type: "book",
-    edition: Array.isArray(doc?.edition_name) ? doc.edition_name[0] : null,
-    isbn: isbn || null,
+    edition: null,
+    isbn: null,
     url: workKey ? "https://openlibrary.org" + workKey : null,
     openlibrary_id: workKey || null,
   };
@@ -179,10 +179,40 @@ function openLibraryMetadata(doc: any): ReferenceMetadata {
 }
 
 async function lookupOpenLibrary(input: ReferenceMetadata): Promise<CatalogMatch | null> {
-  if (input.type === "lecture_slides" || input.type === "journal_article") return null;
+  if (input.type === "lecture_slides" || input.type === "journal_article" || input.doi || input.pmid) return null;
   try {
     const url = new URL("https://openlibrary.org/search.json");
     const isbn = cleanIsbn(input.isbn);
+    if (isbn) {
+      // Work-level search mixes publisher/year/ISBN across editions. Retrieve the
+      // exact edition instead, so a fifth edition can never become a sixth.
+      const response = await fetch("https://openlibrary.org/isbn/" + isbn + ".json", {
+        headers: { "User-Agent": "RuangBelajar/1.0 (reference validation)" },
+        signal: AbortSignal.timeout(6500), cache: "no-store",
+      });
+      if (!response.ok) return null;
+      const data = await response.json() as any;
+      if (![...(data.isbn_10 || []), ...(data.isbn_13 || [])].some((id) => isbnIdentity(id) === isbnIdentity(isbn))) return null;
+      const authorResults = await Promise.allSettled((data.authors || []).slice(0, 10).map(async (author: any) => {
+        if (!/^\/authors\/OL\d+A$/.test(author.key || "")) return null;
+        const authorResponse = await fetch("https://openlibrary.org" + author.key + ".json", {
+          signal: AbortSignal.timeout(6500), cache: "no-store",
+        });
+        if (!authorResponse.ok) return null;
+        return (await authorResponse.json() as any)?.name || null;
+      }));
+      const authors = authorResults.flatMap((result) => result.status === "fulfilled" && result.value ? [String(result.value)] : []);
+      const metadata: ReferenceMetadata = {
+        title: data.title || null,
+        authors,
+        year: Number(/\b(1[5-9]\d{2}|20\d{2})\b/.exec(data.publish_date || "")?.[1]) || null,
+        publisher: data.publishers?.[0] || null,
+        edition: /\d+/.exec(data.edition_name || "")?.[0] || data.edition_name || null,
+        type: "book", isbn, url: data.key ? "https://openlibrary.org" + data.key : null, openlibrary_id: data.key || null,
+      };
+      metadata.provenance = provenance(metadata, "openlibrary", 0.99);
+      return { source: "openlibrary", metadata, similarity: 1 };
+    }
     if (isbn) url.searchParams.set("isbn", isbn);
     else if (input.title) url.searchParams.set("title", input.title);
     else return null;
@@ -232,11 +262,11 @@ function europePmcMetadata(item: any): ReferenceMetadata {
 }
 
 async function lookupEuropePmc(input: ReferenceMetadata): Promise<CatalogMatch | null> {
-  if (input.type === "lecture_slides" || input.type === "book" || !input.title) return null;
+  if (input.type === "lecture_slides" || input.type === "book" || !(input.title || input.doi || input.pmid)) return null;
   try {
     const url = new URL("https://www.ebi.ac.uk/europepmc/webservices/rest/search");
     const doi = cleanDoi(input.doi);
-    url.searchParams.set("query", doi ? 'DOI:"' + doi + '"' : 'TITLE:"' + String(input.title).replace(/"/g, "") + '"');
+    url.searchParams.set("query", input.pmid ? "EXT_ID:" + input.pmid + " AND SRC:MED" : doi ? 'DOI:"' + doi + '"' : 'TITLE:"' + String(input.title).replace(/"/g, "") + '"');
     url.searchParams.set("format", "json");
     url.searchParams.set("resultType", "core");
     url.searchParams.set("pageSize", "5");
@@ -250,7 +280,7 @@ async function lookupEuropePmc(input: ReferenceMetadata): Promise<CatalogMatch |
     const items = Array.isArray(payload?.resultList?.result) ? payload.resultList.result : [];
     const ranked = items.map((item: any) => {
       const metadata = europePmcMetadata(item);
-      return { metadata, similarity: doi ? 1 : titleSimilarity(String(input.title), String(metadata.title || "")) };
+      return { metadata, similarity: doi || input.pmid ? 1 : titleSimilarity(String(input.title), String(metadata.title || "")) };
     }).sort((a: any, b: any) => b.similarity - a.similarity);
     if (!ranked[0] || ranked[0].similarity < (doi ? 0.99 : 0.9)) return null;
     return { source: "europepmc", ...ranked[0] };
@@ -273,6 +303,10 @@ function pubMedMetadata(item: any): ReferenceMetadata {
   const metadata: ReferenceMetadata = {
     title: String(item?.title || "").replace(/[.]$/, "") || null,
     authors,
+    author_details: authors.map((name: string) => {
+      const match = /^(.*?)\s+([A-Z]+)$/.exec(name);
+      return match ? { family: match[1], given: match[2].split("").join(" ") } : { literal: name };
+    }),
     year: yearMatch ? Number(yearMatch[1]) : null,
     type: "journal_article",
     container_title: item?.fulljournalname || item?.source || null,
@@ -288,7 +322,7 @@ function pubMedMetadata(item: any): ReferenceMetadata {
 }
 
 async function lookupPubMed(input: ReferenceMetadata): Promise<CatalogMatch | null> {
-  if (input.type === "lecture_slides" || input.type === "book" || !input.title) return null;
+  if (input.type === "lecture_slides" || input.type === "book" || !(input.title || input.doi || input.pmid)) return null;
   const apiKey = String(process.env.NCBI_API_KEY || "").trim();
   try {
     const doi = cleanDoi(input.doi);
@@ -303,6 +337,8 @@ async function lookupPubMed(input: ReferenceMetadata): Promise<CatalogMatch | nu
         : '"' + String(input.title).replace(/"/g, "") + '"[Title]'
     );
     if (apiKey) searchUrl.searchParams.set("api_key", apiKey);
+    let ids: string[] = input.pmid ? [input.pmid] : [];
+    if (!ids.length) {
     const searchResponse = await fetch(searchUrl, {
       headers: { "User-Agent": "RuangBelajar/1.0 (reference validation)" },
       signal: AbortSignal.timeout(6500),
@@ -310,9 +346,10 @@ async function lookupPubMed(input: ReferenceMetadata): Promise<CatalogMatch | nu
     });
     if (!searchResponse.ok) return null;
     const searchPayload = await searchResponse.json().catch(() => null) as any;
-    const ids = Array.isArray(searchPayload?.esearchresult?.idlist)
+    ids = Array.isArray(searchPayload?.esearchresult?.idlist)
       ? searchPayload.esearchresult.idlist.slice(0, 5)
       : [];
+    }
     if (!ids.length) return null;
 
     const summaryUrl = new URL("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi");
@@ -334,7 +371,7 @@ async function lookupPubMed(input: ReferenceMetadata): Promise<CatalogMatch | nu
         const metadata = pubMedMetadata(item);
         return {
           metadata,
-          similarity: doi ? 1 : titleSimilarity(String(input.title), String(metadata.title || "")),
+          similarity: doi || input.pmid ? 1 : titleSimilarity(String(input.title), String(metadata.title || "")),
         };
       })
       .sort((a: any,b: any) => b.similarity - a.similarity);

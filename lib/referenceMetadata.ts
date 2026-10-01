@@ -14,9 +14,22 @@ export type MetadataProvenance = {
   note?: string;
 };
 
+export const REFERENCE_ENGINE_VERSION = "public-library-v1";
+export type ReferenceAudit = {
+  engineVersion: string;
+  checkedAt: string;
+  status: "auto" | "verified" | "manual" | "conflict";
+  basis: "catalog" | "document" | "manual" | "incomplete";
+  matches: Array<{ source: string; similarity: number; method: string }>;
+  issues: string[];
+  missing: string[];
+  history: Array<{ checkedAt: string; status: string; basis: string }>;
+};
+
 export type ReferenceMetadata = {
   title?: string | null;
   authors?: string[];
+  author_details?: Array<{ family?: string; given?: string; literal?: string }>;
   corporate_author?: string | null;
   year?: number | null;
   publisher?: string | null;
@@ -37,7 +50,87 @@ export type ReferenceMetadata = {
   pmid?: string | null;
   pmcid?: string | null;
   provenance?: Record<string, MetadataProvenance>;
+  audit?: ReferenceAudit;
 };
+
+export function normalizeDoi(value: unknown) {
+  let doi = String(value || "").trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "")
+    .replace(/^doi:\s*/i, "").replace(/[.,;]+$/, "").toLowerCase();
+  while (doi.endsWith(")") && (doi.match(/\)/g) || []).length > (doi.match(/\(/g) || []).length) doi = doi.slice(0, -1);
+  return /^10\.\d{4,9}\/\S+$/i.test(doi) ? doi : "";
+}
+
+export function normalizeIsbn(value: unknown) {
+  const isbn = String(value || "").replace(/[^0-9X]/gi, "").toUpperCase();
+  if (/^\d{13}$/.test(isbn)) {
+    const sum = [...isbn].reduce((n, digit, index) => n + Number(digit) * (index % 2 ? 3 : 1), 0);
+    return sum % 10 === 0 ? isbn : "";
+  }
+  if (/^\d{9}[\dX]$/.test(isbn)) {
+    const sum = [...isbn].reduce((n, digit, index) => n + (digit === "X" ? 10 : Number(digit)) * (10 - index), 0);
+    return sum % 11 === 0 ? isbn : "";
+  }
+  return "";
+}
+
+export function normalizePmid(value: unknown) {
+  const pmid = String(value || "").trim();
+  return /^\d{1,9}$/.test(pmid) ? pmid : "";
+}
+
+export function isbnIdentity(value: unknown) {
+  const isbn = normalizeIsbn(value);
+  if (isbn.length !== 10) return isbn;
+  const prefix = "978" + isbn.slice(0, 9);
+  const sum = [...prefix].reduce((n, digit, index) => n + Number(digit) * (index % 2 ? 3 : 1), 0);
+  return prefix + ((10 - sum % 10) % 10);
+}
+
+/** Do not trust legacy status labels: prior versions verified filename guesses. */
+export function citationMetadataReady(metadata: ReferenceMetadata) {
+  return Boolean(metadata.title && metadata.audit?.engineVersion === REFERENCE_ENGINE_VERSION &&
+    ["verified", "manual"].includes(metadata.audit.status));
+}
+
+/** Exact identifiers must agree; fuzzy title matches require independent evidence. */
+export function referenceIdentity(input: ReferenceMetadata, candidate: ReferenceMetadata) {
+  for (const [field, normalize] of [
+    ["doi", normalizeDoi], ["pmid", normalizePmid], ["isbn", isbnIdentity],
+  ] as const) {
+    const a = normalize(input[field]), b = normalize(candidate[field]);
+    if (a && b && a !== b) return { accepted: false, method: field, issue: "conflicting_" + field };
+  }
+  const titleScore = titleSimilarity(input.title || "", candidate.title || "");
+  for (const [field, normalize] of [
+    ["doi", normalizeDoi], ["pmid", normalizePmid], ["isbn", isbnIdentity],
+  ] as const) {
+    const a = normalize(input[field]), b = normalize(candidate[field]);
+    // Filename guesses may be replaced by exact identifier matches; an explicit
+    // document title is an additional guard against an identifier cited inside it.
+    if (a && a === b) {
+      if (input.provenance?.title?.source === "document" && input.provenance.title.confidence >= 0.9 && titleScore < 0.6) {
+        return { accepted: false, method: field, issue: "identifier_title_conflict" };
+      }
+      return { accepted: true, method: field, issue: "" };
+    }
+  }
+  if (input.doi || input.pmid || input.isbn) return { accepted: false, method: "title", issue: "identifier_not_confirmed" };
+  if (titleScore < 0.92) return { accepted: false, method: "title", issue: "weak_title_match" };
+  if (input.year && candidate.year && input.year !== candidate.year && (input.provenance?.year?.confidence || 0) >= 0.9) {
+    return { accepted: false, method: "title", issue: "conflicting_year" };
+  }
+  if (input.edition && String(input.edition) !== String(candidate.edition || "")) {
+    return { accepted: false, method: "title", issue: "edition_not_confirmed" };
+  }
+  const authorAgreement = (input.authors || []).some((author) =>
+    (candidate.authors || []).some((other) => titleSimilarity(author, other) >= 0.5));
+  const yearAgreement = Boolean(input.year && input.year === candidate.year && (input.provenance?.year?.confidence || 0) >= 0.9);
+  // Books need edition-level evidence, not a work-level title shared by many editions.
+  const specificTitle = candidate.type !== "book" && titleScore === 1 && titleTokens(input.title || "").size >= 6;
+  return authorAgreement || yearAgreement || specificTitle
+    ? { accepted: true, method: "title+evidence", issue: "" }
+    : { accepted: false, method: "title", issue: "ambiguous_title_only" };
+}
 
 function cleanSpaces(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -116,7 +209,10 @@ function extractTitleFromFront(front: string, fileName: string) {
     const upperTitle = /(?:BADAN\s+POM\s+RI\s+)?(.+?)(?:\s+BADAN\s+PENGAWAS\s+OBAT\s+DAN\s+MAKANAN\s+REPUBLIK\s+INDONESIA|\s+20\d{2})/i.exec(page1)?.[1];
     if (upperTitle && upperTitle.length >= 8) return cleanSpaces(upperTitle);
   }
-  return normalizedTitle(fileName);
+  const heading = front.split(/\n/).map(cleanSpaces).find((line) =>
+    line.length >= 12 && line.length <= 250 && line.split(/\s+/).length >= 3 &&
+    !/^(?:\[Halaman|Slide\s*\d|https?:|doi\b|isbn\b|pmid\b|abstract\b|abstrak\b|copyright\b|©|journal\b|jurnal\b|volume\b)/i.test(line));
+  return heading || normalizedTitle(fileName);
 }
 
 export function inferReferenceMetadata(input: {
@@ -125,14 +221,22 @@ export function inferReferenceMetadata(input: {
   sourceUrl?: string | null;
   frontMatter?: string | null;
 }): ReferenceMetadata {
-  const front = String(input.frontMatter || "");
+  // Identifiers in a references section belong to cited works, not this file.
+  const front = String(input.frontMatter || "").split(/\n\s*(?:References|Bibliography|Daftar Pustaka)\s*\n/i)[0].slice(0, 12000);
   const first800 = cleanSpaces(front).slice(0, 800);
   const meta: ReferenceMetadata = { provenance: {} };
   const lowerName = input.fileName.toLowerCase();
 
   const title = extractTitleFromFront(front, input.fileName);
-  setCandidate(meta, "title", title, front ? "document" : "filename", front ? 0.9 : 0.55,
-    front ? "Judul dibaca dari bagian awal dokumen." : "Fallback dari nama file.");
+  const titleFromDocument = title !== normalizedTitle(input.fileName);
+  const structuredTitle = /Slide\s*1\s*:|BADAN\s+(?:POM|PENGAWAS)/i.test(front.slice(0, 800));
+  setCandidate(meta, "title", title, titleFromDocument ? "document" : "filename", titleFromDocument ? (structuredTitle ? 0.9 : 0.8) : 0.55,
+    titleFromDocument ? "Judul dibaca dari bagian awal dokumen." : "Fallback dari nama file; belum terverifikasi.");
+  const lines = front.split(/\n/).map(cleanSpaces).filter(Boolean);
+  const explicitTitle = lines.find((line) => /^(?:title|judul)\s*:/i.test(line))?.replace(/^(?:title|judul)\s*:\s*/i, "");
+  if (explicitTitle) setCandidate(meta, "title", explicitTitle, "document", 0.97, "Label judul eksplisit pada dokumen.");
+  const explicitAuthors = lines.find((line) => /^(?:authors?|penulis|by)\s*:/i.test(line))?.replace(/^(?:authors?|penulis|by)\s*:\s*/i, "");
+  if (explicitAuthors) setCandidate(meta, "authors", explicitAuthors.split(/;|\s+and\s+/).map(cleanSpaces).filter(Boolean), "document", 0.97);
 
   const isSlides = /\.pptx?(?:\.pdf)?$/i.test(input.fileName) ||
     /Slide\s*1\s*:/i.test(front) ||
@@ -159,17 +263,26 @@ export function inferReferenceMetadata(input: {
 
   const earlyYear = /\b(19\d{2}|20\d{2})\b/.exec(first800)?.[1];
   if (earlyYear) {
-    setCandidate(meta, "year", Number(earlyYear), "document", 0.96, "Tahun ditemukan pada halaman awal.");
+    setCandidate(meta, "year", Number(earlyYear), "document", 0.65, "Tahun kandidat pada halaman awal; belum tentu tahun publikasi.");
   }
+  const publicationYear = /(?:copyright|©|published|publication year|tahun terbit|terbit|year)\s*:?\s*(19\d{2}|20\d{2})/i.exec(front)?.[1];
+  if (publicationYear) setCandidate(meta, "year", Number(publicationYear), "document", 0.97, "Tahun publikasi berlabel eksplisit.");
 
-  const doi = /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+\b/i.exec(front)?.[0]?.replace(/[.,;)]$/,"");
+  const doi = normalizeDoi(/\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i.exec(front.slice(0, 5000))?.[0]);
   if (doi) setCandidate(meta, "doi", doi, "document", 0.99, "DOI eksplisit ditemukan di dokumen.");
 
-  const isbn = /\b(?:ISBN(?:-1[03])?\s*:?\s*)?((?:97[89][-\s]?)?[0-9][-0-9\s]{8,16}[0-9X])\b/i.exec(first800)?.[1];
-  if (isbn && /ISBN/i.test(first800)) setCandidate(meta, "isbn", cleanSpaces(isbn), "document", 0.96);
+  const isbn = normalizeIsbn(/\bISBN(?:-1[03])?\s*:?\s*([0-9X][-0-9X ]{8,20})/i.exec(front)?.[1]);
+  if (isbn) setCandidate(meta, "isbn", isbn, "document", 0.96);
+  const pmid = normalizePmid(/\bPMID\s*:?\s*(\d{1,9})\b/i.exec(front.slice(0, 5000))?.[1] ||
+    /pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i.exec(input.sourceUrl || "")?.[1]);
+  if (pmid) setCandidate(meta, "pmid", pmid, "document", 0.99, "PMID explicite.");
+  const edition = /\b(?:edition|edisi)\s*:?\s*(\d{1,2})\b/i.exec(front)?.[1] || /\b(\d{1,2})(?:st|nd|rd|th)\s+edition\b/i.exec(front)?.[1];
+  if (edition) setCandidate(meta, "edition", edition, "document", 0.97);
 
   if (!meta.type) {
-    if (bpom && /pedoman|guideline|panduan/i.test((meta.title || "") + " " + lowerName)) {
+    if (isbn) {
+      setCandidate(meta, "type", "book", "document", 0.94);
+    } else if (bpom && /pedoman|guideline|panduan/i.test((meta.title || "") + " " + lowerName)) {
       setCandidate(meta, "type", "report", "document", 0.94);
     } else if (/journal|jurnal|doi/i.test(front.slice(0, 3000))) {
       setCandidate(meta, "type", "journal_article", "document", 0.72);
@@ -195,7 +308,7 @@ export function mergeReferenceMetadata(
     provenance: { ...(base.provenance || {}) },
   };
   for (const field of [
-    "title","authors","corporate_author","year","publisher","institution","type","edition",
+    "title","authors","author_details","corporate_author","year","publisher","institution","type","edition",
     "container_title","volume","issue","pages","doi","isbn","url","mendeley_id","datacite_id","openalex_id","openlibrary_id","pmid","pmcid"
   ] as Array<keyof ReferenceMetadata>) {
     const value = incoming[field];

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
-import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
+import { annotateBibliographicWorks, buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
-import { citationInstruction, normalizeCitationOptions } from "@/lib/citations";
+import { buildCitationMetadataInventory, citationInstruction, normalizeCitationOptions } from "@/lib/citations";
+import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -265,7 +266,10 @@ export async function POST(req: NextRequest) {
           ].join("\n")
         : "";
 
-    const citationRule = citationInstruction(citationStyle, citationOutputs);
+    const citationRows = useDatabase && citationStyle !== "none" ? await annotateBibliographicWorks(supabase, sources) : [];
+    const citationRule = citationInstruction(citationStyle, citationOutputs) +
+      buildCitationMetadataInventory(citationStyle, citationRows) +
+      buildDeterministicCitationInventory(citationStyle, citationRows);
 
     const aiResult = await generateTextAi(
       aiInfo,

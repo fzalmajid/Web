@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ReferenceMetadata } from "./referenceMetadata";
 
 export type KnowledgeSource = {
   id: string;
@@ -29,6 +30,7 @@ export type KnowledgeSource = {
   bibliographic_isbn?: string | null;
   bibliographic_url?: string | null;
   bibliographic_metadata_status?: string | null;
+  bibliographic_metadata?: ReferenceMetadata;
   printed_page_start?: number | null;
   printed_page_end?: number | null;
 };
@@ -156,6 +158,7 @@ export async function annotateBibliographicWorks(
       bibliographic_isbn: metadata.isbn || null,
       bibliographic_url: metadata.url || null,
       bibliographic_metadata_status: stored?.status || "unreviewed",
+      bibliographic_metadata: metadata,
     };
 
     const title = String(metadata.title || normalizedPublicationTitle(hint.file_name));
@@ -199,6 +202,7 @@ export async function annotateBibliographicWorks(
       bibliographic_isbn: metadata.isbn || null,
       bibliographic_url: metadata.url || null,
       bibliographic_metadata_status: stored?.status || "unreviewed",
+      bibliographic_metadata: metadata,
     };
   });
 }
