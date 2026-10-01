@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
       fsrs: true,
       localOcrWithGeminiFallback: true,
       mermaidCytoscape: true,
-      localWhisperWithGeminiFallback: true,
+      localWhisper: true,
     },
     checkedAt: new Date().toISOString(),
   }, {
