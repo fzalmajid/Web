@@ -1,3 +1,5 @@
+import { indexedAbstract, rankResearchHits, researchQuery } from "./researchQuery";
+
 export type ScholarlyHit = {
   provider: "openalex" | "europepmc" | "pubmed" | "semanticscholar";
   id: string;
@@ -82,6 +84,7 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
       journal: cleanText(best?.source?.display_name || work?.primary_location?.source?.display_name, 500) || null,
       uri,
       openAccess: Boolean(work?.open_access?.is_oa || best?.is_oa),
+      abstract: indexedAbstract(work?.abstract_inverted_index),
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
@@ -258,9 +261,9 @@ async function searchPubMed(query: string, limit: number): Promise<ScholarlyHit[
 }
 
 export async function searchScholarlySources(query: string, limit = 12) {
-  const clean = cleanText(query, 1200);
+  const clean = researchQuery(cleanText(query, 1200));
   if (!clean) return [] as ScholarlyHit[];
-  const biomedical = isBiomedicalQuery(clean);
+  const biomedical = isBiomedicalQuery(clean) || /\b(psychology|memory|memori|retrieval practice|testing effect)\b/i.test(clean);
   const jobs: Array<Promise<ScholarlyHit[]>> = [];
   jobs.push(searchOpenAlex(clean, Math.min(8, limit)));
   jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));
@@ -277,10 +280,12 @@ export async function searchScholarlySources(query: string, limit = 12) {
     for (const hit of result.value) {
       const key = stableKey(hit);
       const existing = merged.get(key);
-      if (!existing || (hit.openAccess && !existing.openAccess)) merged.set(key, hit);
+      if (!existing || (hit.abstract && !existing.abstract) || (hit.openAccess && !existing.openAccess)) {
+        merged.set(key, { ...hit, abstract: hit.abstract || existing?.abstract || null });
+      }
     }
   }
-  return [...merged.values()].slice(0, Math.max(1, Math.min(20, limit)));
+  return rankResearchHits([...merged.values()],clean).slice(0, Math.max(1, Math.min(20, limit)));
 }
 
 export function scholarlyPromptContext(hits: ScholarlyHit[]) {
@@ -295,6 +300,7 @@ export function scholarlyPromptContext(hits: ScholarlyHit[]) {
     "provider=" + hit.provider,
     "url=" + hit.uri,
     hit.openAccess ? "open_access=yes" : "open_access=unknown/no",
+    hit.abstract ? "abstract=" + cleanText(hit.abstract, 2200) : "",
   ].filter(Boolean).join(" | "));
   return "\n\nSCHOLARLY INDEX TERSTRUKTUR (metadata publik; verifikasi isi klaim melalui halaman sumber sebelum mengutip):\n" +
     rows.join("\n") +

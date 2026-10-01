@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { visualLearningRequest } from "@/lib/visualIntent";
 import { calibrationEvidence } from "@/lib/calibrationEvidence";
+import { researchQuery } from "@/lib/researchQuery";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   geminiGenerateDetailed,
@@ -1313,7 +1314,7 @@ export async function POST(req: NextRequest) {
     const scholarlyContext = scholarlyPromptContext(scholarlyHits);
     const webResearchResult =
       useWeb && !casualAiQuestion
-        ? await researchWeb(question.trim(), aiMode === "high" ? 8 : 5)
+        ? await researchWeb(researchQuery(question), aiMode === "high" ? 8 : 5)
         : { hits: [], status: "not-requested" };
     const webResearchContext = webResearchPromptContext(webResearchResult.hits);
     const adapterWebSources = webResearchSources(webResearchResult.hits);
@@ -1768,7 +1769,9 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      if (!fallbackSources.length) {
+      const availablePublicSources = mergeWebSources(adapterWebSources, scholarlyHits);
+      const hasPublicEvidence = availablePublicSources.length > 0;
+      if (!fallbackSources.length && !hasPublicEvidence) {
         return NextResponse.json(
           {
             error:
@@ -1779,7 +1782,9 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const fallbackPrompt = buildPrompt({
+      const fallbackPrompt = hasPublicEvidence
+        ? prompt + "\n\nGROUNDING LANGSUNG SEMENTARA TIDAK TERSEDIA: Gunakan sumber publik yang sudah diambil di konteks di atas. Metadata/abstrak bukan bukti bahwa full text sudah dibaca. Jangan mengklaim melakukan pencarian tambahan atau verifikasi independen. Judul/DOI harus cocok dengan inventaris sumber; jangan membuat referensi baru dari ingatan."
+        : buildPrompt({
         question,
         historyText,
         context,
@@ -1790,10 +1795,15 @@ export async function POST(req: NextRequest) {
         citationStyle,
         citationOutputs,
         artifactFormat,
-      });
+      }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction;
 
-      const fallbackResult = await generateSelected(fallbackPrompt, false);
-      await recordAiTokenUsage(
+      const fallbackCouncil = useAi && (aiMode === "medium" || aiMode === "high")
+        ? await runAiCouncil({ mode: aiMode, useWeb: hasPublicEvidence, basePrompt: fallbackPrompt,
+            generate: stagePrompt => generateSelected(stagePrompt, false) as Promise<CouncilGeneration>,
+            recordUsage: async generation => { if (!generation.model.startsWith("openrouter-free:")) await recordAiTokenUsage(supabase, generation.usage, generation.model, selectedUsageProvider()); },
+          }) : null;
+      const fallbackResult = fallbackCouncil?.result || await generateSelected(fallbackPrompt, false);
+      if (!fallbackCouncil) await recordAiTokenUsage(
         supabase,
         fallbackResult.usage,
         fallbackResult.model,
@@ -1808,14 +1818,18 @@ export async function POST(req: NextRequest) {
         answer: fallbackResult.text,
         citationWarnings: citationStructuralWarnings(fallbackResult.text, citationStyle, citationOutputs),
         sources: fallbackSources.includes("database") ? databaseSources : [],
-        webSources: [],
+        webSources: availablePublicSources,
+        webResearch: { status: webResearchResult.status, count: webResearchResult.hits.length, scholarlyCount: scholarlyHits.length, groundingAvailable: false },
         grounded: !fallbackSources.includes("ai"),
-        publicWeb: false,
-        selectedSources: fallbackSources,
+        publicWeb: hasPublicEvidence,
+        selectedSources: hasPublicEvidence ? selectedSources : fallbackSources,
         webFallback: true,
-        warning:
-          "Semua provider Web yang terhubung sedang tidak tersedia. Sistem melanjutkan hanya dengan sumber non-Web yang sudah dipilih.",
+        warning: [hasPublicEvidence
+          ? "Grounding langsung sementara tidak tersedia. Jawaban memakai sumber publik yang sudah ditemukan; metadata/abstrak tidak sama dengan membaca full text."
+          : "Pencarian Web sementara tidak tersedia. Jawaban memakai sumber non-Web; referensi dari pengetahuan internal belum diverifikasi secara langsung.",
+          fallbackCouncil?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · "),
         model: fallbackResult.model,
+        orchestration: fallbackCouncil ? {mode:aiMode,stages:fallbackCouncil.stages,helpers:fallbackCouncil.helpers} : {mode:aiMode,stages:[]},
         aiUsage,
         provider: selectedUsageProvider(),
         artifactFormat,
