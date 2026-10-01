@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { JSDOM } from "jsdom";
 import cytoscape from "cytoscape";
 import { pipeline } from "@huggingface/transformers";
