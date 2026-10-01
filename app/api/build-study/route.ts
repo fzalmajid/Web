@@ -3,7 +3,9 @@ import { createServerSupabase } from "@/lib/supabase";
 import { parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
-import { citationInstruction, normalizeCitationOptions } from "@/lib/citations";
+import { buildCitationMetadataInventory, citationInstruction, normalizeCitationOptions } from "@/lib/citations";
+import { annotateBibliographicWorks } from "@/lib/knowledge";
+import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -337,7 +339,10 @@ ${bodyText}`;
       ? "QUIZ PER BAB: AKTIF. Setiap unit wajib memiliki tepat 1 recall pilihan ganda dengan 4 pilihan."
       : "QUIZ PER BAB: NONAKTIF. Jangan membuat quiz/recall. Isi recall_question dengan string kosong, recall_choices dengan [], recall_correct_answer dan recall_explanation dengan string kosong.";
 
-    const citationRule = citationInstruction(citationStyle, citationOutputs);
+    const citationRows = useDatabase && citationStyle !== "none" ? await annotateBibliographicWorks(supabase, entries) : [];
+    const citationRule = citationInstruction(citationStyle, citationOutputs) +
+      buildCitationMetadataInventory(citationStyle, citationRows) +
+      buildDeterministicCitationInventory(citationStyle, citationRows);
 
     const aiResult = await generateTextAi(
       aiInfo,

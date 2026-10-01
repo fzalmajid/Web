@@ -1,4 +1,5 @@
 export type CitationStyle = "none" | "apa" | "mla" | "harvard" | "vancouver" | "ieee" | "chicago";
+import { citationMetadataReady } from "./referenceMetadata";
 export type CitationOutput = "in-text" | "bibliography";
 
 /** Official or institution-published style authorities; never treat these as sources
@@ -162,6 +163,7 @@ export function citationInstruction(
     ...outputRules,
     "",
     "ATURAN AKURASI METADATA:",
+    "- REFERENSI LIBRARY: hanya gunakan rekaman dengan audit mesin public-library-v1 berstatus verified/manual dan hasil CSL deterministik yang disediakan. Metadata auto/unreviewed/conflict boleh menjelaskan isi, tetapi tidak boleh dijadikan sitasi formal. Laporkan kebutuhan audit, jangan menebak.",
     "- Jangan pernah mengarang author, editor, year, edition, publisher, journal, volume, issue, DOI, URL, page, chapter, paragraph, timestamp, atau nomor reference.",
     "- Gunakan metadata bibliografis hanya jika benar-benar tersedia di blok METADATA BIBLIOGRAFIS sumber. Nama file, topik isi, organisasi yang disebut di dalam materi, atau sumber regulasi yang dikutip BUKAN bukti author, publisher, atau year.",
     "- BLOK METADATA BIBLIOGRAFIS ADALAH OTORITAS: untuk author/corporate author, year, title, type, edition, publisher, institution, container, volume, issue, pages, DOI, ISBN, dan URL, salin hanya nilai yang tersedia di blok itu. Nilai [tidak terverifikasi] / [tidak tersedia] berarti DILARANG ditebak dari isi.",
@@ -289,7 +291,9 @@ export function buildCitationMetadataInventory(style: CitationStyle, rows: any[]
       "doi=" + (source?.bibliographic_doi || "[DOI TIDAK TERSEDIA]"),
       "status=" + (source?.bibliographic_metadata_status || "unreviewed"),
     ].join(" | ");
-    const exact = style === "apa" ? "\n  APA7 EXACT JIKA SUMBER INI DIPAKAI: " + exactApaReference(source) : "";
+    const exact = citationMetadataReady(source.bibliographic_metadata || {})
+      ? "\n  Gunakan hasil processor CSL dari Library Ruang Belajar; jangan tulis ulang metadata."
+      : "\n  BELUM TERVERIFIKASI: jangan buat sitasi formal/daftar pustaka dari entri ini; tampilkan keterbatasan dan minta audit metadata.";
     return "SOURCE " + (index + 1) + ": " + metadata + exact;
   });
   return [

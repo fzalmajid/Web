@@ -41,6 +41,9 @@ function finish(url: URL, status: "success" | "failed", reason?: string, returnT
 }
 
 export async function GET(req: NextRequest) {
+  if (process.env.ENABLE_LEGACY_MENDELEY !== "true") {
+    return finish(req.nextUrl, "failed", "legacy_integration_disabled");
+  }
   const clientId = String(process.env.MENDELEY_CLIENT_ID || "").trim();
   const clientSecret = String(process.env.MENDELEY_CLIENT_SECRET || "").trim();
   const redirectUri = String(

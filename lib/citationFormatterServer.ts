@@ -1,6 +1,16 @@
-import { Cite } from "@citation-js/core";
+import { Cite, plugins } from "@citation-js/core";
 import "@citation-js/plugin-csl";
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
+import { citationMetadataReady, normalizeDoi, normalizeIsbn, isbnIdentity } from "@/lib/referenceMetadata";
+import type { CitationStyle } from "@/lib/citations";
+import cslStyles from "@/lib/cslStyles.json";
+
+export type ProcessorStyle = Exclude<CitationStyle, "none">;
+const styleTemplates: Record<ProcessorStyle, string> = {
+  apa: "apa", vancouver: "vancouver", mla: "modern-language-association",
+  chicago: "chicago-author-date", harvard: "harvard-university-of-leeds", ieee: "ieee",
+};
+for (const [name, xml] of Object.entries(cslStyles)) plugins.config.get("@csl").styles.add(name, xml);
 
 function splitPerson(value: string) {
   const name = String(value || "").trim();
@@ -28,7 +38,20 @@ function cslType(type: ReferenceMetadata["type"]) {
 }
 
 export function referenceToCsl(metadata: ReferenceMetadata) {
-  const authors = (metadata.authors || []).map(splitPerson).filter(Boolean);
+  // A verified work may still contain an unverified candidate year/type. CSL
+  // must not promote those fields merely because its title/author were verified.
+  metadata = { ...metadata };
+  if (metadata.audit?.basis !== "manual") {
+    for (const field of Object.keys(metadata)) {
+      if (field === "audit" || field === "provenance") continue;
+      const info = metadata.provenance?.[field];
+      if (!info || info.confidence < 0.9 || info.source === "filename" || info.source === "mendeley") {
+        delete (metadata as any)[field];
+      }
+    }
+  }
+  const authors = metadata.author_details?.length
+    ? [...metadata.author_details] : (metadata.authors || []).map(splitPerson).filter(Boolean);
   if (!authors.length && metadata.corporate_author) {
     authors.push({ literal: metadata.corporate_author } as any);
   }
@@ -45,22 +68,22 @@ export function referenceToCsl(metadata: ReferenceMetadata) {
     issue: metadata.issue || undefined,
     page: metadata.pages || undefined,
     edition: metadata.edition || undefined,
-    DOI: metadata.doi || undefined,
-    ISBN: metadata.isbn || undefined,
+    DOI: normalizeDoi(metadata.doi) || undefined,
+    ISBN: normalizeIsbn(metadata.isbn) || undefined,
     URL: metadata.url || undefined,
   };
 }
 
 export function formatVerifiedReference(
   metadata: ReferenceMetadata,
-  style: "apa" | "vancouver"
+  style: ProcessorStyle
 ) {
-  if (!metadata.title) return null;
+  if (!citationMetadataReady(metadata)) return null;
   try {
     const cite = new Cite([referenceToCsl(metadata)]);
     const result = String(cite.format("bibliography", {
       format: "text",
-      template: style,
+      style: styleTemplates[style],
       lang: "en-US",
     }) || "").replace(/\s+/g, " ").trim();
     return result || null;
@@ -71,14 +94,15 @@ export function formatVerifiedReference(
 
 export function formatVerifiedReferences(
   items: ReferenceMetadata[],
-  style: "apa" | "vancouver"
+  style: ProcessorStyle
 ) {
   if (!items.length) return "";
   try {
-    const cite = new Cite(items.filter((item) => item.title).map(referenceToCsl));
+    const cite = new Cite(items.filter(citationMetadataReady).map(referenceToCsl));
     return String(cite.format("bibliography", {
       format: "text",
-      template: style,
+      style: styleTemplates[style],
+      nosort: style === "vancouver" || style === "ieee",
       lang: "en-US",
     }) || "").trim();
   } catch {
@@ -88,6 +112,7 @@ export function formatVerifiedReferences(
 
 
 function metadataFromKnowledgeSource(source: any): ReferenceMetadata {
+  if (source?.bibliographic_metadata) return source.bibliographic_metadata;
   return {
     title: source?.bibliographic_work_title || source?.title || null,
     authors: Array.isArray(source?.bibliographic_authors) ? source.bibliographic_authors : [],
@@ -111,7 +136,7 @@ export function buildDeterministicCitationInventory(
   style: string,
   rows: any[]
 ) {
-  if (style !== "apa" && style !== "vancouver") return "";
+  if (!(style in styleTemplates)) return "";
   const unique = new Map<string, any>();
   for (const row of rows) {
     const key = String(row?.bibliographic_work_id || row?.source_file_id || row?.id || "");
@@ -121,10 +146,10 @@ export function buildDeterministicCitationInventory(
   let index = 1;
   for (const [key, row] of unique) {
     const metadata = metadataFromKnowledgeSource(row);
-    const formatted = formatVerifiedReference(metadata, style);
+    const formatted = formatVerifiedReference(metadata, style as ProcessorStyle);
     if (!formatted) continue;
-    const clean = style === "vancouver"
-      ? formatted.replace(/^\s*\d+[.)]\s*/, "")
+    const clean = style === "vancouver" || style === "ieee"
+      ? formatted.replace(/^\s*(?:\[\d+\]|\d+[.)])\s*/, "")
       : formatted;
     items.push(
       "WORK_ID=" + key + "\n" +
@@ -135,7 +160,38 @@ export function buildDeterministicCitationInventory(
   if (!items.length) return "";
   return "\n\nFORMAT REFERENSI DETERMINISTIK (Citation.js/CSL; hanya pakai entri jika karya itu benar-benar mendukung jawaban):\n" +
     items.join("\n") +
-    (style === "vancouver"
-      ? "\nUntuk Vancouver, nomor urut mengikuti urutan sitasi pertama dalam jawaban; jangan mengubah teks bibliografi setelah nomor."
-      : "\nUntuk APA, gunakan teks referensi persis seperti hasil CSL ini untuk karya yang benar-benar dipakai.");
+    ((style === "vancouver" || style === "ieee")
+      ? "\nNomor urut mengikuti urutan sitasi pertama dalam jawaban; jangan mengubah teks bibliografi setelah nomor."
+      : "\nGunakan teks referensi persis seperti hasil CSL ini untuk karya yang benar-benar dipakai.");
+}
+
+export function citationPreviews(metadata: ReferenceMetadata) {
+  return Object.fromEntries(Object.keys(styleTemplates).map((style) =>
+    [style, formatVerifiedReference(metadata, style as ProcessorStyle)]));
+}
+
+/** Fully local, non-AI citation generation. Numeric input order is first-use order. */
+export function processLibraryCitations(items: Array<{ id: string; metadata: ReferenceMetadata }>, style: ProcessorStyle) {
+  const ready = items.filter((item) => citationMetadataReady(item.metadata));
+  const excluded = items.filter((item) => !citationMetadataReady(item.metadata)).map((item) => item.id);
+  if (!ready.length) return { csl: [], citations: [], bibliography: "", excluded };
+  const workId = (item: { id: string; metadata: ReferenceMetadata }) =>
+    normalizeDoi(item.metadata.doi) ? "doi:" + normalizeDoi(item.metadata.doi) :
+    isbnIdentity(item.metadata.isbn) ? "isbn:" + isbnIdentity(item.metadata.isbn) :
+    item.metadata.pmid ? "pmid:" + item.metadata.pmid : item.id;
+  const unique = new Map(ready.map((item) => [workId(item), { ...referenceToCsl(item.metadata), id: workId(item) }]));
+  const csl = [...unique.values()];
+  const cite = new Cite(csl);
+  const citations = ready.map((item, index) => ({
+    sourceFileId: item.id,
+    inText: String(cite.format("citation", {
+      style: styleTemplates[style], lang: "en-US", format: "text",
+      entry: workId(item), citationsPre: [...new Set(ready.slice(0, index).map(workId))], citationsPost: [],
+    })).trim(),
+  }));
+  const bibliography = String(cite.format("bibliography", {
+    style: styleTemplates[style], lang: "en-US", format: "text",
+    nosort: style === "vancouver" || style === "ieee",
+  })).trim();
+  return { csl, citations, bibliography, excluded };
 }

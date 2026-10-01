@@ -13,6 +13,10 @@ function sign(payload: string, secret: string) {
 }
 
 export async function GET(req: NextRequest) {
+  if (process.env.ENABLE_LEGACY_MENDELEY !== "true") {
+    return NextResponse.json({ enabled: false, required: false, referenceEngine: "public-library-v1", message: "Referensi memakai Library Ruang Belajar dan katalog publik; tidak perlu Authorize Mendeley." },
+      { status: 410, headers: { "Cache-Control": "no-store" } });
+  }
   const clientId = String(process.env.MENDELEY_CLIENT_ID || "").trim();
   const clientSecret = String(process.env.MENDELEY_CLIENT_SECRET || "").trim();
   const redirectUri = String(

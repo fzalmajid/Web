@@ -102,6 +102,9 @@ async function refreshSession(session: MendeleyOAuthSession): Promise<MendeleyOA
 }
 
 export async function getFreshMendeleySession(req: NextRequest) {
+  if (process.env.ENABLE_LEGACY_MENDELEY !== "true") {
+    return { session: null, connected: false, cookieValue: null };
+  }
   const raw = req.cookies.get(MENDELEY_SESSION_COOKIE)?.value || "";
   const existing = openMendeleySession(raw);
   if (!existing) {
