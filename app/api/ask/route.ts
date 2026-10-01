@@ -743,6 +743,7 @@ function buildPrompt({
     aiModeInstruction(aiMode),
     "- Jawab dengan jelas dan terstruktur.",
     "- Jika user meminta tabel, berikan tabel Markdown dengan baris header dan pemisah | --- |, bukan daftar berpoin yang disebut tabel. Jangan bungkus tabel dalam blok kode.",
+    "- Bila diminta studi primer, jangan hitung artikel review/tinjauan/meta-analisis sebagai eksperimen primer. Desain, jumlah sampel dan hasil hanya boleh dinyatakan bila terlihat dalam abstrak atau full text yang tersedia; metadata judul saja tidak cukup. Bila studi primer yang terbukti kurang dari jumlah yang diminta, nyatakan kekurangannya, jangan mengisi dengan review atau tebakan.",
     "- Untuk kalibrasi dan pengenceran, konsentrasi yang dihitung dari respons adalah konsentrasi larutan yang diukur (setelah pengenceran); kalikan faktor pengenceran untuk mendapatkan konsentrasi sampel asal. R² tinggi saja bukan bukti validasi metode.",
     WHATSAPP_FORMAT_INSTRUCTION
   );
