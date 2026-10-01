@@ -49,6 +49,8 @@ export default function MoleculeLab() {
     <p role="status">{busy ? "Memuat alat kimia…" : status}</p><canvas ref={canvas} width={520} height={300} className="moleculeCanvas" /><div ref={host} className="moleculeViewer" />
     {result && <><p>{result.properties.MolecularFormula} · Mr {result.properties.MolecularWeight} · {result.properties.IUPACName}</p><a href={result.source} target="_blank" rel="noreferrer">Sumber PubChem dan ketentuan data</a>
       <button disabled={busy} onClick={async () => { setBusy(true); try { const res = await fetch(result.sdf3d, { signal: AbortSignal.timeout(8000) }); if (!res.ok) throw new Error("Koordinat 3D tidak tersedia untuk senyawa ini."); await render(await res.text(), true); } catch (e: any) { setStatus(e.message); } finally { setBusy(false); } }}>Muat koordinat 3D</button></>}
-    <button disabled={!hasMol || busy} onClick={() => { if (!molblock.current) return; const url = URL.createObjectURL(new Blob([molblock.current], { type: "chemical/x-mdl-molfile" })); const a = document.createElement("a"); a.href = url; a.download = "molekul.mol"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>Unduh .mol</button>
+    {hasMol && !busy ? <><a className="molDownload" href={"data:chemical/x-mdl-molfile;charset=utf-8," + encodeURIComponent(molblock.current)} download="molekul.mol">Unduh .mol</a>
+      <details><summary>Teks MOL — cadangan bila browser memblokir unduhan</summary><p>Salin seluruh teks berikut dan simpan sebagai molekul.mol. Ini koordinat struktur yang sedang ditampilkan.</p><textarea aria-label="Teks MOL" readOnly rows={8} value={molblock.current} /></details></>
+      : <button disabled>Unduh .mol</button>}
   </section>;
 }
