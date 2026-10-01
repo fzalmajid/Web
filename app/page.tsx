@@ -39,6 +39,14 @@ import { applyFsrsRating, fsrsDueLabel, fsrsIsDue, fsrsStateLabel, type FsrsRati
 import { normalizeAiExperienceMode, type AiExperienceMode } from "@/lib/aiOrchestration";
 import { buildLocalHelperHints, localHelperContext } from "@/lib/localAiHelper";
 import { preloadLocalWhisper, transcribeBlobLocally, transcribeBrowserAudio } from "@/lib/localWhisper";
+import dynamic from "next/dynamic";
+import type { TranscriptSegment } from "@/lib/audioTimeline";
+import ImageOcclusion, { OcclusionCard, parseOcclusion } from "@/components/ImageOcclusion";
+const PdfAnnotations=dynamic(()=>import("@/components/PdfAnnotations"),{ssr:false});
+const AudioTimeline=dynamic(()=>import("@/components/AudioTimeline"),{ssr:false});
+const SignedRecordingAudio=dynamic(()=>import("@/components/SignedRecordingAudio"),{ssr:false});
+const PaperExplorer=dynamic(()=>import("@/components/PaperExplorer"),{ssr:false});
+const OpenMedia=dynamic(()=>import("@/components/OpenMedia"),{ssr:false});
 
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
@@ -112,6 +120,7 @@ type SourceFile = {
   created_at: string;
 };
 type Recording = {
+  transcript_segments?: TranscriptSegment[];
   id: string;
   user_id: string;
   node_id: string | null;
@@ -632,8 +641,8 @@ export default function Home() {
     if ("caches" in window) {
       caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).catch(() => {});
     }
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=5", { updateViaCache: "none" }).then((reg) => reg.update()).catch(() => {});
+    if ("serviceWorker" in navigator && localStorage.getItem("rb-offline-enabled")==="1") {
+      navigator.serviceWorker.register("/learning-sw.js", { updateViaCache: "none" }).then((reg) => reg.update()).catch(() => {});
     }
 
     return () => subscription.unsubscribe();
@@ -1117,7 +1126,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         .order("created_at", { ascending: false }),
       supabase
         .from("recordings")
-        .select("id,user_id,node_id,title,file_path,mime_type,duration_seconds,knowledge_entry_id,created_at")
+        .select("id,user_id,node_id,title,file_path,mime_type,duration_seconds,knowledge_entry_id,transcript_segments,created_at")
         .eq("user_id", viewedOwnerId)
         .order("created_at", { ascending: false }),
       supabase
@@ -1346,6 +1355,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         >
           <span className="brandMini">RB</span>
         </button>
+        <a className="learningTopLink" href="/tools">Alat belajar</a>
       </header>
 
       <aside
@@ -2106,7 +2116,7 @@ async function saveOversizedPdf(
   }
   await assertPdfFile(file);
   if (selection.model === "local") {
-    throw new Error("PDF hasil scan di atas 50 MB membutuhkan Gemini untuk pembacaan OCR. Pilih model Gemini.");
+    throw new Error("PDF hasil scan di atas 50 MB membutuhkan pembacaan cloud. Gunakan Instant, Medium, atau High untuk OCR.");
   }
   return saveLargePdfToFolder(
     user,
@@ -3448,6 +3458,7 @@ function ReferenceMetadataModal({
             </button>
           </div>
         </form>
+        {metadata.doi && <PaperExplorer doi={metadata.doi} key={metadata.doi}/>}
       </section>
     </div>
   );
@@ -3720,7 +3731,7 @@ function FilePreviewBody({ file }: { file: SourceFile }) {
       {signedUrl && isImage && <img className="floatingPreviewMedia" src={signedUrl} alt={file.file_name} />}
       {signedUrl && isAudio && <audio controls preload="metadata" src={signedUrl} />}
       {signedUrl && isVideo && <video className="floatingPreviewMedia" controls preload="metadata" src={signedUrl} />}
-      {signedUrl && isPdf && <iframe className="floatingPreviewFrame" title={file.file_name} src={signedUrl} />}
+      {signedUrl && isPdf && <PdfAnnotations url={signedUrl} file={file.id} title={file.file_name} />}
       {!isImage && !isAudio && !isVideo && !isPdf && (
         <div className="notice">
           Preview visual belum tersedia untuk format ini. Buka file asli untuk melihat seluruh isinya.
@@ -6051,7 +6062,7 @@ function DatabaseFileCard({
       )}
       {previewUrl && isPdf && (
         <div className="databaseMediaPreview pdfPreview">
-          <iframe title={file.file_name} src={previewUrl} />
+          <PdfAnnotations url={previewUrl} file={file.id} title={file.file_name}/>
         </div>
       )}
 
@@ -6196,7 +6207,7 @@ function DatabaseStoredRecording({
 
       {audioUrl && (
         <div className="databaseMediaPreview">
-          <audio controls autoPlay preload="metadata" src={audioUrl} />
+          <AudioTimeline url={audioUrl} account={item.user_id} recording={item.id} segments={item.transcript_segments} duration={item.duration_seconds}/>
         </div>
       )}
 
@@ -6407,6 +6418,7 @@ function DatabaseAudioRecorder({
     let raw = browserDraft;
 
     let localWhisper = false;
+    let transcriptSegments: TranscriptSegment[] = [];
     try {
       setStatus("Menyiapkan Silero VAD + Whisper lokal · WebGPU/WASM adaptif...");
       const result = await transcribeBrowserAudio(blob, {
@@ -6414,7 +6426,8 @@ function DatabaseAudioRecorder({
         onProgress: (message) => setStatus(message),
       });
       raw = result.text.trim();
-      localWhisper = Boolean(raw);
+      transcriptSegments = result.chunks;
+      localWhisper = true;
     } catch (error: any) {
       console.warn("[LOCAL_WHISPER_RECORDING_FALLBACK]", error?.message || "unknown");
     }
@@ -6463,6 +6476,7 @@ function DatabaseAudioRecorder({
           transcript: raw,
           raw_transcript: raw,
           structured_transcript: raw,
+          transcript_segments: transcriptSegments,
           corrections: [],
           knowledge_entry_id: knowledgeEntryId,
         })
@@ -7888,14 +7902,16 @@ function RecordingPage({
     }
 
     let localFinalTranscript = currentLiveTranscript;
-    if (aiSelection.model === "local") {
+    let localSucceeded=false,localSegments:TranscriptSegment[]=[];
+    try {
+      setStatus("Menyiapkan Silero VAD + Whisper lokal · WebGPU/WASM adaptif...");
+      const local=await transcribeBrowserAudio(blob,{mode:aiMode,onProgress:message=>setStatus(message)});
+      localFinalTranscript=local.text.trim();localSegments=local.chunks;localSucceeded=true;
+    }catch(error:any){console.warn("[LOCAL_WHISPER_RECORDING_FALLBACK]",error?.message||"unknown");}
+    if (localSucceeded || aiSelection.model === "local") {
       try {
         setStatus("Menyiapkan Silero VAD + Whisper lokal · WebGPU/WASM adaptif...");
-        const local = await transcribeBrowserAudio(blob, {
-          mode: aiMode,
-          onProgress: (message) => setStatus(message),
-        });
-        localFinalTranscript = local.text.trim() || localFinalTranscript;
+        if(!localSucceeded)throw new Error("Whisper lokal tidak tersedia; transkrip live dipertahankan.");
       } catch (error: any) {
         console.warn("[LOCAL_WHISPER_RECORDING_FALLBACK]", error?.message || "unknown");
       }
@@ -7914,6 +7930,7 @@ function RecordingPage({
           structured_transcript: localFinalTranscript,
           transcript: localFinalTranscript,
           corrections: [],
+          transcript_segments: localSegments,
         })
         .eq("id", row.id);
 
@@ -7939,7 +7956,7 @@ function RecordingPage({
         filePath: path,
         mimeType,
         contextNodeId: node.parent_id,
-        browserTranscript: currentLiveTranscript,
+        browserTranscript: localFinalTranscript,
         aiMode,
       }),
     });
@@ -7948,21 +7965,21 @@ function RecordingPage({
     setBusy(false);
 
     if (!response.ok) {
-      if (currentLiveTranscript) {
+      if (localFinalTranscript) {
         await supabase
           .from("recordings")
           .update({
-            raw_transcript: currentLiveTranscript,
-            structured_transcript: currentLiveTranscript,
-            transcript: currentLiveTranscript,
+            raw_transcript: localFinalTranscript,
+            structured_transcript: localFinalTranscript,
+            transcript: localFinalTranscript,
             corrections: [],
           })
           .eq("id", row.id);
 
         setResult({
           recordingId: row.id,
-          raw: currentLiveTranscript,
-          structured: currentLiveTranscript,
+          raw: localFinalTranscript,
+          structured: localFinalTranscript,
           summary: "",
           corrections: [],
           added: false,
@@ -7986,9 +8003,7 @@ function RecordingPage({
       added: false,
     });
     setStatus(
-      "Selesai · transkrip " +
-        String(data.transcriptionModel || "Gemini") +
-        (data.structuringModel ? " · dirapikan " + data.structuringModel : "") +
+      "Selesai · AI Ruang Belajar · transkrip provider cadangan" +
         (data.warning ? " · " + String(data.warning) : "")
     );
     onChange();
@@ -8016,6 +8031,7 @@ function RecordingPage({
             structured_transcript: transcript,
             transcript,
             corrections: [],
+            transcript_segments: local.chunks,
           })
           .eq("id", item.id);
         if (error) throw error;
@@ -8070,9 +8086,7 @@ function RecordingPage({
       added: Boolean(item.knowledge_entry_id),
     });
     setStatus(
-      "Transkrip ulang selesai · " +
-        String(data.transcriptionModel || "Gemini") +
-        (data.structuringModel ? " · dirapikan " + data.structuringModel : "") +
+      "Transkrip ulang selesai · AI Ruang Belajar" +
         (data.warning ? " · " + String(data.warning) : "")
     );
     onChange();
@@ -8307,6 +8321,7 @@ function StoredRecording({
           </div>
         </details>
       )}
+      <SignedRecordingAudio item={item}/>
       {(item.raw_transcript || item.structured_transcript) && (
         <details open className="transcriptPanel">
           <summary>Raw Transcript / Verbatim</summary>
@@ -8753,27 +8768,9 @@ function PracticePage({
     const now = new Date();
     try {
       const scheduled = applyFsrsRating(card, rating, now);
-      const { error: updateError } = await supabase
-        .from("flashcards")
-        .update(scheduled.update)
-        .eq("id", card.id)
-        .eq("user_id", session.user.id);
-      if (updateError) throw updateError;
-
-      const { error: logError } = await supabase.from("flashcard_reviews").insert({
-        user_id: session.user.id,
-        flashcard_id: card.id,
-        rating,
-        reviewed_at: now.toISOString(),
-        due_before: card.fsrs_due || null,
-        due_after: scheduled.card.due.toISOString(),
-        stability: scheduled.card.stability,
-        difficulty: scheduled.card.difficulty,
-        state: scheduled.card.state,
-        scheduled_days: scheduled.card.scheduled_days,
-        elapsed_days: scheduled.card.elapsed_days,
-      });
-      if (logError) console.warn("[FSRS_REVIEW_LOG]", logError.message);
+      const {data:reviewStatus,error:reviewError}=await supabase.rpc("sync_learning_review",{p_id:crypto.randomUUID(),p_card:card.id,p_expected:card.fsrs_last_review||null,p_rating:rating,p_at:now.toISOString(),p_update:scheduled.update});
+      if(reviewError)throw reviewError;
+      if(reviewStatus==="conflict"){onChange();throw new Error("Kartu sudah direview di perangkat/tab lain. Jadwal terbaru dimuat; tidak ditimpa.");}
       setFlipped((value) => ({ ...value, [card.id]: false }));
       onChange();
     } catch (error: any) {
@@ -9168,6 +9165,7 @@ function PracticePage({
 
       {mode === "flashcards" && (
         <div className="flashGrid">
+          <ImageOcclusion account={session.user.id} scope={node.id} files={files} onChange={onChange}/>
           {localCards.map((card) => (
             <div className={"flashStack " + (fsrsIsDue(card) ? "due" : "scheduled")} key={card.id}>
               <button
@@ -9175,7 +9173,7 @@ function PracticePage({
                 onClick={() => setFlipped((value) => ({ ...value, [card.id]: !value[card.id] }))}
               >
                 <small>{flipped[card.id] ? "JAWABAN" : "PERTANYAAN"}</small>
-                <strong><RichText text={flipped[card.id] ? card.back : card.front} /></strong>
+                <strong>{parseOcclusion(card.front) ? <><OcclusionCard front={card.front} reveal={Boolean(flipped[card.id])}/>{flipped[card.id] && <RichText text={card.back}/>}</> : <RichText text={flipped[card.id] ? card.back : card.front} />}</strong>
                 <span>Ketuk untuk balik</span>
               </button>
               <div className="fsrsCardMeta">
@@ -9806,7 +9804,13 @@ function AiDatabaseSourcePicker({
   );
 }
 
-function AiModePicker({
+function AiModePicker({value,onChange,allowLocal=true,context="general"}: {value:AiSelection;onChange:(selection:AiSelection)=>void;allowLocal?:boolean;context?:"general"|"transcription"|"chat";action:"ask"|"ask_web"|"study"|"transcription"|"file_light"|"file_heavy";compact?:boolean}) {
+  const [mode,setMode]=useState<AiExperienceMode>(()=>value.model==="local"&&allowLocal?"simple":legacyModeForSelection(value)==="high"?"high":"instant");
+  useEffect(()=>{onChange({...selectionFromExperienceMode(mode,context),length:value.length||"medium"});},[mode]);
+  return <AiExperiencePicker value={mode} allowSimple={allowLocal} onChange={setMode}/>;
+}
+
+function DebugAiModePicker({
   value,
   onChange,
   action,
@@ -10239,9 +10243,11 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
 function AiExperiencePicker({
   value,
   onChange,
+  allowSimple = true,
 }: {
   value: AiExperienceMode;
   onChange: (value: AiExperienceMode) => void;
+  allowSimple?: boolean;
 }) {
   const options: Array<{ value: AiExperienceMode; label: string; hint: string }> = [
     { value: "simple", label: "Simple", hint: "Local/browser" },
@@ -10253,7 +10259,7 @@ function AiExperiencePicker({
     <div className="aiExperiencePicker" role="group" aria-label="Mode AI Ruang Belajar">
       <span className="aiExperienceLabel">AI RUANG BELAJAR</span>
       <div className="aiExperienceChoices">
-        {options.map((option) => (
+        {options.filter(option=>allowSimple||option.value!=="simple").map((option) => (
           <button
             type="button"
             key={option.value}
@@ -10286,6 +10292,7 @@ function AiSourceModelBar({
   experienceMode,
   onExperienceModeChange,
   showModelDebug = false,
+  extraWebPanel,
 }: {
   sources: AiSourceKind[];
   onSourcesChange: (sources: AiSourceKind[]) => void;
@@ -10299,6 +10306,7 @@ function AiSourceModelBar({
   experienceMode?: AiExperienceMode;
   onExperienceModeChange?: (mode: AiExperienceMode) => void;
   showModelDebug?: boolean;
+  extraWebPanel?: React.ReactNode;
 }) {
   useEffect(() => {
     if (selection.model === "local" && (sources.length !== 1 || sources[0] !== "database")) {
@@ -10340,6 +10348,7 @@ function AiSourceModelBar({
           })}
         </div>
       )}
+      {extraWebPanel}
       <CitationPicker compact={compact} />
       {experienceMode && onExperienceModeChange ? (
         <>
@@ -10347,7 +10356,7 @@ function AiSourceModelBar({
           {showModelDebug ? (
             <details className="aiDebugModelDetails">
               <summary>Debug: Choose Model</summary>
-              <AiModePicker
+              <DebugAiModePicker
                 value={selection}
                 onChange={onSelectionChange}
                 action={action === "ask" && sources.includes("web") ? "ask_web" : action}
@@ -10583,6 +10592,8 @@ function BottomAskBar({
 
   function changeExperienceMode(mode: AiExperienceMode) {
     setAiExperienceMode(mode);
+    setDebugModel(false);
+    setModelRecovery(null);
     window.localStorage.setItem("rb-ai-experience-mode", mode);
     if (mode === "simple") {
       setAiSelection(defaultSelection("local", "chat"));
@@ -10592,9 +10603,7 @@ function BottomAskBar({
     if (aiExperienceMode === "simple") {
       setSelectedSources(["ai", "database"]);
     }
-    if (aiSelection.model === "local") {
-      setAiSelection(selectionFromExperienceMode(mode, "chat"));
-    }
+    setAiSelection(selectionFromExperienceMode(mode, "chat"));
   }
 
   useEffect(() => {
@@ -11215,7 +11224,7 @@ function BottomAskBar({
       throw new Error("Local AI belum terhubung. Buka + Plugin lalu hubungkan LM Studio, Ollama, atau endpoint OpenAI-compatible.");
     }
     if (selectedSources.includes("web")) {
-      throw new Error("Web Search Ruang Belajar tidak dijalankan oleh model lokal. Pilih model cloud untuk memakai Web.");
+      throw new Error("Web Search memerlukan layanan cloud. Gunakan Instant, Medium, atau High untuk menelusuri Web.");
     }
 
     const useAi = selectedSources.includes("ai");
@@ -11697,7 +11706,7 @@ function BottomAskBar({
         return;
       }
       if (aiSelection.model === "local" && !clientReadableTextFile(file)) {
-        alert("PDF/gambar/PPTX di atas 4 MB membutuhkan model Gemini untuk proses OCR. Pilih model Gemini, lalu unggah lagi.");
+        alert("PDF/gambar/PPTX di atas 4 MB membutuhkan OCR cloud. Gunakan Instant, Medium, atau High, lalu unggah lagi.");
         return;
       }
       setAttachmentBusy(true);
@@ -11974,7 +11983,7 @@ function BottomAskBar({
     requestBody: Record<string, any>,
     conversationId: string
   ) {
-    if (String(data?.code || "") !== "MODEL_SELECTION_REQUIRED") return false;
+    if (String(data?.code || "") !== "MODEL_SELECTION_REQUIRED" || !debugModel) return false;
     const alternatives = modelAlternativesFromResponse(data);
     const message =
       String(data?.error || "").trim() ||
@@ -12244,7 +12253,7 @@ function BottomAskBar({
       if (showModelRecovery(data, requestBody, conversationId!)) return;
       await finishChatAnswerForConversation(
         conversationId!,
-        data.error || "Model belum dapat memproses permintaan ini. Coba model lain."
+        data.error || "AI Ruang Belajar belum dapat menjawab. Pertanyaan tetap tersimpan; coba lagi nanti."
       );
       return;
     }
@@ -12293,7 +12302,7 @@ function BottomAskBar({
           <div className="aiAnswerHead aiChatHead">
             <div>
               <small title={activeChatScopeName}>
-                {aiSelection.model === "local"
+                {!debugModel ? "AI Ruang Belajar · " + aiExperienceMode.charAt(0).toUpperCase() + aiExperienceMode.slice(1) : aiSelection.model === "local"
                   ? "Local"
                   : modelCapability(aiSelection.model).label +
                     (modelCapability(aiSelection.model).efforts.length
@@ -12319,7 +12328,7 @@ function BottomAskBar({
               <article key={message.id} className={"aiChatMessage " + message.role}>
                 <div className="aiChatMessageMeta">
                   <strong>{message.role === "user" ? "Kamu" : "AI"}</strong>
-                  {message.role === "assistant" && message.model && <small>{message.model}</small>}
+                  {message.role === "assistant" && message.model && debugModel && <small>{message.model}</small>}
                 </div>
                 {message.warning && (
                   <div className="aiWarning">
@@ -12345,7 +12354,7 @@ function BottomAskBar({
               </article>
             ))}
 
-            {modelRecovery && !busy && (
+            {modelRecovery && !busy && debugModel && (
               <article className="aiChatMessage assistant modelRecoveryMessage">
                 <div className="aiChatMessageMeta">
                   <strong>AI</strong>
@@ -12431,6 +12440,7 @@ function BottomAskBar({
             />
             <AiSourceModelBar
               sources={selectedSources}
+              extraWebPanel={selectedSources.includes("web") ? <OpenMedia/> : undefined}
               onSourcesChange={setSelectedSources}
               selection={aiSelection}
               onSelectionChange={(next) => {

@@ -69,7 +69,7 @@ export function webResearchStatus() {
   };
 }
 
-export async function searchSearxng(query: string, limit = 8) {
+export async function searchSearxng(query: string, limit = 8):Promise<Array<{title:string;uri:string;snippet:string}>> {
   const base = endpoint("SEARXNG_URL");
   if (!base || !query.trim()) return [] as Array<{ title: string; uri: string; snippet: string }>;
   const url = new URL(base.endsWith("/search") ? base : base + "/search");
@@ -116,16 +116,8 @@ async function crawl4ai(uri: string) {
 
 async function directFetch(uri: string) {
   if (!isSafePublicUrl(uri)) return null;
-  const response = await fetch(uri, {
-    headers: { Accept: "text/html,application/xhtml+xml,text/plain,application/json", "User-Agent": "RuangBelajar/1.0" },
-    redirect: "follow",
-    signal: AbortSignal.timeout(10000),
-    cache: "no-store",
-  });
-  if (!response.ok) return null;
-  const type = String(response.headers.get("content-type") || "").toLowerCase();
-  const body = await response.text();
-  return cleanText(type.includes("html") ? htmlToReadableText(body) : body, 12000) || null;
+  const response=await fetchPublicPage(uri);
+  return cleanText(response.type.includes("html")?htmlToReadableText(response.text):response.text,12000)||null;
 }
 
 export async function researchWeb(query: string, limit = 6) {
@@ -133,19 +125,20 @@ export async function researchWeb(query: string, limit = 6) {
     const results = await searchSearxng(query, limit);
     if (!results.length) return { hits: [] as WebResearchHit[], status: "searxng-unavailable" };
     const hits: WebResearchHit[] = [];
-    for (const result of results.slice(0, Math.min(6, limit))) {
+    const selected=results.slice(0,Math.min(6,limit));
+    for(let offset=0;offset<selected.length;offset+=3){const batch=await Promise.all(selected.slice(offset,offset+3).map(async result=>{
       let content = await crawl4ai(result.uri).catch(() => null);
       let provider: WebResearchHit["provider"] = "crawl4ai";
       if (!content) {
         content = await directFetch(result.uri).catch(() => null);
         provider = "direct-fetch";
       }
-      hits.push({
+      return {
         ...result,
         content: content || result.snippet,
         provider,
-      });
-    }
+      };
+    }));hits.push(...batch);}
     return { hits, status: endpoint("CRAWL4AI_URL") ? "searxng-crawl4ai" : "searxng-direct-fetch" };
   } catch (error: any) {
     console.warn("[WEB_RESEARCH_ADAPTER_FAILED]", String(error?.message || "unknown").slice(0, 200));
@@ -168,3 +161,4 @@ export function webResearchPromptContext(hits: WebResearchHit[]) {
 export function webResearchSources(hits: WebResearchHit[]) {
   return hits.map((hit) => ({ title: hit.title, uri: hit.uri }));
 }
+import { fetchPublicPage } from "./publicPageFetch";

@@ -28,9 +28,11 @@ function progress(id: number, event: any) {
 }
 
 async function getTranscriber(id: number, model: string, device: "webgpu" | "wasm") {
-  if (activeModel !== model) {
+  const key = model + ":" + device;
+  if (activeModel !== key) {
+    if (transcriberPromise) { const old = await transcriberPromise.catch(() => null); await old?.dispose(); }
     transcriberPromise = null;
-    activeModel = model;
+    activeModel = key;
   }
   transcriberPromise ??= pipeline("automatic-speech-recognition", model, {
     device,
@@ -52,11 +54,10 @@ async function run(input: WhisperRequest) {
       task: "transcribe",
       chunk_length_s: 30,
       stride_length_s: 5,
-      return_timestamps: false,
+      return_timestamps: true,
     });
     const text = String(result?.text || "").replace(/\s+/g, " ").trim();
-    if (!text) throw new Error("Whisper lokal tidak menemukan ucapan.");
-    self.postMessage({ id: input.id, type: "result", text, model: input.model, device: input.device });
+    self.postMessage({ id: input.id, type: "result", text, chunks: result?.chunks || [], model: input.model, device: input.device });
   } catch (error) {
     self.postMessage({
       id: input.id,

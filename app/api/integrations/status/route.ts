@@ -5,6 +5,7 @@ import { verifyReferenceEngine } from "@/lib/referenceHealthServer";
 import { aiCouncilPlan } from "@/lib/aiOrchestration";
 import { openRouterFreeStatus } from "@/lib/openRouterFree";
 import { webResearchStatus } from "@/lib/webResearch";
+import { documentEnhancementStatus } from "@/lib/documentEnhancements";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +46,9 @@ export async function GET(req: NextRequest) {
       freeHelper: openRouterFreeStatus(),
     },
     webResearch: webResearchStatus(),
+    documentEnhancements: documentEnhancementStatus(),
+    publicResearch:{unpaywall:{configured:Boolean(process.env.UNPAYWALL_EMAIL),fallback:"OpenAlex/DOI"},openCitations:{publicApi:true,tokenOptional:true},openverse:{webOnly:true,automaticRagIngestion:false}},
+    learningTools:{pdfAnnotations:"local PDF.js annotations",audioTimeline:"waveform and bookmarks; timestamps for new local transcriptions",imageOcclusion:"existing FSRS flashcards",offline:"opt-in account snapshot, atomic conflict-aware review queue",dataLab:"local DuckDB/ECharts; deterministic calibration",molecules:"local RDKit, PubChem, 3Dmol/RCSB",epub:"sandboxed local DRM-free EPUB; no automatic RAG ingestion",localHelper:"opt-in WebLLM Qwen 0.5B; heuristic fallback"},
     localAudio: {
       whisper: { browser: true, modelPolicy: "adaptive tiny/base/small", deviceOrder: ["webgpu", "wasm"], cache: "Transformers.js browser cache" },
       sileroVad: { browser: true, model: "Silero VAD legacy via @ricky0123/vad-web", localAssets: "/vad/" },

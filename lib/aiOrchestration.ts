@@ -5,6 +5,7 @@ export type AiCouncilStage =
   | "web-researcher"
   | "database-scholar"
   | "independent-tutor"
+  | "evidence-auditor"
   | "verifier"
   | "critic"
   | "synthesizer";
@@ -59,6 +60,7 @@ export function aiCouncilPlan(mode: AiExperienceMode, useWeb = false): AiCouncil
       ...(useWeb ? ["web-researcher" as const] : []),
       "database-scholar",
       "independent-tutor",
+      "evidence-auditor",
       "verifier",
       "critic",
       "synthesizer",
@@ -75,6 +77,7 @@ export function aiCouncilStageLabel(stage: AiCouncilStage) {
     "web-researcher": "Web researcher",
     "database-scholar": "Database & scholarly researcher",
     "independent-tutor": "Independent tutor",
+    "evidence-auditor": "Evidence analyst",
     verifier: "Citation/fact verifier",
     critic: "Critic",
     synthesizer: "Final synthesizer",

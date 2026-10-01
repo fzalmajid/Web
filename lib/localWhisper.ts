@@ -1,4 +1,5 @@
 import type { AiExperienceMode } from "@/lib/aiOrchestration";
+import { remapTranscript, type SpeechTimeMap } from "./audioTimeline";
 
 export type WhisperDevice = "webgpu" | "wasm";
 export type WhisperModelTier = "tiny" | "base" | "small";
@@ -27,7 +28,8 @@ export function probeWhisperCapability(): WhisperCapability {
     ? Number((navigator as any).deviceMemory)
     : null;
   const webgpu = Boolean((navigator as any).gpu);
-  const strong = webgpu && hardwareConcurrency >= 8 && (deviceMemory === null || deviceMemory >= 8);
+  // Unknown memory is not evidence of capacity; prefer Base over forcing Small.
+  const strong = webgpu && hardwareConcurrency >= 8 && deviceMemory !== null && deviceMemory >= 8;
   const medium = webgpu && hardwareConcurrency >= 4 && (deviceMemory === null || deviceMemory >= 4);
   const tier: WhisperModelTier = strong ? "small" : medium ? "base" : "tiny";
   return {
@@ -51,9 +53,10 @@ export function whisperCapabilityForMode(mode: AiExperienceMode): WhisperCapabil
 }
 
 type Pending = {
-  resolve: (value: { text: string; model: string; device: WhisperDevice }) => void;
+  resolve: (value: { text: string; chunks: any[]; model: string; device: WhisperDevice }) => void;
   reject: (error: Error) => void;
   onProgress?: (message: string) => void;
+  timer?: ReturnType<typeof setTimeout>;
 };
 
 let worker: Worker | null = null;
@@ -61,7 +64,7 @@ let nextId = 0;
 const pending = new Map<number, Pending>();
 
 function resetWorker(current: Worker) {
-  for (const item of pending.values()) item.reject(new Error("Worker Whisper berhenti."));
+  for (const item of pending.values()) { clearTimeout(item.timer); item.reject(new Error("Worker Whisper berhenti atau batas waktu pemrosesan terlampaui.")); }
   pending.clear();
   current.terminate();
   if (worker === current) worker = null;
@@ -82,9 +85,11 @@ function getWorker() {
       return;
     }
     pending.delete(id);
+    clearTimeout(item.timer);
     if (event.data?.type === "error") item.reject(new Error(String(event.data.message || "Whisper lokal gagal.")));
     else if (event.data?.type === "result") item.resolve({
       text: String(event.data.text || ""),
+      chunks: Array.isArray(event.data.chunks) ? event.data.chunks : [],
       model: String(event.data.model || ""),
       device: event.data.device === "webgpu" ? "webgpu" : "wasm",
     });
@@ -101,6 +106,7 @@ async function decodeToMono(blob: Blob) {
   const context: AudioContext = new AudioContextCtor();
   try {
     const decoded = await context.decodeAudioData(await blob.arrayBuffer());
+    if(decoded.duration>1200)throw new Error("Transkripsi lokal dibatasi 20 menit per potongan untuk menjaga memori perangkat.");
     const length = Math.max(1, Math.ceil(decoded.duration * 16000));
     const mono = new Float32Array(length);
     for (let i = 0; i < length; i++) {
@@ -116,6 +122,7 @@ async function decodeToMono(blob: Blob) {
 }
 
 async function speechOnly(samples: Float32Array, sampleRate: number, onProgress?: (message: string) => void) {
+  const timeMap: SpeechTimeMap[] = [];
   try {
     const { NonRealTimeVAD } = await import("@ricky0123/vad-web");
     const vad = await NonRealTimeVAD.new({
@@ -131,18 +138,26 @@ async function speechOnly(samples: Float32Array, sampleRate: number, onProgress?
       minSpeechMs: 180,
     });
     const chunks: Float32Array[] = [];
-    for await (const segment of vad.run(samples, sampleRate)) chunks.push(segment.audio);
+    let compact = 0;
+    for await (const segment of vad.run(samples, sampleRate)) {
+      const length = segment.audio.length / 16000;
+      chunks.push(segment.audio);
+      // VAD start excludes pre-speech padding; audio includes it. Derive its
+      // actual beginning from end minus emitted sample duration.
+      timeMap.push({ compactStart: compact, compactEnd: compact + length, originalStart: Math.max(0, segment.end / 1000 - length), originalEnd: Math.min(samples.length / sampleRate, segment.end / 1000) });
+      compact += length;
+    }
     if (typeof vad === "object" && "destroy" in vad) await (vad as any).destroy().catch(() => undefined);
     const size = chunks.reduce((total, chunk) => total + chunk.length, 0);
-    if (!size) return { samples, usedVad: false };
+    if (!size) return { samples: new Float32Array(0), usedVad: true, timeMap: [] as SpeechTimeMap[] };
     const merged = new Float32Array(size);
     let offset = 0;
     for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.length; }
     onProgress?.("Silero VAD aktif · bagian hening/noise dipangkas.");
-    return { samples: merged, usedVad: true };
+    return { samples: merged, usedVad: true, timeMap };
   } catch {
     onProgress?.("Silero VAD belum tersedia · audio utuh diteruskan ke Whisper.");
-    return { samples, usedVad: false };
+    return { samples, usedVad: false, timeMap: [] as SpeechTimeMap[] };
   }
 }
 
@@ -155,12 +170,13 @@ export async function transcribeBrowserAudio(blob: Blob, options: {
   options.onProgress?.(capability.reason);
   const decoded = await decodeToMono(blob);
   const speech = await speechOnly(decoded.samples, decoded.sampleRate, options.onProgress);
+  if(speech.usedVad&&!speech.samples.length){options.onProgress?.("Tidak ada ucapan terdeteksi; audio hening tidak dikirim ke Whisper/cloud.");return {text:"",chunks:[] as ReturnType<typeof remapTranscript>,model:capability.model,device:capability.device,usedVad:true,tier:capability.tier,noSpeech:true};}
   async function runWorker(model: string, device: WhisperDevice) {
     const current = getWorker();
     const id = ++nextId;
     const transferableSamples = speech.samples.slice();
-    return new Promise<{ text: string; model: string; device: WhisperDevice }>((resolve, reject) => {
-      pending.set(id, { resolve, reject, onProgress: options.onProgress });
+    return new Promise<{ text: string; chunks: any[]; model: string; device: WhisperDevice }>((resolve, reject) => {
+      pending.set(id, { resolve, reject, onProgress: options.onProgress, timer: setTimeout(()=>resetWorker(current),300_000) });
       current.postMessage({
         id,
         type: "transcribe",
@@ -172,7 +188,7 @@ export async function transcribeBrowserAudio(blob: Blob, options: {
     });
   }
 
-  let result: { text: string; model: string; device: WhisperDevice };
+  let result: { text: string; chunks: any[]; model: string; device: WhisperDevice };
   try {
     result = await runWorker(capability.model, capability.device);
   } catch (error) {
@@ -180,7 +196,7 @@ export async function transcribeBrowserAudio(blob: Blob, options: {
     options.onProgress?.("WebGPU tidak dapat menjalankan Whisper · fallback ke WASM/Tiny...");
     result = await runWorker(WHISPER_MODELS.tiny, "wasm");
   }
-  return { ...result, usedVad: speech.usedVad, tier: capability.tier };
+  return { ...result, chunks: remapTranscript(result.chunks, speech.timeMap, decoded.samples.length / decoded.sampleRate), usedVad: speech.usedVad, tier: result.model === WHISPER_MODELS.tiny ? "tiny" : capability.tier };
 }
 
 // Compatibility shims for the existing Record UI. New callers should use
@@ -204,5 +220,5 @@ export async function transcribeBlobLocally(
     mode: "instant",
     onProgress: (message) => onProgress?.({ status: "progress", file: message, loaded: 0, total: 0 }),
   });
-  return { text: result.text, chunks: [], device: result.device, model: result.model };
+  return { text: result.text, chunks: result.chunks, device: result.device, model: result.model };
 }
