@@ -17,6 +17,7 @@ import { assertPdfFile } from "@/lib/pdfValidation";
 import ProfileHome, { FriendCenter, ProfileEditorPanel, type UserProfile } from "@/components/ProfileHome";
 import ProfileSetup from "@/components/ProfileSetup";
 import FriendFolderPage from "@/components/FriendFolderPage";
+import { CytoscapeDiagram, MermaidDiagram } from "@/components/LearningVisual";
 import { isChunkedPdfPath, getChunkedPdfManifest, downloadChunkedPdf, removeStoredStudyFile, copyChunkedPdf, saveLargePdfToFolder, type LargePdfSourceRow } from "@/lib/largePdfClient";
 import {
   AI_MODEL_CATALOG,
@@ -8542,6 +8543,47 @@ function RichText({ text, className = "" }: { text: string; className?: string }
     </span>
   );
 }
+
+
+type AiVisualPart =
+  | { kind: "text"; value: string }
+  | { kind: "mermaid"; value: string }
+  | { kind: "cytoscape"; value: string };
+
+function aiVisualParts(value: string): AiVisualPart[] {
+  const text = String(value || "");
+  const pattern = /```\s*(mermaid|cytoscape|graph-json)\s*\n([\s\S]*?)```/gi;
+  const parts: AiVisualPart[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    if (match.index > last) parts.push({ kind: "text", value: text.slice(last, match.index) });
+    const language = String(match[1] || "").toLowerCase();
+    const code = String(match[2] || "").trim();
+    parts.push({ kind: language === "mermaid" ? "mermaid" : "cytoscape", value: code });
+    last = pattern.lastIndex;
+  }
+  if (last < text.length) parts.push({ kind: "text", value: text.slice(last) });
+  return parts.length ? parts : [{ kind: "text", value: text }];
+}
+
+function AiMessageContent({ text }: { text: string }) {
+  const parts = aiVisualParts(text);
+  return (
+    <div className="aiRichContent">
+      {parts.map((part, index) => {
+        if (part.kind === "mermaid") return <MermaidDiagram key={"m" + index} code={part.value} />;
+        if (part.kind === "cytoscape") return <CytoscapeDiagram key={"c" + index} code={part.value} />;
+        return part.value ? (
+          <div className="aiRichTextPart" key={"t" + index}>
+            <RichText text={part.value} />
+          </div>
+        ) : null;
+      })}
+    </div>
+  );
+}
+
 function normalizeQuizAnswer(value: string) {
   return value
     .trim()
@@ -12104,7 +12146,7 @@ function BottomAskBar({
                   </div>
                 )}
                 <div className="aiChatMessageBody">
-                  <RichText text={message.content} />
+                  {message.role === "assistant" ? <AiMessageContent text={message.content} /> : <RichText text={message.content} />}
                 </div>
                 {message.role === "assistant" &&
                   (!!message.sources?.length || !!message.web_sources?.length) && (
