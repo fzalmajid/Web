@@ -180,10 +180,15 @@ export function CytoscapeDiagram({ code }: { code: string }) {
             },
           },
           {
-            selector: ":selected",
+            selector: "node:selected",
             style: {
               "border-width": 3,
-              "line-width": 3,
+            },
+          },
+          {
+            selector: "edge:selected",
+            style: {
+              width: 3,
             },
           },
         ],
