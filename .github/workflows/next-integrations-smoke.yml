@@ -1,0 +1,19 @@
+name: Next Integrations Smoke Test
+
+on:
+  push:
+    branches: [integrate-visual-scholar-whisper-20261001]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm install --no-save tsx wavefile
+      - run: npx tsx scripts/smoke-next-integrations.ts
