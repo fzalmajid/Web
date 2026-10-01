@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { REFERENCE_CAPABILITIES } from "@/lib/referencePipelineServer";
-import { openAlexConfigured, openAlexHasApiKey } from "@/lib/scholarlySources";
+import { openAlexConfigured, openAlexHasApiKey, semanticScholarHasApiKey } from "@/lib/scholarlySources";
 import { verifyReferenceEngine } from "@/lib/referenceHealthServer";
 
 export const runtime = "nodejs";
@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
       openAlex: { configured: openAlexConfigured(), publicApi: true, apiKeyOptional: true, hasApiKey: openAlexHasApiKey() },
       europePmc: { configured: true, publicApi: true },
       pubMed: { configured: true, publicApi: true, apiKeyOptional: true },
+      semanticScholar: { configured: true, publicApi: true, apiKeyOptional: true, hasApiKey: semanticScholarHasApiKey() },
       crossref: { configured: true, publicApi: true },
       dataCite: { configured: true, publicApi: true },
       openLibrary: { configured: true, publicApi: true },
@@ -27,6 +28,8 @@ export async function GET(req: NextRequest) {
       katexMhchem: true,
       fsrs: true,
       localOcrWithGeminiFallback: true,
+      mermaidCytoscape: true,
+      localWhisper: true,
     },
     checkedAt: new Date().toISOString(),
   }, {

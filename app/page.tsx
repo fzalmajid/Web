@@ -17,6 +17,7 @@ import { assertPdfFile } from "@/lib/pdfValidation";
 import ProfileHome, { FriendCenter, ProfileEditorPanel, type UserProfile } from "@/components/ProfileHome";
 import ProfileSetup from "@/components/ProfileSetup";
 import FriendFolderPage from "@/components/FriendFolderPage";
+import { CytoscapeDiagram, MermaidDiagram } from "@/components/LearningVisual";
 import { isChunkedPdfPath, getChunkedPdfManifest, downloadChunkedPdf, removeStoredStudyFile, copyChunkedPdf, saveLargePdfToFolder, type LargePdfSourceRow } from "@/lib/largePdfClient";
 import {
   AI_MODEL_CATALOG,
@@ -33,6 +34,7 @@ import {
   type AiSelection,
 } from "@/lib/aiModels";
 import { applyFsrsRating, fsrsDueLabel, fsrsIsDue, fsrsStateLabel, type FsrsRating } from "@/lib/fsrsScheduling";
+import { preloadLocalWhisper, transcribeBlobLocally } from "@/lib/localWhisper";
 
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
@@ -7753,8 +7755,20 @@ function RecordingPage({
 
       if (aiSelection.model === "local") {
         const started = startBrowserSpeech(false);
+        setLiveEngine("Whisper lokal · menyiapkan model…");
+        void preloadLocalWhisper((progress) => {
+          if (!recordingRef.current) return;
+          if (progress.status === "progress" && progress.total > 0) {
+            const percent = Math.max(0, Math.min(100, Math.round(progress.loaded / progress.total * 100)));
+            setLiveEngine("Whisper lokal · model " + percent + "%");
+          }
+        }).then(() => {
+          if (recordingRef.current) setLiveEngine("Whisper lokal · siap setelah Stop");
+        }).catch(() => {
+          if (recordingRef.current) setLiveEngine(started ? "Browser live · Whisper belum siap" : "Whisper/browser belum tersedia");
+        });
         if (!started) {
-          setStatus("Sedang merekam · audio tersimpan. Transkrip live browser tidak tersedia.");
+          setStatus("Sedang merekam · audio tersimpan. Whisper lokal akan dicoba setelah Stop.");
         }
       } else {
         const browserStarted = startBrowserSpeech(true);
@@ -7845,9 +7859,26 @@ function RecordingPage({
     }
 
     if (aiSelection.model === "local") {
-      if (!currentLiveTranscript) {
+      let localTranscript = "";
+      let localDevice = "";
+      try {
+        setStatus("Whisper lokal sedang mentranskripsikan audio · tanpa kredit AI…");
+        const local = await transcribeBlobLocally(blob, (progress) => {
+          if (progress.status === "progress" && progress.total > 0) {
+            const percent = Math.max(0, Math.min(100, Math.round(progress.loaded / progress.total * 100)));
+            setStatus("Menyiapkan Whisper lokal " + percent + "% · model akan di-cache browser.");
+          }
+        });
+        localTranscript = String(local.text || "").trim();
+        localDevice = String(local.device || "");
+      } catch (error: any) {
+        console.warn("[LOCAL_WHISPER_FALLBACK]", error?.message || "unknown");
+      }
+
+      const finalTranscript = localTranscript || currentLiveTranscript;
+      if (!finalTranscript) {
         setBusy(false);
-        setStatus("Audio tersimpan. Browser tidak menghasilkan transkrip live.");
+        setStatus("Audio tersimpan. Whisper lokal dan transkrip live belum menghasilkan teks; audio tetap aman untuk dicoba ulang.");
         onChange();
         return;
       }
@@ -7855,9 +7886,9 @@ function RecordingPage({
       await supabase
         .from("recordings")
         .update({
-          raw_transcript: currentLiveTranscript,
-          structured_transcript: currentLiveTranscript,
-          transcript: currentLiveTranscript,
+          raw_transcript: finalTranscript,
+          structured_transcript: finalTranscript,
+          transcript: finalTranscript,
           corrections: [],
         })
         .eq("id", row.id);
@@ -7865,13 +7896,17 @@ function RecordingPage({
       setBusy(false);
       setResult({
         recordingId: row.id,
-        raw: currentLiveTranscript,
-        structured: currentLiveTranscript,
+        raw: finalTranscript,
+        structured: finalTranscript,
         summary: "",
         corrections: [],
         added: false,
       });
-      setStatus("Selesai · Local · Browser · tanpa Gemini API.");
+      setStatus(
+        localTranscript
+          ? "Selesai · Whisper lokal" + (localDevice ? " · " + localDevice.toUpperCase() : "") + " · tanpa Gemini API."
+          : "Selesai · Browser fallback · Whisper lokal belum berhasil · tanpa Gemini API."
+      );
       onChange();
       return;
     }
@@ -7941,7 +7976,46 @@ function RecordingPage({
 
   async function retryTranscription(item: Recording) {
     if (aiSelection.model === "local") {
-      return alert("Transkrip ulang audio tersimpan membutuhkan model Gemini.");
+      setRetryingId(item.id);
+      setStatus("Whisper lokal membaca ulang " + item.title + "…");
+      try {
+        const downloaded = await supabase.storage.from("recordings").download(item.file_path);
+        if (downloaded.error || !downloaded.data) throw downloaded.error || new Error("Audio tidak dapat dibaca.");
+        const local = await transcribeBlobLocally(downloaded.data, (progress) => {
+          if (progress.status === "progress" && progress.total > 0) {
+            const percent = Math.max(0, Math.min(100, Math.round(progress.loaded / progress.total * 100)));
+            setStatus("Menyiapkan Whisper lokal " + percent + "% · model akan di-cache browser.");
+          }
+        });
+        const transcript = String(local.text || "").trim();
+        if (!transcript) throw new Error("Whisper lokal tidak menghasilkan transkrip.");
+        const { error } = await supabase
+          .from("recordings")
+          .update({
+            raw_transcript: transcript,
+            structured_transcript: transcript,
+            transcript,
+            corrections: [],
+          })
+          .eq("id", item.id);
+        if (error) throw error;
+        setResult({
+          recordingId: item.id,
+          raw: transcript,
+          structured: transcript,
+          summary: "",
+          corrections: [],
+          added: Boolean(item.knowledge_entry_id),
+        });
+        setStatus("Selesai · Whisper lokal · " + String(local.device || "wasm").toUpperCase() + " · tanpa Gemini API.");
+        onChange();
+      } catch (error: any) {
+        setStatus("Whisper lokal belum berhasil. Audio tetap tersimpan.");
+        alert(error?.message || "Transkripsi lokal gagal.");
+      } finally {
+        setRetryingId("");
+      }
+      return;
     }
 
     setRetryingId(item.id);
@@ -8542,6 +8616,47 @@ function RichText({ text, className = "" }: { text: string; className?: string }
     </span>
   );
 }
+
+
+type AiVisualPart =
+  | { kind: "text"; value: string }
+  | { kind: "mermaid"; value: string }
+  | { kind: "cytoscape"; value: string };
+
+function aiVisualParts(value: string): AiVisualPart[] {
+  const text = String(value || "");
+  const pattern = /```\s*(mermaid|cytoscape|graph-json)\s*\n([\s\S]*?)```/gi;
+  const parts: AiVisualPart[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    if (match.index > last) parts.push({ kind: "text", value: text.slice(last, match.index) });
+    const language = String(match[1] || "").toLowerCase();
+    const code = String(match[2] || "").trim();
+    parts.push({ kind: language === "mermaid" ? "mermaid" : "cytoscape", value: code });
+    last = pattern.lastIndex;
+  }
+  if (last < text.length) parts.push({ kind: "text", value: text.slice(last) });
+  return parts.length ? parts : [{ kind: "text", value: text }];
+}
+
+function AiMessageContent({ text }: { text: string }) {
+  const parts = aiVisualParts(text);
+  return (
+    <div className="aiRichContent">
+      {parts.map((part, index) => {
+        if (part.kind === "mermaid") return <MermaidDiagram key={"m" + index} code={part.value} />;
+        if (part.kind === "cytoscape") return <CytoscapeDiagram key={"c" + index} code={part.value} />;
+        return part.value ? (
+          <div className="aiRichTextPart" key={"t" + index}>
+            <RichText text={part.value} />
+          </div>
+        ) : null;
+      })}
+    </div>
+  );
+}
+
 function normalizeQuizAnswer(value: string) {
   return value
     .trim()
@@ -12104,7 +12219,7 @@ function BottomAskBar({
                   </div>
                 )}
                 <div className="aiChatMessageBody">
-                  <RichText text={message.content} />
+                  {message.role === "assistant" ? <AiMessageContent text={message.content} /> : <RichText text={message.content} />}
                 </div>
                 {message.role === "assistant" &&
                   (!!message.sources?.length || !!message.web_sources?.length) && (
