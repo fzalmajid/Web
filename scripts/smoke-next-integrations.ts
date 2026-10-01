@@ -52,7 +52,7 @@ async function testMermaid() {
     const window: any = dom.window;
     (globalThis as any).window = window;
     (globalThis as any).document = window.document;
-    (globalThis as any).navigator = window.navigator;
+    Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
     (globalThis as any).DOMParser = window.DOMParser;
     (globalThis as any).HTMLElement = window.HTMLElement;
     (globalThis as any).SVGElement = window.SVGElement;
