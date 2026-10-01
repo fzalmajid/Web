@@ -162,18 +162,25 @@ async function testLocalOcr() {
   }
 }
 
-await testProduction();
-await testScholarly();
-await testReferenceIntegrity();
-await testKatex();
-await testFsrs();
-await testHybridFusion();
-await testLocalOcr();
+async function main() {
+  await testProduction();
+  await testScholarly();
+  await testReferenceIntegrity();
+  await testKatex();
+  await testFsrs();
+  await testHybridFusion();
+  await testLocalOcr();
 
-console.log("\n=== RUANG BELAJAR LEARNING CORE SMOKE TEST ===");
-for (const result of results) {
-  console.log((result.ok ? "PASS" : "FAIL") + " | " + result.name + " | " + result.detail);
+  console.log("\n=== RUANG BELAJAR LEARNING CORE SMOKE TEST ===");
+  for (const result of results) {
+    console.log((result.ok ? "PASS" : "FAIL") + " | " + result.name + " | " + result.detail);
+  }
+  const failed = results.filter((result) => !result.ok);
+  console.log("\nTOTAL=" + results.length + " PASS=" + (results.length - failed.length) + " FAIL=" + failed.length);
+  if (failed.length) process.exit(1);
 }
-const failed = results.filter((result) => !result.ok);
-console.log("\nTOTAL=" + results.length + " PASS=" + (results.length - failed.length) + " FAIL=" + failed.length);
-if (failed.length) process.exit(1);
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
