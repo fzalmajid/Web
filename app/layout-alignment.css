@@ -3,6 +3,23 @@
    .gptComposer.bottomAsk { max-width:980px !important }, so this file uses
    stronger selectors to make the profile and fixed AI composer share one grid. */
 
+/* Modes + debug occupy more space than the legacy model trigger. Never push
+   the source picker off-screen when the in-app pane or mobile view is narrow. */
+@media (max-width:899px){
+  .gptComposer.bottomAsk .askTopControls{
+    flex-wrap:wrap!important;
+    justify-content:flex-start!important;
+    min-width:0!important;
+  }
+  .gptComposer.bottomAsk .askTopControls>.aiSourceModelBar{
+    flex:1 1 280px!important;
+    width:auto!important;
+    min-width:0!important;
+    max-width:100%!important;
+    flex-wrap:wrap!important;
+  }
+}
+
 @media (min-width:900px){
   .appShell{
     --rb-workspace-max-w:1120px;
