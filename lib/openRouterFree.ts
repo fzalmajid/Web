@@ -11,11 +11,13 @@ export type FreeAgentResult = {
 };
 
 function configuredModel() {
-  return String(process.env.OPENROUTER_FREE_MODEL || "").trim();
+  return String(process.env.OPENROUTER_FREE_MODEL || "openrouter/free").trim();
 }
+export function isZeroCostModel(model:string){return model==="openrouter/free"||model.endsWith(":free");}
+let unavailableUntil=0;
 
 export function openRouterFreeConfigured() {
-  return Boolean(String(process.env.OPENROUTER_API_KEY || "").trim() && configuredModel().endsWith(":free"));
+  return Boolean(String(process.env.OPENROUTER_API_KEY || "").trim() && isZeroCostModel(configuredModel()) && Date.now()>=unavailableUntil);
 }
 
 export function openRouterFreeStatus() {
@@ -34,7 +36,7 @@ export async function openRouterFreeGenerate(options: {
 }): Promise<FreeAgentResult> {
   const apiKey = String(process.env.OPENROUTER_API_KEY || "").trim();
   const model = configuredModel();
-  if (!apiKey || !model.endsWith(":free")) {
+  if (!apiKey || !isZeroCostModel(model) || Date.now()<unavailableUntil) {
     throw Object.assign(new Error("OpenRouter free helper belum dikonfigurasi."), {
       code: "OPENROUTER_FREE_UNAVAILABLE",
       statusCode: 503,
@@ -51,6 +53,7 @@ export async function openRouterFreeGenerate(options: {
     },
     body: JSON.stringify({
       model,
+      provider:{max_price:{prompt:0,completion:0},data_collection:"deny"},
       messages: [
         {
           role: "system",
@@ -67,6 +70,7 @@ export async function openRouterFreeGenerate(options: {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    unavailableUntil=Date.now()+(response.status===429?15*60_000:60_000);
     throw Object.assign(new Error(String(data?.error?.message || "OpenRouter free helper tidak tersedia.")), {
       code: response.status === 429 ? "OPENROUTER_FREE_RATE_LIMIT" : "OPENROUTER_FREE_ERROR",
       statusCode: response.status,

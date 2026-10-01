@@ -1,0 +1,2 @@
+import {test} from "node:test";import assert from "node:assert/strict";import{visualLearningRequest}from"../lib/visualIntent";
+test("Indonesian visual requests are recognized, not escaped literal regex",()=>{assert.deepEqual(visualLearningRequest("Buat peta konsep fotosintesis"),{requested:true,interactive:false});assert.deepEqual(visualLearningRequest("Buat graf relasi interaktif"),{requested:true,interactive:true});assert.equal(visualLearningRequest("jelaskan kalor").requested,false);});

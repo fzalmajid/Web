@@ -429,9 +429,9 @@ export function selectionFromExperienceMode(
   if (mode === "simple") return defaultSelection("local", context);
   if (context === "transcription") return defaultSelection("gemini-3.5-transcribe", context);
   if (mode === "medium" || mode === "high") {
-    return defaultSelection("gemini-2.5-flash", context);
+    return { ...defaultSelection("gemini-3.5-flash", context), effort: mode === "high" ? "high" : "medium" };
   }
-  return defaultSelection("gemini-2.5-flash-lite", context);
+  return defaultSelection("gemini-3.5-flash-lite", context);
 }
 
 export function legacyModeForSelection(selection: AiSelection): AiLegacyMode {

@@ -19,6 +19,7 @@ test("normal AI modes describe depth instead of exposing a model picker", () => 
     "web-researcher",
     "database-scholar",
     "independent-tutor",
+    "evidence-auditor",
     "verifier",
     "critic",
     "synthesizer",

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { visualLearningRequest } from "@/lib/visualIntent";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   geminiGenerateDetailed,
@@ -36,6 +37,7 @@ import { buildCitationMetadataInventory, citationInstruction, citationStructural
 import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } from "@/lib/artifacts";
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
+import { rerankKnowledge } from "@/lib/documentEnhancements";
 import { normalizeAiExperienceMode } from "@/lib/aiOrchestration";
 import { runAiCouncil, type CouncilGeneration } from "@/lib/aiCouncil";
 import { researchWeb, webResearchPromptContext, webResearchSources } from "@/lib/webResearch";
@@ -960,7 +962,7 @@ export async function POST(req: NextRequest) {
 
     if (selectedProvider === "local" && (useAi || useWeb)) {
       return NextResponse.json(
-        { error: "Local hanya dapat memakai Database. Pilih model AI untuk sumber AI atau Web." },
+        { error: "Simple memakai Database. Gunakan Instant, Medium, atau High untuk sumber AI atau Web." },
         { status: 400 }
       );
     }
@@ -1154,7 +1156,7 @@ export async function POST(req: NextRequest) {
         data = await annotateBibliographicWorks(supabase, data);
         // First relevant excerpt from each bibliographic work, then further pages.
         data = diversifyKnowledgeSources(
-          prioritizeQuestionRelevantSources(data, question.trim()),
+          await rerankKnowledge(prioritizeQuestionRelevantSources(data, question.trim()), question.trim()),
           contextSourceLimit, 3
         );
         }
@@ -1382,14 +1384,11 @@ export async function POST(req: NextRequest) {
         ? buildDeterministicCitationInventory(citationStyle, data)
         : "";
 
-    const visualLearningIntent =
-      /\\b(diagram|flowchart|mind\\s*map|mindmap|peta\\s+konsep|concept\\s+map|bagan|alur|network\\s+graph|graf\\s+relasi|hubungan\\s+antar|relasi\\s+antar)\\b/i.test(question.trim());
-    const interactiveGraphIntent =
-      /\\b(interaktif|interactive|network\\s+graph|graf\\s+relasi|hubungan\\s+antar|relasi\\s+antar)\\b/i.test(question.trim());
+    const {requested:visualLearningIntent,interactive:interactiveGraphIntent}=visualLearningRequest(question.trim());
     const visualLearningInstruction = visualLearningIntent
       ? interactiveGraphIntent
-        ? "\\n\\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:\\\"cose\\\"|\\\"breadthfirst\\\"|\\\"circle\\\"|\\\"grid\\\"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok."
-        : "\\n\\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
+        ? '\n\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:"cose"|"breadthfirst"|"circle"|"grid"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok.'
+        : "\n\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
       : "";
     const prompt = buildPrompt({
       question,
@@ -1460,7 +1459,9 @@ export async function POST(req: NextRequest) {
           models: withWeb
             ? modelPlanForSelection(aiSelection.model, aiMode, "web")
             : [selectedProviderModel],
-          strictModel: !withWeb,
+          strictModel: debugModel && !withWeb,
+          allowedFallbackModels: debugModel ? undefined : ["gemini-3.5-flash-lite","gemini-3.5-flash","gemini-2.5-flash"],
+          maxAttempts: debugModel ? 1 : 3,
           effort: aiSelection.effort,
           responseLength: aiSelection.length,
           apiKey: geminiAuth.apiKey,
@@ -1664,7 +1665,7 @@ export async function POST(req: NextRequest) {
         answer: result.text,
         citationWarnings: citationStructuralWarnings(result.text, citationStyle, citationOutputs),
         sources: databaseSources,
-        warning: [databaseWarning, semanticNotice].filter(Boolean).join(" · ") || undefined,
+        warning: [databaseWarning, semanticNotice, council?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · ") || undefined,
         semanticStatus,
         semanticModel,
         webSources: mergeWebSources([
@@ -1680,7 +1681,7 @@ export async function POST(req: NextRequest) {
         webFallback: false,
         model: council ? "AI Council · " + result.model : result.model,
         orchestration: council
-          ? { mode: aiMode, stages: council.stages, description: "Planner → research → agents → verifier → critic → synthesizer" }
+          ? { mode: aiMode, stages: council.stages, helpers: council.helpers, description: "Planner → research → agents → verifier → critic → synthesizer" }
           : { mode: aiMode, stages: [], description: "Direct provider response" },
         aiUsage,
         provider: selectedUsageProvider(),
@@ -1692,7 +1693,10 @@ export async function POST(req: NextRequest) {
         selectedProvider === "gemini" &&
         ["GEMINI_UNAVAILABLE", "GEMINI_MODEL_UNAVAILABLE", "GEMINI_NO_AVAILABLE_MODEL", "GEMINI_QUOTA"].includes(errorCode);
 
-      if (modelSelectionFailure) {
+      if (modelSelectionFailure && !debugModel && !useWeb) {
+        return NextResponse.json({code:"AI_TEMPORARILY_UNAVAILABLE",error:"AI Ruang Belajar belum dapat menjawab setelah mencoba jalur cadangan otomatis. Pertanyaan tetap tersimpan; coba lagi nanti atau gunakan Simple untuk menelusuri Database tanpa layanan cloud."},{status:503});
+      }
+      if (modelSelectionFailure && debugModel) {
         let alternativeModels: Array<{ id: string; label: string }> = [];
         try {
           const available = await geminiAvailableTextModels({
@@ -1814,8 +1818,9 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
     console.error("[API_ASK_ERROR]", { name: error?.name, code: error?.code, status });
+    const privateProviderError = req.headers.get("X-RB-AI-Debug-Model") !== "1" && (/^(GEMINI|OPENAI|ANTHROPIC)_/.test(String(error?.code || "")) || /gemini-\d|claude-|gpt-\d/i.test(String(error?.message || "")));
     return NextResponse.json(
-      { error: error?.message || "Gagal menjawab." },
+      { error: privateProviderError ? "AI Ruang Belajar sedang tidak tersedia. Pertanyaan tetap tersimpan; coba lagi nanti atau gunakan Simple untuk Database." : error?.message || "Gagal menjawab." },
       { status: status >= 400 && status < 600 ? status : 500 }
     );
   }

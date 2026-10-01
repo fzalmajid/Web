@@ -101,6 +101,7 @@ async function listGenerateModels(
       {
         headers: geminiAuthHeaders(accessToken, projectId, key),
         cache: "no-store",
+        signal: AbortSignal.timeout(7000),
       }
     );
     if (!response.ok) return [];
@@ -140,15 +141,16 @@ export async function geminiAvailableTextModels(options?: {
   );
 }
 
-function prioritizeAvailableModels(
+export function prioritizeAvailableModels(
   requested: string[],
   available: string[],
   audio = false,
-  strictModel = false
+  strictModel = false,
+  allowedFallbacks?: string[]
 ) {
   // If model discovery itself is unavailable, still attempt the exact requested
   // model(s) directly. The provider response is authoritative.
-  if (!available.length) return requested;
+  if (!available.length) return Array.from(new Set([...requested,...(!strictModel ? allowedFallbacks || [] : [])]));
 
   const availableSet = new Set(available);
   const requestedAvailable = requested.filter((model) => availableSet.has(model));
@@ -158,13 +160,14 @@ function prioritizeAvailableModels(
   // model or return no candidate so the caller can show a clear error.
   if (strictModel) return requestedAvailable;
 
-  const safeFallbacks = audio
+  const safeFallbacks = allowedFallbacks || (audio
     ? ["gemini-3.5-transcribe", ...SAFE_GENERATE_FALLBACKS]
-    : SAFE_GENERATE_FALLBACKS;
+    : SAFE_GENERATE_FALLBACKS);
 
   const providerFallbacks = safeFallbacks.filter((model) => availableSet.has(model));
   const otherTextModels = available.filter(
     (model) =>
+      !allowedFallbacks &&
       /^gemini-/i.test(model) &&
       !/image|embedding|tts|live|robotics|omni/i.test(model) &&
       (audio || !/transcribe/i.test(model))
@@ -253,6 +256,8 @@ export async function geminiGenerateDetailed(
     maxOutputTokens?: number;
     outputBudgetMultiplier?: number;
     strictModel?: boolean;
+    allowedFallbackModels?: string[];
+    maxAttempts?: number;
   }
 ) {
   const lengthInstruction = options?.responseLength
@@ -289,7 +294,9 @@ export async function geminiGenerateDetailed(
     availableModels,
     requestedModels.some((model) => model === "gemini-3.5-transcribe"),
     Boolean(options?.strictModel)
+    , options?.allowedFallbackModels
   );
+  const attemptModels=models.slice(0,Math.max(1,Math.min(3,options?.maxAttempts||3)));
 
   if (!models.length) {
     throw new GeminiApiError(
@@ -303,8 +310,8 @@ export async function geminiGenerateDetailed(
 
   let lastError: GeminiApiError | null = null;
 
-  for (let index = 0; index < models.length; index++) {
-    const model = models[index];
+  for (let index = 0; index < attemptModels.length; index++) {
+    const model = attemptModels[index];
 
     let response: Response;
     try {
@@ -313,6 +320,7 @@ export async function geminiGenerateDetailed(
         {
           method: "POST",
           headers: geminiAuthHeaders(accessToken, projectId, key),
+          signal: AbortSignal.timeout(options?.googleSearch ? 40000 : 30000),
           body: JSON.stringify({
             systemInstruction: effectiveSystemInstruction
               ? { parts: [{ text: effectiveSystemInstruction }] }
@@ -337,7 +345,7 @@ export async function geminiGenerateDetailed(
       );
     } catch {
       lastError = new GeminiUnavailableError();
-      if (index < models.length - 1) continue;
+      if (index < attemptModels.length - 1) continue;
       throw lastError;
     }
 
@@ -346,7 +354,7 @@ export async function geminiGenerateDetailed(
       const error = normalizeProviderError(response, data, Boolean(options?.googleSearch));
       lastError = error;
       if (
-        index < models.length - 1 &&
+        index < attemptModels.length - 1 &&
         (error.code === "GEMINI_QUOTA" ||
           error.code === "GEMINI_UNAVAILABLE" ||
           error.code === "GEMINI_MODEL_UNAVAILABLE" ||
@@ -354,7 +362,7 @@ export async function geminiGenerateDetailed(
       ) {
         continue;
       }
-      if (error.code === "GEMINI_MODEL_UNAVAILABLE" && index === models.length - 1) {
+      if (error.code === "GEMINI_MODEL_UNAVAILABLE" && index === attemptModels.length - 1) {
         throw new GeminiApiError(
           "Tidak ada model Gemini yang tersedia untuk credential/project ini. Pilih model/provider lain atau hubungkan project Google Cloud lain.",
           503,
@@ -373,7 +381,7 @@ export async function geminiGenerateDetailed(
 
     if (!text) {
       lastError = new GeminiApiError("Gemini tidak mengembalikan teks.", 502, "GEMINI_EMPTY_RESPONSE");
-      if (index < models.length - 1) continue;
+      if (index < attemptModels.length - 1) continue;
       throw lastError;
     }
 

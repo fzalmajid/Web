@@ -1,0 +1,22 @@
+"use client";
+import { useEffect, useRef, useState } from "react";
+import { learningStore, type PdfNote } from "@/lib/learningStore";
+import { supabase } from "@/lib/supabase";
+export default function PdfAnnotations({ url, file, title }: { url: string; file: string; title: string }) {
+  const [account,setAccount]=useState("");
+  useEffect(()=>{let active=true;void supabase.auth.getSession().then(({data})=>{if(active)setAccount(data.session?.user.id||"");});const {data}=supabase.auth.onAuthStateChange((_event,session)=>{setAccount(session?.user.id||"");});return()=>{active=false;data.subscription.unsubscribe();};},[]);
+  const [page,setPage]=useState(1),[count,setCount]=useState(0),[notes,setNotes]=useState<PdfNote[]>([]),[error,setError]=useState("");
+  const canvas=useRef<HTMLCanvasElement>(null),doc=useRef<any>(null),generation=useRef(0),origin=useRef<[number,number]|null>(null);
+  useEffect(()=>{let active=true,task:any; setError("");setPage(1);setCount(0);
+    void import("pdfjs-dist").then(async pdf=>{pdf.GlobalWorkerOptions.workerSrc="/learning-assets/pdf.worker.min.mjs";task=pdf.getDocument({url,isEvalSupported:false});const loaded=await task.promise;if(!active){await loaded.destroy();return;}doc.current=loaded;setCount(loaded.numPages);}).catch(()=>{if(active)setError("Preview anotasi tidak tersedia; buka PDF asli.");});
+    setNotes([]);if(account)void learningStore.annotations.where("[account+file]").equals([account,file]).toArray().then(rows=>{if(active)setNotes(rows);}).catch(()=>{if(active)setError("Penyimpanan lokal tidak tersedia.");});
+    return()=>{active=false;generation.current++;doc.current=null;void task?.destroy();};
+  },[url,account,file]);
+  useEffect(()=>{if(!count||!canvas.current)return;const id=++generation.current;let render:any;
+    void doc.current.getPage(page).then(async(p:any)=>{if(id!==generation.current||!canvas.current)return;const viewport=p.getViewport({scale:1.2}),c=canvas.current;c.width=viewport.width;c.height=viewport.height;render=p.render({canvasContext:c.getContext("2d"),viewport});await render.promise;}).catch((e:any)=>{if(e.name!=="RenderingCancelledException")setError("Halaman belum dapat dirender.");});return()=>{generation.current++;render?.cancel();};
+  },[page,count]);
+  return <section className="learningPanel"><div className="learningRow"><button type="button" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Sebelumnya</button><span>Halaman {page} / {count||"…"}</span><button type="button" disabled={page>=count} onClick={()=>setPage(p=>p+1)}>Berikutnya</button><a href={url} target="_blank" rel="noreferrer">Buka PDF asli</a></div><p>Seret area untuk memberi highlight dan catatan. Disimpan di perangkat ini untuk akun pembaca, terpisah dari teks RAG.</p><p role="status">{error}</p>
+    <div className="pdfAnnotationCanvas" style={{touchAction:"none"}} onPointerDown={e=>{if(!account||!count){setError("Login dan tunggu PDF terbuka sebelum menyimpan anotasi.");return;}const r=e.currentTarget.getBoundingClientRect();origin.current=[Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))];e.currentTarget.setPointerCapture(e.pointerId);}} onPointerCancel={()=>{origin.current=null;}} onPointerUp={async e=>{if(!origin.current||!account)return;const r=e.currentTarget.getBoundingClientRect(),[x,y]=origin.current,ex=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),ey=Math.max(0,Math.min(1,(e.clientY-r.top)/r.height));origin.current=null;const w=Math.abs(ex-x),h=Math.abs(ey-y);if(w<.005||h<.005)return;const note=prompt("Catatan highlight (opsional)","");if(note===null)return;const row={key:crypto.randomUUID(),account,file,page,x:Math.min(x,ex),y:Math.min(y,ey),w,h,note:note.slice(0,2000)};try{await learningStore.annotations.put(row);setNotes(items=>[...items,row]);}catch{setError("Catatan belum tersimpan.");}}}><canvas ref={canvas} aria-label={title}/>{notes.filter(n=>n.page===page).map(n=><span key={n.key} title={n.note} style={{position:"absolute",pointerEvents:"none",left:n.x*100+"%",top:n.y*100+"%",width:n.w*100+"%",height:n.h*100+"%",background:"#ffd76e66"}}/>)}</div>
+    {notes.map(n=><p key={n.key}><button type="button" onClick={()=>setPage(n.page)}>Halaman {n.page}</button> {n.note||"Highlight"} <button type="button" aria-label="Hapus anotasi" onClick={async()=>{await learningStore.annotations.delete(n.key);setNotes(items=>items.filter(item=>item.key!==n.key));}}>×</button></p>)}
+  </section>;
+}

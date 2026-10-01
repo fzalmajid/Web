@@ -5,3 +5,8 @@ node_modules
 .env.*.local
 .vercel
 *.tsbuildinfo
+public/learning-assets/
+public/sw.js*
+public/learning-sw.js*
+public/swe-worker-*.js*
+supabase/.temp/

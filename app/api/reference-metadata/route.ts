@@ -3,6 +3,8 @@ import { createServerSupabase } from "@/lib/supabase";
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { auditReferenceMetadata, resolveReferenceMetadata, REFERENCE_CAPABILITIES } from "@/lib/referencePipelineServer";
 import { citationPreviews } from "@/lib/citationFormatterServer";
+import { grobidMetadata, documentEnhancementStatus } from "@/lib/documentEnhancements";
+import { mergeReferenceMetadata } from "@/lib/referenceMetadata";
 
 function bearer(req: NextRequest) {
   const header = req.headers.get("authorization") || "";
@@ -85,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     const { data: file, error: fileError } = await supabase
       .from("source_files")
-      .select("id,file_name,mime_type,source_url,bibliographic_metadata,bibliographic_metadata_status")
+      .select("id,file_name,file_path,size_bytes,mime_type,source_url,bibliographic_metadata,bibliographic_metadata_status")
       .eq("id", sourceFileId)
       .eq("user_id", userData.user.id)
       .maybeSingle();
@@ -115,12 +117,21 @@ export async function POST(req: NextRequest) {
     }
 
     const frontMatter = await frontMatterForFile(supabase, sourceFileId);
+    let existing = file.bibliographic_metadata || {};
+    if (file.mime_type === "application/pdf" && file.bibliographic_metadata_status !== "manual" &&
+      Number(file.size_bytes || 0) <= 12_000_000 && documentEnhancementStatus().grobid.configured) {
+      const downloaded = await supabase.storage.from("study-files").download(file.file_path);
+      if (downloaded.data && downloaded.data.size <= 12_000_000) {
+        const parsed = await grobidMetadata(Buffer.from(await downloaded.data.arrayBuffer()));
+        if (parsed) existing = mergeReferenceMetadata(existing, parsed, "document");
+      }
+    }
     const resolved = await resolveReferenceMetadata({
       fileName: file.file_name,
       mimeType: file.mime_type,
       sourceUrl: file.source_url,
       frontMatter,
-      existing: file.bibliographic_metadata || {},
+      existing,
       preserveManual: file.bibliographic_metadata_status === "manual",
     });
 

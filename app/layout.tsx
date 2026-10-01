@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import TransientUiManager from "@/components/TransientUiManager";
+import LearningPrivacy from "@/components/LearningPrivacy";
+import "./learning-tools.css";
 import "./globals.css";
 import "./layout-alignment.css";
 import "katex/dist/katex.min.css";
@@ -22,6 +24,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="id">
       <body>
         <TransientUiManager />
+        <LearningPrivacy />
         {children}
       </body>
     </html>

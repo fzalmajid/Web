@@ -10,6 +10,7 @@ import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, nor
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 import { packPdfPages } from "@/lib/pdfIndex";
 import { assertPdfHeader } from "@/lib/pdfValidation";
+import { enhancePdfPages } from "@/lib/documentEnhancements";
 import { readOfficeDocument, readPdfNativeBatch, readPdfBatchWithOcr, pdfPageNeedsOcr } from "@/lib/visualOcr";
 
 function bearer(req: NextRequest) {
@@ -289,8 +290,9 @@ export async function POST(req: NextRequest) {
           await recordAiTokenUsage(supabase, usage, model, geminiAuth.provider);
         },
       });
+      const structuredPages = await enhancePdfPages(buffer!, pages);
       const chunks = packPdfPages(
-        pages.map((page) => ({
+        structuredPages.map((page) => ({
           page: page.page + pageOffset,
           text: page.text.trim() || "[tidak ada teks terbaca]",
         })),
