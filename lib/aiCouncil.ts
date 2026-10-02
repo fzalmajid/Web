@@ -28,7 +28,7 @@ function stagePrompt(stage: AiCouncilStage, basePrompt: string, notes: string) {
     "evidence-auditor":"Susun analisis independen tentang konflik bukti, satuan, keterbatasan metodologi dan kesenjangan konteks. Jangan mengarang sumber.",
     verifier: "Verifikasi klaim utama terhadap konteks sumber. Daftar klaim yang didukung, lemah, bertentangan, atau harus dihapus. Jangan menambah fakta baru.",
     critic: "Kritik tiga laporan sebelumnya: relevansi, overclaim, sitasi, konflik, dan keterbacaan. Beri perbaikan yang konkret, tanpa menulis jawaban final.",
-    synthesizer: "Tulis jawaban final untuk user. Gunakan hanya bukti yang tersedia, pertahankan sitasi/URL yang valid, jelaskan ketidakpastian, dan jangan menyebut detail internal orkestrasi kecuali berguna.",
+    synthesizer: "Tulis jawaban final untuk user. Gunakan hanya bukti yang tersedia, pertahankan sitasi/URL yang valid, jelaskan ketidakpastian, dan jangan menyebut detail internal orkestrasi kecuali berguna. Saat membandingkan metode, nyatakan kondisi dan tradeoff: jangan menyebut halusinasi sangat rendah/terjamin, data selalu terkini, atau kebutuhan GPU/biaya selalu lebih tinggi tanpa bukti. Retrieval tidak menjamin kebenaran; fine-tuning tidak selalu pelatihan penuh. Jangan mengklaim membaca full text jika konteks hanya metadata/abstrak.",
   };
   return [
     "PERAN ANDA: " + instructions[stage],

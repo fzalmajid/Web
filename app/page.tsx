@@ -1,10 +1,12 @@
 "use client";
 import { answerBlocks } from "@/lib/answerLayout";
+import { answerProse, scopeAnswerHeadings } from "@/lib/answerProse";
+import AnswerProse from "@/components/AnswerProse";
 
 // Normal UI exposes AI Ruang Belajar modes; the model picker remains available
 // only as an explicit debugging escape hatch while provider integrations settle.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import katex from "katex";
 import "katex/contrib/mhchem";
 import { createPortal } from "react-dom";
@@ -6419,6 +6421,8 @@ function DatabaseAudioRecorder({
     let raw = browserDraft;
 
     let localWhisper = false;
+    let localVad = false;
+    let localNoSpeech = false;
     let transcriptSegments: TranscriptSegment[] = [];
     try {
       setStatus("Menyiapkan Silero VAD + Whisper lokal · WebGPU/WASM adaptif...");
@@ -6429,6 +6433,8 @@ function DatabaseAudioRecorder({
       raw = result.text.trim();
       transcriptSegments = result.chunks;
       localWhisper = true;
+      localVad = result.usedVad;
+      localNoSpeech = Boolean(result.noSpeech);
     } catch (error: any) {
       console.warn("[LOCAL_WHISPER_RECORDING_FALLBACK]", error?.message || "unknown");
     }
@@ -6489,8 +6495,8 @@ function DatabaseAudioRecorder({
     transcriptRef.current = "";
     setStatus(
       raw
-        ? "Rekaman + transkrip mentah sudah masuk · " + (localWhisper ? "Whisper lokal + Silero VAD" : "provider fallback") + ". Belum dirapikan atau dikoreksi."
-        : "Audio sudah masuk ke lokasi ini. Transkrip belum tersedia; audio tetap bisa didengar ulang."
+        ? "Rekaman + transkrip mentah sudah masuk · " + (localWhisper ? (localVad ? "transkripsi lokal · pemisahan ucapan aktif" : "transkripsi lokal · audio utuh, pemisahan ucapan belum tersedia") : "transkripsi provider cadangan") + ". Belum dirapikan atau dikoreksi."
+        : localNoSpeech ? "Audio sudah masuk ke lokasi ini. Tidak ada ucapan terdeteksi; audio tetap bisa didengar ulang." : "Audio sudah masuk ke lokasi ini. Transkrip belum tersedia; audio tetap bisa didengar ulang."
     );
     onChange();
   }
@@ -8672,6 +8678,9 @@ function aiVisualParts(value: string): AiVisualPart[] {
 
 function AiMessageContent({ text }: { text: string }) {
   const parts = aiVisualParts(text);
+  const scope = "rb-answer-" + useId().replace(/[^a-zA-Z0-9-]/g, "");
+  const layouts = parts.map(part => part.kind === "text" ? answerBlocks(part.value).map(block => block.kind === "text" ? { ...block, prose: answerProse(block.value) } : block) : []);
+  const anchors = scopeAnswerHeadings(layouts.flatMap(blocks => blocks.flatMap(block => block.kind === "text" ? [block.prose] : [])), scope);
   return (
     <div className="aiRichContent">
       {parts.map((part, index) => {
@@ -8679,8 +8688,8 @@ function AiMessageContent({ text }: { text: string }) {
         if (part.kind === "cytoscape") return <CytoscapeDiagram key={"c" + index} code={part.value} />;
         return part.value ? (
           <div className="aiRichTextPart" key={"t" + index}>
-            {answerBlocks(part.value).map((block, blockIndex) => block.kind === "text"
-              ? <RichText key={blockIndex} text={block.value} />
+            {layouts[index].map((block, blockIndex) => block.kind === "text"
+              ? <AnswerProse key={blockIndex} blocks={block.prose} anchors={anchors} renderText={value => <RichText text={value}/>}/>
               : <div className="aiAnswerTable" key={blockIndex}><table><thead><tr>{block.headers.map((cell, cellIndex) => <th scope="col" key={cellIndex}><RichText text={cell} /></th>)}</tr></thead><tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}><RichText text={cell} /></td>)}</tr>)}</tbody></table></div>)}
           </div>
         ) : null;

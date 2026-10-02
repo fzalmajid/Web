@@ -1,5 +1,6 @@
 import { mkdir, copyFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import "./copy-vad-assets.mjs";
 const root = process.cwd(), target = join(root, "public", "learning-assets");
 await mkdir(target, { recursive: true });
 for (const file of ["duckdb-mvp.wasm", "duckdb-eh.wasm", "duckdb-browser-mvp.worker.js", "duckdb-browser-eh.worker.js"]) {
