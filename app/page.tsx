@@ -4013,9 +4013,9 @@ function AddSheet({
     { value: "text" as const, label: "Masukkan teks", hint: "Catatan atau materi mentah langsung ke lokasi ini" },
     { value: "recording" as const, label: "🎙️ Rekaman & transkrip", hint: "Rekam langsung atau transkripsikan file audio lokal" },
     { value: "tools" as const, label: "Alat belajar", hint: "Paper, CSV/kalibrasi, molekul, EPUB — tanpa otomatis memasukkan hasil ke RAG" },
-    { value: "study", label: "Study", hint: "Atur sumber + model lalu langsung susun Study" },
-    { value: "flashcards", label: "Flashcard", hint: "Atur sumber + model lalu langsung buat kartu" },
-    { value: "quiz", label: "Kuis", hint: "Atur sumber + model lalu langsung buat soal" },
+    { value: "study", label: "Study", hint: "Atur sumber dan kedalaman AI lalu susun Study" },
+    { value: "flashcards", label: "Flashcard", hint: "Atur sumber dan kedalaman AI lalu buat kartu" },
+    { value: "quiz", label: "Kuis", hint: "Atur sumber dan kedalaman AI lalu buat soal" },
     { value: "task", label: "Tugas", hint: "Soal/quiz atau to-do + link pengumpulan + format file" },
   ] as const;
 
@@ -12315,6 +12315,7 @@ function BottomAskBar({
                   (!!message.sources?.length || !!message.web_sources?.length) && (
                     <details className="aiSources aiChatSources">
                       <summary>Sumber ditemukan ({(message.sources?.length || 0) + (message.web_sources?.length || 0)}) · bukan berarti semuanya disitasi</summary>
+                      {!!message.web_sources?.length&&<small>“Dibaca” menandai cuplikan full text yang berhasil diambil. Sumber lainnya dapat berupa metadata atau hasil grounding. Klaim tetap perlu dicocokkan dengan bagian sumber; indeks jurnal bukan validasi fakta.</small>}
                       {(message.sources || []).map((source) => (
                         <span key={source.id}>Database · {source.title}</span>
                       ))}

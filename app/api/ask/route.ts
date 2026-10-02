@@ -1321,21 +1321,27 @@ export async function POST(req: NextRequest) {
         : Promise.resolve({ hits: [], status: "not-requested" }),
     ]);
     const quantitativePaper=requiresQuantitativePaperEvidence(question);
-    const paperEvidence=useWeb ? await fetchScholarlyEvidence(scholarlyHits,quantitativePaper||aiMode==="high"?3:1) : [];
+    const paperEvidence=useWeb ? await fetchScholarlyEvidence(scholarlyHits,quantitativePaper||aiMode==="high"?3:1,question) : [];
     for(const evidence of paperEvidence){const index=scholarlyHits.findIndex(hit=>hit.doi&&evidence.source.doi?hit.doi.toLowerCase()===evidence.source.doi.toLowerCase():hit.title===evidence.source.title);if(index>=0)scholarlyHits[index]=evidence.source;}
     const scholarlyContext = scholarlyPromptContext(scholarlyHits);
     const fullTextContext=fullTextPromptContext(paperEvidence);
     const citations=answerCitationInventory(scholarlyHits,data,citationStyle);
-    const finalizeAnswer=(text:string)=>{
-      const guarded=guardAnswerBibliography(text,citations,citationStyle,quantitativePaper);
-      return {answer:guarded.text,citationWarnings:[...guarded.warnings,...(guarded.blocked?[]:citationStructuralWarnings(guarded.text,citationStyle,citationOutputs))]};
+    // A fetched Web page is a valid source identity, not automatically a journal or fact-verified claim.
+    for(const hit of webResearchResult.hits)if(hit.contentKind==="page")citations.push({title:hit.title,uri:hit.uri,formatted:`[${hit.title}](${hit.uri})`});
+    const finalizeAnswer=(text:string,groundingSources:Array<{title:string;uri:string}>=[])=>{
+      const providerIdentities=groundingSources.filter(item=>/^https?:\/\//i.test(item.uri)).map(item=>({title:item.title,uri:item.uri,formatted:`[${item.title}](${item.uri})`}));
+      const guarded=guardAnswerBibliography(text,[...citations,...providerIdentities],citationStyle,quantitativePaper);
+      const skipFormatWarnings=/\btanpa (?:referensi|sitasi|daftar pustaka)\b|\bno (?:references|citations)\b/i.test(question);
+      return {answer:guarded.text,citationWarnings:[...guarded.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(guarded.text,citationStyle,citationOutputs))]};
     };
     const databaseFormulaEvidence=data.some((row:any)=>row.bibliographic_metadata?.type==="journal_article"&&citationMetadataReady(row.bibliographic_metadata)&&/\b(?:table|tabel|formulation|formulasi)\b/i.test(String(row.raw_content||row.content||""))&&/\bmg\b/i.test(String(row.raw_content||row.content||"")));
     if(quantitativePaper&&!paperEvidence.some(item=>/\b(?:table|composition|formulation)\b/i.test(item.text)&&/\bmg\b/i.test(item.text))&&!databaseFormulaEvidence){
       return NextResponse.json({answer:missingFormulaEvidence,sources:[],webSources:mergeWebSources([],scholarlyHits),selectedSources,publicWeb:useWeb,webResearch:{status:"formula-full-text-missing",scholarlyCount:scholarlyHits.length,fullTextCount:paperEvidence.length},citationWarnings:[],evidenceLimited:true,orchestration:{mode:aiMode,stages:[],description:"Evidence gate: no invented quantitative formula"}});
     }
     const webResearchContext = webResearchPromptContext(webResearchResult.hits);
-    const adapterWebSources = [...webResearchSources(webResearchResult.hits),...paperEvidence.map(item=>({title:item.source.title+" — PDF publik",uri:item.uri}))];
+    const adapterWebSources = [...webResearchSources(webResearchResult.hits),...paperEvidence.map(item=>({title:item.source.title+" — dibaca: "+(item.kind==="full-text-pdf"?"PDF":"artikel "+item.kind.split("-").pop()?.toUpperCase()),uri:item.uri}))];
+    const retrievedWebContent=Boolean(paperEvidence.length||webResearchResult.hits.some(hit=>hit.contentKind==="page"));
+    const webEvidence=paperEvidence.map(item=>({title:item.source.title,uri:item.uri,format:item.kind,pages:item.pages,metadata:item.source.metadataBasis==="publisher"?"publisher-matched":"catalog-matched",claims:"read excerpt; claim support is not an independent fact-check"}));
 
     const context = data.length
       ? buildKnowledgeContext(data, contextLimit, question.trim())
@@ -1441,10 +1447,10 @@ export async function POST(req: NextRequest) {
         : "");
 
     const sharedGemini = selectedProvider === "gemini" && !geminiAuth.ownGemini;
-    const action = useWeb ? "ask_web" : "ask";
+    const action = useWeb && !retrievedWebContent ? "ask_web" : "ask";
     const initialPreflight = sharedGemini ? await checkAiCredits(supabase, action, aiMode) : null;
 
-    if (initialPreflight && !initialPreflight.allowed && !useWeb) {
+    if (initialPreflight && !initialPreflight.allowed && (!useWeb || retrievedWebContent)) {
       return NextResponse.json(aiQuotaError(initialPreflight), { status: 429 });
     }
 
@@ -1657,7 +1663,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      if (initialPreflight && !initialPreflight.allowed && sharedGemini && useWeb) {
+      if (initialPreflight && !initialPreflight.allowed && sharedGemini && useWeb && !retrievedWebContent) {
         throw Object.assign(new Error("Shared Web quota unavailable."), {
           statusCode: 429,
           code: "WEB_SEARCH_QUOTA",
@@ -1669,7 +1675,7 @@ export async function POST(req: NextRequest) {
             mode: aiMode,
             useWeb,
             basePrompt: prompt,
-            generate: (stagePrompt, withWeb) => generateSelected(stagePrompt, withWeb && !paperEvidence.length) as Promise<CouncilGeneration>,
+            generate: (stagePrompt, withWeb) => generateSelected(stagePrompt, withWeb && !retrievedWebContent) as Promise<CouncilGeneration>,
             recordUsage: async (generation) => {
               if (!generation.model.startsWith("openrouter-free:")) {
                 await recordAiTokenUsage(supabase, generation.usage, generation.model, selectedUsageProvider());
@@ -1677,7 +1683,7 @@ export async function POST(req: NextRequest) {
             },
           })
         : null;
-      const result = council?.result || await generateSelected(prompt, useWeb && !paperEvidence.length);
+      const result = council?.result || await generateSelected(prompt, useWeb && !retrievedWebContent);
       if (!council) {
         await recordAiTokenUsage(supabase, result.usage, result.model, selectedUsageProvider());
       }
@@ -1687,7 +1693,7 @@ export async function POST(req: NextRequest) {
           : null;
 
       return NextResponse.json({
-        ...finalizeAnswer(result.text),
+        ...finalizeAnswer(result.text,result.webSources),
         sources: databaseSources,
         warning: [databaseWarning, semanticNotice, council?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · ") || undefined,
         semanticStatus,
@@ -1697,7 +1703,7 @@ export async function POST(req: NextRequest) {
           ...(council?.webSources || []),
           ...adapterWebSources,
         ], scholarlyHits),
-        webResearch: { status: paperEvidence.length?"public-full-text":webResearchResult.status, count: webResearchResult.hits.length, fullTextCount:paperEvidence.length },
+        webResearch: { status: paperEvidence.length?"public-full-text":webResearchResult.status, count: webResearchResult.hits.length, scholarlyCount:scholarlyHits.length, fullTextCount:paperEvidence.length, evidence:webEvidence },
         grounded: !useAi,
         publicWeb: useWeb,
         selectedSources,
@@ -1769,7 +1775,7 @@ export async function POST(req: NextRequest) {
       const alternate = await alternateWebResult();
       if (alternate) {
         return NextResponse.json({
-          ...finalizeAnswer(alternate.result.text),
+          ...finalizeAnswer(alternate.result.text,alternate.result.webSources),
           sources: databaseSources,
           webSources: mergeWebSources([...(alternate.result.webSources || []), ...adapterWebSources], scholarlyHits),
           webResearch: { status: webResearchResult.status, count: webResearchResult.hits.length },
@@ -1813,6 +1819,8 @@ export async function POST(req: NextRequest) {
         artifactFormat,
       }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction + evidenceRules(false)+publicCitationPrompt(citations);
 
+      const fallbackPreflight=sharedGemini?await checkAiCredits(supabase,"ask",aiMode):null;
+      if(fallbackPreflight&&!fallbackPreflight.allowed)return NextResponse.json(aiQuotaError(fallbackPreflight),{status:429});
       const fallbackCouncil = useAi && (aiMode === "medium" || aiMode === "high")
         ? await runAiCouncil({ mode: aiMode, useWeb: hasPublicEvidence, basePrompt: fallbackPrompt,
             generate: stagePrompt => generateSelected(stagePrompt, false) as Promise<CouncilGeneration>,
@@ -1826,15 +1834,15 @@ export async function POST(req: NextRequest) {
         selectedUsageProvider()
       );
       const aiUsage =
-        sharedGemini && (!initialPreflight || initialPreflight.allowed)
+        sharedGemini && (!fallbackPreflight || fallbackPreflight.allowed)
           ? await finalizeAiCredits(supabase, "ask", aiMode)
           : null;
 
       return NextResponse.json({
-        ...finalizeAnswer(fallbackResult.text),
+        ...finalizeAnswer(fallbackResult.text,fallbackResult.webSources),
         sources: fallbackSources.includes("database") ? databaseSources : [],
         webSources: availablePublicSources,
-        webResearch: { status: webResearchResult.status, count: webResearchResult.hits.length, scholarlyCount: scholarlyHits.length, groundingAvailable: false },
+        webResearch: { status: paperEvidence.length?"public-full-text":webResearchResult.status, count: webResearchResult.hits.length, scholarlyCount: scholarlyHits.length, fullTextCount:paperEvidence.length, evidence:webEvidence, groundingAvailable: false },
         grounded: !fallbackSources.includes("ai"),
         publicWeb: hasPublicEvidence,
         selectedSources: hasPublicEvidence ? selectedSources : fallbackSources,

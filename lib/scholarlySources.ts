@@ -1,8 +1,10 @@
 import { indexedAbstract, rankResearchHits, scientificQueryPlan, matchesRequiredTopic } from "./researchQuery";
 import { boundedJson } from "./publicResearch";
+import { searchScopus } from "./scholarlyIndexes";
+import type { ReferenceDocumentType } from "./referenceMetadata";
 
 export type ScholarlyHit = {
-  provider: "openalex" | "europepmc" | "pubmed" | "semanticscholar" | "crossref";
+  provider: "openalex" | "europepmc" | "pubmed" | "semanticscholar" | "crossref" | "scopus";
   id: string;
   title: string;
   authors: string[];
@@ -20,6 +22,8 @@ export type ScholarlyHit = {
   pages?: string | null;
   metadataBasis?: "publisher";
   metadataNotice?: string;
+  indexedIn?: Array<"scopus">;
+  workType?: ReferenceDocumentType;
 };
 
 function cleanDoi(value: unknown) {
@@ -197,11 +201,12 @@ async function searchEuropePmc(query: string, limit: number): Promise<ScholarlyH
       doi,
       pmid,
       pmcid,
-      journal: cleanText(item?.journalTitle, 500) || null,
+      journal: cleanText(item?.journalTitle || item?.journalInfo?.journal?.title, 500) || null,
       uri,
       openAccess: String(item?.isOpenAccess || "").toUpperCase() === "Y",
       abstract: cleanText(item?.abstractText, 2200) || null,
       fullTextUrls: fullUrls.filter((u:any)=>String(u?.availability||"").toLowerCase()==="open access").map((u:any)=>u.url).filter((u:unknown)=>typeof u==="string"&&/^https?:\/\//i.test(u)),
+      volume:cleanText(item?.journalInfo?.volume)||null,issue:cleanText(item?.journalInfo?.issue)||null,pages:cleanText(item?.pageInfo)||null,
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
@@ -265,24 +270,24 @@ async function searchPubMed(query: string, limit: number): Promise<ScholarlyHit[
       pmcid,
       journal: cleanText(item?.fulljournalname || item?.source, 500) || null,
       uri: "https://pubmed.ncbi.nlm.nih.gov/" + id + "/",
-      openAccess: Boolean(pmcid),
+      openAccess: false,
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
 
 export async function searchCrossref(query: string, limit = 12): Promise<ScholarlyHit[]> {
-  const url = new URL("https://api.crossref.org/works");
-  url.searchParams.set("query.bibliographic", query);
-  url.searchParams.set("filter", "type:journal-article");
-  url.searchParams.set("rows", String(Math.min(20,limit)));
+  const exactDoi=/\b10\.\d{4,9}\/[^\s]+/i.exec(query)?.[0]?.replace(/[.,;)]+$/g,"");
+  const url = new URL("https://api.crossref.org/works"+(exactDoi?"/"+encodeURIComponent(exactDoi):""));
+  if(!exactDoi){url.searchParams.set("query.bibliographic", query);url.searchParams.set("rows", String(Math.min(20,limit)));}
   const payload:any=await boundedJson(url.href,{headers:{Accept:"application/json","User-Agent":"RuangBelajar/1.0 (public scholarly research)"},cache:"no-store"});
-  return (Array.isArray(payload?.message?.items)?payload.message.items:[]).map((item:any):ScholarlyHit|null=>{
+  return (exactDoi&&payload?.message?.DOI?[payload.message]:Array.isArray(payload?.message?.items)?payload.message.items:[]).map((item:any):ScholarlyHit|null=>{
     const title=cleanText(item.title?.[0],1000),doi=cleanDoi(item.DOI);
     if(!title||!doi)return null;
+    if(!["journal-article","proceedings-article","posted-content","book","monograph","book-chapter","report","dissertation"].includes(item.type))return null;
     const uri=cleanText(item.resource?.primary?.URL||item.URL||"https://doi.org/"+doi,1800);
     if(!/^https?:\/\//i.test(uri))return null;
     return {provider:"crossref",id:doi,title,doi,authors:(item.author||[]).map((a:any)=>cleanText([a.given,a.family].filter(Boolean).join(" "),240)).filter(Boolean),year:item.published?.["date-parts"]?.[0]?.[0]||null,journal:cleanText(item["container-title"]?.[0],500)||null,pmid:null,pmcid:null,uri,openAccess:false,abstract:cleanText(String(item.abstract||"").replace(/<[^>]+>/g," "),2200)||null,
-      fullTextUrls:(item.link||[]).filter((link:any)=>link["content-type"]==="application/pdf").map((link:any)=>link.URL),volume:cleanText(item.volume)||null,issue:cleanText(item.issue)||null,pages:cleanText(item.page)||null};
+      fullTextUrls:(item.link||[]).filter((link:any)=>link["content-type"]==="application/pdf").map((link:any)=>link.URL),volume:cleanText(item.volume)||null,issue:cleanText(item.issue)||null,pages:cleanText(item.page)||null,workType:item.type==="journal-article"?"journal_article":item.type==="book"?"book":item.type==="book-chapter"?"chapter":"other"};
   }).filter((hit:ScholarlyHit|null):hit is ScholarlyHit=>Boolean(hit));
 }
 
@@ -290,13 +295,17 @@ export async function searchScholarlySources(query: string, limit = 12) {
   const plan=scientificQueryPlan(cleanText(query,1200));
   const clean = plan.query;
   if (!clean) return [] as ScholarlyHit[];
+  const exactIdentifier=/^10\.\d{4,9}\//i.test(clean);
   const biomedical = isBiomedicalQuery(clean) || /\b(psychology|memory|memori|retrieval practice|testing effect)\b/i.test(clean);
   const jobs: Array<Promise<ScholarlyHit[]>> = [];
-  jobs.push(searchOpenAlex(clean, Math.min(8, limit)));
-  jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));
+  if(!exactIdentifier){jobs.push(searchOpenAlex(clean, Math.min(8, limit)));jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));}
   jobs.push(searchCrossref(clean, 16));
+  if(plan.broadQuery!==clean)jobs.push(searchCrossref(plan.broadQuery,8));
+  jobs.push(searchScopus(clean,8));
+  if(exactIdentifier)jobs.push(searchEuropePmc("DOI:"+clean,1));
   if (biomedical) {
     jobs.push(searchEuropePmc(clean, Math.min(8, limit)));
+    jobs.push(searchEuropePmc(`(${clean}) AND OPEN_ACCESS:Y`, Math.min(8,limit)));
     jobs.push(searchPubMed(clean, Math.min(6, limit)));
   }
   if (!jobs.length) return [] as ScholarlyHit[];
@@ -308,6 +317,10 @@ export async function searchScholarlySources(query: string, limit = 12) {
     for (const hit of result.value) {
       const key = stableKey(hit);
       const existing = merged.get(key);
+      hit.indexedIn=[...new Set([...(hit.indexedIn||[]),...(existing?.indexedIn||[])])];
+      if(existing?.workType&&!hit.workType)hit.workType=existing.workType;
+      if(existing){existing.pmcid ||= hit.pmcid;existing.pmid ||= hit.pmid;existing.indexedIn=hit.indexedIn;hit.pmcid ||= existing.pmcid;hit.pmid ||= existing.pmid;}
+      if(existing&&hit.provider==="scopus"){merged.set(key,{...existing,indexedIn:hit.indexedIn});continue;}
       if (!existing || (hit.abstract && !existing.abstract) || (hit.openAccess && !existing.openAccess)) {
         merged.set(key, { ...existing, ...hit, abstract: hit.abstract || existing?.abstract || null, fullTextUrls:[...new Set([...(hit.fullTextUrls||[]),...(existing?.fullTextUrls||[])])],volume:hit.volume||existing?.volume,issue:hit.issue||existing?.issue,pages:hit.pages||existing?.pages });
       } else {
@@ -315,6 +328,8 @@ export async function searchScholarlySources(query: string, limit = 12) {
       }
     }
   }
+  const exactDoi=/\b10\.\d{4,9}\/[^\s]+/i.exec(clean)?.[0]?.replace(/[.,;)]+$/g,"").toLowerCase();
+  if(exactDoi)return [...merged.values()].filter(hit=>hit.doi?.toLowerCase()===exactDoi).slice(0,1);
   return rankResearchHits([...merged.values()].filter(hit=>matchesRequiredTopic(hit.title,plan.requiredTerm)),clean).slice(0, Math.max(1, Math.min(20, limit)));
 }
 
@@ -328,6 +343,7 @@ export function scholarlyPromptContext(hits: ScholarlyHit[]) {
     hit.doi ? "doi=" + hit.doi : "",
     hit.pmid ? "pmid=" + hit.pmid : "",
     "provider=" + hit.provider,
+    hit.indexedIn?.length ? "index_record=" + hit.indexedIn.join(",") + " (not claim validation or automatic full-text access)" : "",
     "url=" + hit.uri,
     hit.openAccess ? "open_access=yes" : "open_access=unknown/no",
     hit.abstract ? "abstract=" + cleanText(hit.abstract, 2200) : "",
