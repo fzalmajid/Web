@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { answerProse, scopeAnswerHeadings, safeAnswerLink } from "../lib/answerProse";
+import { answerProse, scopeAnswerHeadings, safeAnswerLink, answerHeadingTarget } from "../lib/answerProse";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import AnswerProse from "../components/AnswerProse";
@@ -14,6 +14,27 @@ test("AI headings and contents links resolve to message-scoped anchors, includin
   assert.equal(safeAnswerLink("#tidak-ada", anchors), null);
   const other = [answerProse("### 1. RAG")];
   assert.equal(safeAnswerLink("#1-rag", scopeAnswerHeadings(other, "answer-b")), "#answer-b-1-rag");
+});
+
+test("live-style italic contents and bold standalone titles become working navigation", () => {
+  const blocks = answerProse("_1. Perbedaan RAG_\n_2. Penggabungan RAG_\n_3. Tabel Tradeoff_\n\n*Perbedaan RAG*\nIsi pertama.\n\n**Penggabungan RAG**\nIsi kedua.\n\n*Tabel Tradeoff Metode*\n\n*References:*\nReferensi.");
+  const anchors = scopeAnswerHeadings([blocks], "live-outline");
+  const html = renderToStaticMarkup(createElement(AnswerProse, { blocks, anchors, renderText: text => text }));
+  assert.equal(blocks[0].kind, "list");
+  assert.ok(html.includes('href="#live-outline-perbedaan-rag"'));
+  assert.ok(html.includes('href="#live-outline-penggabungan-rag"'));
+  assert.ok(html.includes('href="#live-outline-tabel-tradeoff-metode"'));
+  assert.ok(html.includes('<h3 id="live-outline-references">'));
+  assert.equal(answerHeadingTarget("3. Tabel Tradeoff", anchors), "live-outline-tabel-tradeoff-metode");
+});
+
+test("ambiguous abbreviated contents stay text, not a jump to the wrong section", () => {
+  const blocks = answerProse("*Tabel Tradeoff RAG*\nIsi.\n\n*Tabel Tradeoff Fine Tuning*\nIsi.");
+  const anchors = scopeAnswerHeadings([blocks], "ambiguous");
+  assert.equal(answerHeadingTarget("Tabel Tradeoff", anchors), null);
+  assert.equal(answerHeadingTarget("Tabel Tradeoff RAG", anchors), "ambiguous-tabel-tradeoff-rag");
+  assert.equal(answerProse("*Satu judul*\nTeks")[0].kind, "heading");
+  assert.equal(answerProse("_Satu kalimat italic biasa_")[0].kind, "paragraph");
 });
 
 test("rendered answer has real contents links and headings while executable markup stays literal", () => {

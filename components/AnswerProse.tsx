@@ -1,6 +1,6 @@
 "use client";
 import type { ReactNode } from "react";
-import { safeAnswerLink, type AnswerProseBlock } from "@/lib/answerProse";
+import { safeAnswerLink, answerHeadingTarget, type AnswerProseBlock } from "@/lib/answerProse";
 
 export default function AnswerProse({ blocks, anchors, renderText }: {
   blocks: AnswerProseBlock[]; anchors: Map<string, string>; renderText: (text: string) => ReactNode;
@@ -28,7 +28,11 @@ export default function AnswerProse({ blocks, anchors, renderText }: {
     if (block.kind === "heading") { const Tag = ("h" + block.level) as "h2" | "h3" | "h4" | "h5" | "h6"; return <Tag id={block.id} key={index}>{inline(block.text)}</Tag>; }
     if (block.kind === "rule") return <hr key={index}/>;
     if (block.kind === "code") return <pre key={index}><code>{block.text}</code></pre>;
-    if (block.kind === "list") { const items = block.items.map((item, i) => <li key={i}>{inline(item)}</li>); return block.ordered ? <ol start={block.start} key={index}>{items}</ol> : <ul key={index}>{items}</ul>; }
+    if (block.kind === "list") {
+      const contents = block.items.length >= 2 && block.items.every(item => Boolean(answerHeadingTarget(item, anchors)));
+      const items = block.items.map((item, i) => <li key={i}>{contents ? <a href={"#" + answerHeadingTarget(item, anchors)}>{inline(item)}</a> : inline(item)}</li>);
+      return block.ordered ? <ol start={block.start} key={index}>{items}</ol> : <ul key={index}>{items}</ul>;
+    }
     return <p key={index}>{inline(block.text)}</p>;
   })}</div>;
 }
