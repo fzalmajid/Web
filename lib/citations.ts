@@ -70,7 +70,7 @@ export function citationInstruction(
   if (citationStyle === "none") {
     return [
       "SITASI: user memilih Tanpa sitasi.",
-      "Jangan menambahkan marker sitasi atau daftar pustaka formal kecuali user memintanya langsung di pertanyaan.",
+      "Jangan menambahkan marker sitasi atau daftar pustaka formal kecuali user memintanya langsung di pertanyaan. Pengetahuan internal AI bukan publikasi dan tidak boleh dijadikan referensi rekaan.",
     ].join("\n");
   }
 

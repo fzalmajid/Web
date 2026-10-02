@@ -45,10 +45,10 @@ export async function GET(req: NextRequest) {
       },
       freeHelper: openRouterFreeStatus(),
     },
-    webResearch: webResearchStatus(),
+    webResearch: {...webResearchStatus(),scholarlyFallback:"Crossref + OpenAlex/Europe PMC/PubMed/Semantic Scholar",publicFullText:"bounded publisher PDF retrieval; title match; PDF page locators",formulaEvidenceGate:true},
     documentEnhancements: documentEnhancementStatus(),
     publicResearch:{unpaywall:{configured:Boolean(process.env.UNPAYWALL_EMAIL),fallback:"OpenAlex/DOI"},openCitations:{publicApi:true,tokenOptional:true},openverse:{webOnly:true,automaticRagIngestion:false}},
-    learningTools:{pdfAnnotations:"local PDF.js annotations",audioTimeline:"waveform and bookmarks; timestamps for new local transcriptions",audioImport:"local-only audio file transcription; cancellation; no cloud or RAG upload",imageOcclusion:"existing FSRS flashcards",offline:"opt-in account snapshot, atomic conflict-aware review queue",dataLab:"local DuckDB/ECharts; deterministic calibration",molecules:"local RDKit, PubChem, 3Dmol/RCSB",epub:"sandboxed local DRM-free EPUB; no automatic RAG ingestion",localHelper:"opt-in WebLLM Qwen 0.5B; heuristic fallback"},
+    learningTools:{entryPoint:"+ Upload; shared modules on /tools",modelDebug:"Settings > Plugin & AI > Diagnostik",chatImages:"contextual PubChem/Openverse; provenance labels; no automatic RAG",pdfAnnotations:"local PDF.js annotations",audioTimeline:"waveform and bookmarks; timestamps for new local transcriptions",audioImport:"local-first mic/audio attachments; +Upload recording/transcript; explicit storage",imageOcclusion:"existing FSRS flashcards",offline:"automatic public shell; opt-in account snapshot, atomic conflict-aware review queue",dataLab:"local DuckDB/ECharts; deterministic calibration",molecules:"local RDKit, PubChem, 3Dmol/RCSB",epub:"sandboxed local DRM-free EPUB; no automatic RAG ingestion",localHelper:"opt-in WebLLM Qwen 0.5B; heuristic fallback"},
     localAudio: {
       whisper: { browser: true, modelPolicy: "adaptive tiny/base/small", deviceOrder: ["webgpu", "wasm"], cache: "Transformers.js browser cache" },
       sileroVad: { browser: true, model: "Silero VAD legacy via @ricky0123/vad-web", localAssets: "/vad/" },

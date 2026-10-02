@@ -1,7 +1,8 @@
-import { indexedAbstract, rankResearchHits, researchQuery } from "./researchQuery";
+import { indexedAbstract, rankResearchHits, scientificQueryPlan, matchesRequiredTopic } from "./researchQuery";
+import { boundedJson } from "./publicResearch";
 
 export type ScholarlyHit = {
-  provider: "openalex" | "europepmc" | "pubmed" | "semanticscholar";
+  provider: "openalex" | "europepmc" | "pubmed" | "semanticscholar" | "crossref";
   id: string;
   title: string;
   authors: string[];
@@ -13,6 +14,12 @@ export type ScholarlyHit = {
   uri: string;
   openAccess: boolean;
   abstract?: string | null;
+  fullTextUrls?: string[];
+  volume?: string | null;
+  issue?: string | null;
+  pages?: string | null;
+  metadataBasis?: "publisher";
+  metadataNotice?: string;
 };
 
 function cleanDoi(value: unknown) {
@@ -85,6 +92,7 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
       uri,
       openAccess: Boolean(work?.open_access?.is_oa || best?.is_oa),
       abstract: indexedAbstract(work?.abstract_inverted_index),
+      fullTextUrls: [best?.pdf_url].filter((value):value is string=>typeof value === "string" && /^https?:\/\//i.test(value)),
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
@@ -141,6 +149,7 @@ async function searchSemanticScholar(query: string, limit: number): Promise<Scho
       uri: paperUrl,
       openAccess: Boolean(paper?.openAccessPdf?.url),
       abstract: cleanText(paper?.abstract, 2200) || null,
+      fullTextUrls: paper?.openAccessPdf?.url ? [paper.openAccessPdf.url] : [],
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
@@ -190,8 +199,9 @@ async function searchEuropePmc(query: string, limit: number): Promise<ScholarlyH
       pmcid,
       journal: cleanText(item?.journalTitle, 500) || null,
       uri,
-      openAccess: String(item?.isOpenAccess || "").toUpperCase() === "Y" || Boolean(pmcid),
+      openAccess: String(item?.isOpenAccess || "").toUpperCase() === "Y",
       abstract: cleanText(item?.abstractText, 2200) || null,
+      fullTextUrls: fullUrls.filter((u:any)=>String(u?.availability||"").toLowerCase()==="open access").map((u:any)=>u.url).filter((u:unknown)=>typeof u==="string"&&/^https?:\/\//i.test(u)),
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
@@ -260,13 +270,31 @@ async function searchPubMed(query: string, limit: number): Promise<ScholarlyHit[
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
 
+export async function searchCrossref(query: string, limit = 12): Promise<ScholarlyHit[]> {
+  const url = new URL("https://api.crossref.org/works");
+  url.searchParams.set("query.bibliographic", query);
+  url.searchParams.set("filter", "type:journal-article");
+  url.searchParams.set("rows", String(Math.min(20,limit)));
+  const payload:any=await boundedJson(url.href,{headers:{Accept:"application/json","User-Agent":"RuangBelajar/1.0 (public scholarly research)"},cache:"no-store"});
+  return (Array.isArray(payload?.message?.items)?payload.message.items:[]).map((item:any):ScholarlyHit|null=>{
+    const title=cleanText(item.title?.[0],1000),doi=cleanDoi(item.DOI);
+    if(!title||!doi)return null;
+    const uri=cleanText(item.resource?.primary?.URL||item.URL||"https://doi.org/"+doi,1800);
+    if(!/^https?:\/\//i.test(uri))return null;
+    return {provider:"crossref",id:doi,title,doi,authors:(item.author||[]).map((a:any)=>cleanText([a.given,a.family].filter(Boolean).join(" "),240)).filter(Boolean),year:item.published?.["date-parts"]?.[0]?.[0]||null,journal:cleanText(item["container-title"]?.[0],500)||null,pmid:null,pmcid:null,uri,openAccess:false,abstract:cleanText(String(item.abstract||"").replace(/<[^>]+>/g," "),2200)||null,
+      fullTextUrls:(item.link||[]).filter((link:any)=>link["content-type"]==="application/pdf").map((link:any)=>link.URL),volume:cleanText(item.volume)||null,issue:cleanText(item.issue)||null,pages:cleanText(item.page)||null};
+  }).filter((hit:ScholarlyHit|null):hit is ScholarlyHit=>Boolean(hit));
+}
+
 export async function searchScholarlySources(query: string, limit = 12) {
-  const clean = researchQuery(cleanText(query, 1200));
+  const plan=scientificQueryPlan(cleanText(query,1200));
+  const clean = plan.query;
   if (!clean) return [] as ScholarlyHit[];
   const biomedical = isBiomedicalQuery(clean) || /\b(psychology|memory|memori|retrieval practice|testing effect)\b/i.test(clean);
   const jobs: Array<Promise<ScholarlyHit[]>> = [];
   jobs.push(searchOpenAlex(clean, Math.min(8, limit)));
   jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));
+  jobs.push(searchCrossref(clean, 16));
   if (biomedical) {
     jobs.push(searchEuropePmc(clean, Math.min(8, limit)));
     jobs.push(searchPubMed(clean, Math.min(6, limit)));
@@ -281,11 +309,13 @@ export async function searchScholarlySources(query: string, limit = 12) {
       const key = stableKey(hit);
       const existing = merged.get(key);
       if (!existing || (hit.abstract && !existing.abstract) || (hit.openAccess && !existing.openAccess)) {
-        merged.set(key, { ...hit, abstract: hit.abstract || existing?.abstract || null });
+        merged.set(key, { ...existing, ...hit, abstract: hit.abstract || existing?.abstract || null, fullTextUrls:[...new Set([...(hit.fullTextUrls||[]),...(existing?.fullTextUrls||[])])],volume:hit.volume||existing?.volume,issue:hit.issue||existing?.issue,pages:hit.pages||existing?.pages });
+      } else {
+        merged.set(key,{...hit,...existing,fullTextUrls:[...new Set([...(hit.fullTextUrls||[]),...(existing.fullTextUrls||[])])],volume:existing.volume||hit.volume,issue:existing.issue||hit.issue,pages:existing.pages||hit.pages});
       }
     }
   }
-  return rankResearchHits([...merged.values()],clean).slice(0, Math.max(1, Math.min(20, limit)));
+  return rankResearchHits([...merged.values()].filter(hit=>matchesRequiredTopic(hit.title,plan.requiredTerm)),clean).slice(0, Math.max(1, Math.min(20, limit)));
 }
 
 export function scholarlyPromptContext(hits: ScholarlyHit[]) {
