@@ -10301,7 +10301,6 @@ function AiSourceModelBar({
   experienceMode,
   onExperienceModeChange,
   showModelDebug = false,
-  extraWebPanel,
 }: {
   sources: AiSourceKind[];
   onSourcesChange: (sources: AiSourceKind[]) => void;
@@ -10315,7 +10314,6 @@ function AiSourceModelBar({
   experienceMode?: AiExperienceMode;
   onExperienceModeChange?: (mode: AiExperienceMode) => void;
   showModelDebug?: boolean;
-  extraWebPanel?: React.ReactNode;
 }) {
   useEffect(() => {
     if (selection.model === "local" && (sources.length !== 1 || sources[0] !== "database")) {
@@ -10357,7 +10355,6 @@ function AiSourceModelBar({
           })}
         </div>
       )}
-      {extraWebPanel}
       <CitationPicker compact={compact} />
       {experienceMode && onExperienceModeChange ? (
         <>
@@ -12450,7 +12447,6 @@ function BottomAskBar({
             />
             <AiSourceModelBar
               sources={selectedSources}
-              extraWebPanel={selectedSources.includes("web") ? <OpenMedia/> : undefined}
               onSourcesChange={setSelectedSources}
               selection={aiSelection}
               onSelectionChange={(next) => {
@@ -12468,6 +12464,9 @@ function BottomAskBar({
             />
           </div>
         </div>
+        {selectedSources.includes("web") ? (
+          <div className="askWebPanel"><OpenMedia /></div>
+        ) : null}
         <div className="askInputRow">
           <input
             ref={askAttachmentInputRef}
