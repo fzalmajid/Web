@@ -12272,7 +12272,7 @@ function BottomAskBar({
       ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : []),
     ].filter(Boolean).join(" · ");
 
-    if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
+    if (!data.webFallback && Array.isArray(data.selectedSources) && data.selectedSources.length) {
       setSelectedSources(data.selectedSources);
     }
 

@@ -12,6 +12,13 @@ test("learning tool navigation visibly distinguishes the active module and keybo
   assert.match(css, /:focus-visible\{outline:3px/);
 });
 
+test("Web fallback preserves the user's Web selection in both normal and debug retry flows", () => {
+  const page = readFileSync(join(process.cwd(), "app/page.tsx"), "utf8");
+  const guarded = page.match(/if \(!data\.webFallback && Array\.isArray\(data\.selectedSources\) && data\.selectedSources\.length\)/g) || [];
+  assert.equal(guarded.length, 2);
+  assert.ok(!page.includes("if (Array.isArray(data.selectedSources) && data.selectedSources.length)"));
+});
+
 test("Record status reports actual VAD and no-speech results instead of claiming an unavailable integration", () => {
   const page = readFileSync(join(process.cwd(), "app/page.tsx"), "utf8");
   assert.match(page, /localVad = result\.usedVad/);
