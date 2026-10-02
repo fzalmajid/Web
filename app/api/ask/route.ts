@@ -41,6 +41,7 @@ import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServ
 import { fetchScholarlyEvidence, fullTextPromptContext } from "@/lib/scholarlyFullText";
 import { answerCitationInventory, publicCitationPrompt } from "@/lib/answerCitationServer";
 import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules } from "@/lib/answerEvidence";
+import { citationMetadataReady } from "@/lib/referenceMetadata";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 import { rerankKnowledge } from "@/lib/documentEnhancements";
 import { normalizeAiExperienceMode } from "@/lib/aiOrchestration";
@@ -1328,7 +1329,7 @@ export async function POST(req: NextRequest) {
       const guarded=guardAnswerBibliography(text,citations,citationStyle,quantitativePaper);
       return {answer:guarded.text,citationWarnings:[...guarded.warnings,...(guarded.blocked?[]:citationStructuralWarnings(guarded.text,citationStyle,citationOutputs))]};
     };
-    const databaseFormulaEvidence=data.some((row:any)=>/\b(?:table|tabel|formulation|formulasi)\b/i.test(String(row.raw_content||row.content||""))&&/\bmg\b/i.test(String(row.raw_content||row.content||"")));
+    const databaseFormulaEvidence=data.some((row:any)=>row.bibliographic_metadata?.type==="journal_article"&&citationMetadataReady(row.bibliographic_metadata)&&/\b(?:table|tabel|formulation|formulasi)\b/i.test(String(row.raw_content||row.content||""))&&/\bmg\b/i.test(String(row.raw_content||row.content||"")));
     if(quantitativePaper&&!paperEvidence.some(item=>/\b(?:table|composition|formulation)\b/i.test(item.text)&&/\bmg\b/i.test(item.text))&&!databaseFormulaEvidence){
       return NextResponse.json({answer:missingFormulaEvidence,sources:[],webSources:mergeWebSources([],scholarlyHits),selectedSources,publicWeb:useWeb,webResearch:{status:"formula-full-text-missing",scholarlyCount:scholarlyHits.length,fullTextCount:paperEvidence.length},citationWarnings:[],evidenceLimited:true,orchestration:{mode:aiMode,stages:[],description:"Evidence gate: no invented quantitative formula"}});
     }
