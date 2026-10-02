@@ -336,3 +336,64 @@ button.folderTreeHome.selected{
     white-space:nowrap!important;
   }
 }
+
+/* Depth controls replace the old fixed model-column layout. Children wrap as
+   whole controls; Web media owns a separate row, never an implicit grid cell. */
+.gptComposer.bottomAsk .askTopRow{
+  display:block!important;
+  width:100%!important;
+}
+.gptComposer.bottomAsk .askTopControls{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  align-items:flex-end!important;
+  justify-content:flex-start!important;
+  width:100%!important;
+  min-width:0!important;
+  gap:6px 8px!important;
+}
+.gptComposer.bottomAsk .askTopControls::after{display:none!important}
+.gptComposer.bottomAsk .askTopControls>.askScope{
+  order:0;
+  flex:1 0 100%!important;
+  width:100%!important;
+  max-width:100%!important;
+  min-height:0!important;
+}
+.gptComposer.bottomAsk .askTopControls>.aiSourceModelBar{display:contents!important}
+.gptComposer.bottomAsk .aiDatabaseSourcePicker{order:1;flex:0 0 auto!important}
+.gptComposer.bottomAsk .citationPicker{order:2;flex:0 0 auto!important}
+.gptComposer.bottomAsk .aiExperiencePicker{
+  order:3;
+  flex:0 0 auto;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:3px;
+}
+.gptComposer.bottomAsk .aiExperienceChoices{flex-shrink:0}
+.gptComposer.bottomAsk .aiExperienceChoices button{min-width:44px;min-height:40px}
+.gptComposer.bottomAsk .aiExperienceChoices button:focus-visible{
+  outline:2px solid var(--ink);
+  outline-offset:2px;
+}
+.gptComposer.bottomAsk .aiDebugModelDetails{order:4;align-self:center}
+.gptComposer.bottomAsk .askWebPanel{
+  grid-column:1/-1;
+  width:100%;
+  min-width:0;
+}
+.gptComposer.bottomAsk .askWebPanel .openMediaPanel{margin:0}
+.aiAnswer.aiChatRoom{
+  /* Composer height changes when Web media/attachments open or controls wrap.
+     Keep the answer header below the fixed top rail; only messages scroll. */
+  max-height:max(0px,min(68dvh,760px,calc(100dvh - var(--rb-ai-answer-bottom,100px) - var(--rb-topbar-h,60px) - 12px)))!important;
+}
+@media (max-width:1023px){
+  html,body,.appShell{min-width:0!important}
+}
+@media (max-width:899px){
+  .gptComposer.bottomAsk,.aiAnswer.aiChatRoom{
+    width:calc(100vw - 28px)!important;
+    max-width:calc(100vw - 28px)!important;
+  }
+}

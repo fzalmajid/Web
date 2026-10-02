@@ -26,3 +26,20 @@ test("Record status reports actual VAD and no-speech results instead of claiming
   assert.ok(page.includes("audio utuh, pemisahan ucapan belum tersedia"));
   assert.ok(page.includes("Tidak ada ucapan terdeteksi; audio tetap bisa didengar ulang."));
 });
+
+test("Web media has its own composer row and cannot steal a depth-control grid column", () => {
+  const page = readFileSync(join(process.cwd(), "app/page.tsx"), "utf8");
+  assert.ok(!page.includes("extraWebPanel"));
+  assert.match(page, /<div className="askWebPanel"><OpenMedia \/><\/div>/);
+  const css = readFileSync(join(process.cwd(), "app/layout-alignment.css"), "utf8");
+  assert.match(css, /\.askWebPanel\{\s*grid-column:1\/-1/);
+  assert.match(css, /\.askTopControls\{[^}]*display:flex!important;[^}]*flex-wrap:wrap!important/);
+  assert.match(css, /\.aiExperienceChoices\{flex-shrink:0\}/);
+});
+
+test("responsive chat respects the actual composer height and narrow viewport", () => {
+  const css = readFileSync(join(process.cwd(), "app/layout-alignment.css"), "utf8");
+  assert.match(css, /100dvh - var\(--rb-ai-answer-bottom,100px\) - var\(--rb-topbar-h,60px\)/);
+  assert.match(css, /@media \(max-width:1023px\)\{\s*html,body,\.appShell\{min-width:0!important\}/);
+  assert.match(css, /\.aiExperienceChoices button:focus-visible/);
+});
