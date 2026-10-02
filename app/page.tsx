@@ -1,6 +1,6 @@
 "use client";
 import { answerBlocks } from "@/lib/answerLayout";
-import { answerProse, scopeAnswerHeadings } from "@/lib/answerProse";
+import { answerProse, scopeAnswerHeadings, answerHeadingTarget, safeAnswerLink } from "@/lib/answerProse";
 import AnswerProse from "@/components/AnswerProse";
 
 // Normal UI exposes AI Ruang Belajar modes; the model picker remains available
@@ -8681,8 +8681,11 @@ function AiMessageContent({ text }: { text: string }) {
   const scope = "rb-answer-" + useId().replace(/[^a-zA-Z0-9-]/g, "");
   const layouts = parts.map(part => part.kind === "text" ? answerBlocks(part.value).map(block => block.kind === "text" ? { ...block, prose: answerProse(block.value) } : block) : []);
   const anchors = scopeAnswerHeadings(layouts.flatMap(blocks => blocks.flatMap(block => block.kind === "text" ? [block.prose] : [])), scope);
+  const headings = layouts.flatMap(blocks => blocks.flatMap(block => block.kind === "text" ? block.prose.filter(item => item.kind === "heading" && !/^(daftar isi|contents|table of contents)$/i.test(item.text)) : []));
+  const hasContents = layouts.some(blocks => blocks.some(block => block.kind === "text" && block.prose.some(item => item.kind === "list" && item.items.length >= 2 && item.items.every(label => Boolean(answerHeadingTarget(label, anchors)))))) || parts.some(part => part.kind === "text" && Array.from(part.value.matchAll(/\[[^\]\n]+\]\((#[^\s)]+)\)/g)).filter(match => safeAnswerLink(match[1], anchors)).length >= 2);
   return (
     <div className="aiRichContent">
+      {!hasContents && headings.length >= 2 && <nav className="aiAnswerContents" aria-label="Daftar isi jawaban"><details><summary>Daftar isi</summary><ol>{headings.map((heading, index) => heading.kind === "heading" ? <li key={index}><a href={"#" + heading.id}><RichText text={heading.text.replace(/^\s*\d+[.)]\s+/, "")}/></a></li> : null)}</ol></details></nav>}
       {parts.map((part, index) => {
         if (part.kind === "mermaid") return <MermaidDiagram key={"m" + index} code={part.value} />;
         if (part.kind === "cytoscape") return <CytoscapeDiagram key={"c" + index} code={part.value} />;
@@ -12269,7 +12272,7 @@ function BottomAskBar({
       ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : []),
     ].filter(Boolean).join(" · ");
 
-    if (Array.isArray(data.selectedSources) && data.selectedSources.length) {
+    if (!data.webFallback && Array.isArray(data.selectedSources) && data.selectedSources.length) {
       setSelectedSources(data.selectedSources);
     }
 

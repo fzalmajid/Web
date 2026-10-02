@@ -31,8 +31,18 @@ export function answerProse(text: string): AnswerProseBlock[] {
       result.push({ kind: "code", text: code.join("\n") }); continue;
     }
     if (!trimmed) { flush(); continue; }
+    // Some providers emit the contents as consecutive italic/bold numbered
+    // lines instead of a Markdown list. Recognize only a multi-item opening.
+    const openingItem = (value: string) => /^\s*([_*]{1,2})(\d+)[.)]\s+([^*_\n]{1,160})\1\s*$/.exec(value);
+    if (!result.length && !paragraph.length && openingItem(line)) {
+      const items: string[] = []; let end = i;
+      while (end < lines.length) { const item = openingItem(lines[end]); if (!item) break; items.push(item[3]); end++; }
+      if (items.length >= 2) { result.push({ kind: "list", ordered: true, start: Number(openingItem(line)![2]), items }); i = end - 1; continue; }
+    }
     const heading = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
     if (heading) { flush(); result.push({ kind: "heading", text: heading[2], level: Math.max(2, heading[1].length), anchor: answerHeadingSlug(heading[2]) }); continue; }
+    const boldHeading = /^\s{0,3}(\*{1,2})([^*\n]{1,120})\1\s*:?\s*$/.exec(line);
+    if (boldHeading) { flush(); result.push({ kind: "heading", text: boldHeading[2], level: 3, anchor: answerHeadingSlug(boldHeading[2]) }); continue; }
     if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flush(); result.push({ kind: "rule" }); continue; }
     const list = /^\s*([-+*]|\d+[.)])\s+(.+)$/.exec(line);
     if (list) {
@@ -65,4 +75,14 @@ export function safeAnswerLink(raw: string, anchors: Map<string, string>) {
   }
   if (!/^https?:\/\//i.test(raw) || /[\u0000-\u0020\u007f]/.test(raw)) return null;
   try { const url = new URL(raw); return url.username || url.password ? null : url.href; } catch { return null; }
+}
+
+export function answerHeadingTarget(label: string, anchors: Map<string, string>) {
+  const slug = answerHeadingSlug(label.replace(/^\s*\d+[.)]\s+/, ""));
+  const exact = anchors.get(slug); if (exact) return exact;
+  const unnumbered = Array.from(anchors).filter(([key]) => key.replace(/^\d+-/, "") === slug);
+  if (unnumbered.length === 1) return unnumbered[0][1];
+  // Permit a shortened contents label only when it identifies one heading.
+  const candidates = slug.includes("-") ? Array.from(anchors).filter(([key]) => key.replace(/^\d+-/, "").startsWith(slug + "-")) : [];
+  return candidates.length === 1 ? candidates[0][1] : null;
 }
