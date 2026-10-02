@@ -42,6 +42,7 @@ export default function PaperExplorer({ doi: initial = "" }: { doi?: string }) {
     cyRef.current.on("tap", "node", (event: any) => { const next = event.target.id(); if (next !== result.paper.doi) void lookup(next); });
   }
   return <section className="learningPanel" aria-label="Paper dan akses terbuka">
+    <details><summary>Periksa indeks jurnal: SINTA / Scopus</summary><p><a href="https://sinta.kemdiktisaintek.go.id/journals/index/page.?page=1" target="_blank" rel="noreferrer">Direktori jurnal resmi SINTA</a> — cocokkan judul jurnal dan ISSN serta periode akreditasi. Belum ada API publik resmi yang terkonfirmasi; aplikasi tidak mengarang peringkat SINTA.</p><p>Adapter Scopus memakai API resmi bila key server tersedia. Hak akses dan kuota tetap berlaku; terindeks tidak berarti full text terbuka atau semua klaim terbukti.</p></details>
     <form onSubmit={e => { e.preventDefault(); void lookup(); }} className="learningRow">
       <label>DOI paper<input value={doi} onChange={e => setDoi(e.target.value)} placeholder="10.xxxx/... atau tautan DOI" /></label>
       <button disabled={busy}>Cari PDF legal</button>

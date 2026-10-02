@@ -22,9 +22,11 @@ export function rankResearchHits<T extends {title:string;abstract?:string|null}>
 
 /** Small deterministic search plan, not a model-generated drug/DOI guess. */
 export function scientificQueryPlan(question: string) {
+  const doi=/\b10\.\d{4,9}\/[^\s<>"\]]+/i.exec(question)?.[0]?.replace(/[.,;)]+$/g,"");
+  if(doi)return {query:doi,broadQuery:doi,requiredTerm:""};
   const original = researchQuery(question);
   const formulation = /\b(?:formulasi|formulation|resep|eksipien|excipients?|cocrystals?|kokristal)\b/i.test(question);
-  if (!formulation) return { query: original, broadQuery: original, requiredTerm: "" };
+  if (!formulation) return { query: topicSearchTerms(original), broadQuery: original, requiredTerm: "" };
   const stop = new Set("carikan cari resep formulasi formulation tablet tablets konvensional conventional dari jurnal tervalidasi tervalidai validated baik modifikasi modification maupun bukan minimal model formula bahan aktif active eksipien excipients jumlah disebutkan cocrystal cocrystals kokristal dan atau dengan untuk dalam yang mg obat drug ingredient ingredients dari jurnal journal public access publik terbuka immediate release".split(" "));
   stop.add("juga");stop.add("disebutkan");
   const words = question.toLowerCase().match(/[a-z][a-z-]{3,}/g) || [];
@@ -40,6 +42,17 @@ export function scientificQueryPlan(question: string) {
 
 export function matchesRequiredTopic(title: string, requiredTerm: string) {
   return !requiredTerm || title.toLowerCase().includes(requiredTerm.toLowerCase());
+}
+
+/** Conservative topic vocabulary; never invent a chemical, author, title, or identifier. */
+export function topicSearchTerms(text:string) {
+  if (/https?:\/\/|\b10\.\d{4,9}\//i.test(text)) return text.slice(0,1200);
+  const phrases:Array<[RegExp,string]>=[[/\benergi surya\b/gi,"solar energy"],[/\bpanel surya\b/gi,"solar panels"],[/\bperubahan iklim\b/gi,"climate change"],[/\bkecerdasan buatan\b/gi,"artificial intelligence"],[/\bpembelajaran mesin\b/gi,"machine learning"]];
+  let result=text;
+  for(const [pattern,replacement] of phrases)result=result.replace(pattern,replacement);
+  const translations:Record<string,string>={pendidikan:"education",pembelajaran:"learning",memori:"memory",kesehatan:"health",lingkungan:"environment",efisiensi:"efficiency",efektivitas:"effectiveness",kalibrasi:"calibration",disolusi:"dissolution",formulasi:"formulation",absorpsi:"absorption",stabilitas:"stability",ekonomi:"economics"};
+  result=result.replace(/\b[a-z]+\b/gi,word=>translations[word.toLowerCase()]||word);
+  return result.replace(/\b(?:jelaskan|ringkas(?:an)?|apa(?:kah)?|bagaimana|mengapa|pengaruh|hubungan|perbedaan|bandingkan|bukti|ilmiah|tervalidasi|tervalida[i]?|valid|berdasarkan|adalah|terhadap|dengan|dan|atau|yang|dari|pada|dalam|sebagai|saya|ingin|beserta|link|tautan|publik|public|access|akses|terbuka|minimal|maksimal|lebih|tentang|mengenai|terbaru|show|explain|summari[sz]e|evidence|of|the|and|for|on|in|to)\b/gi," ").replace(/\s+/g," ").trim().slice(0,240)||text.slice(0,240);
 }
 
 export function indexedAbstract(value: unknown) {

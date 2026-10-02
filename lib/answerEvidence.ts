@@ -12,7 +12,8 @@ export const missingFormulaEvidence="Saya belum memperoleh full text jurnal yang
 
 /** Match a bibliography identity against actual retrieval, not the model's assertion that it exists. */
 export function identityInEntry(entry:string,item:CitationIdentity){
-  if(item.doi&&entry.toLowerCase().includes(item.doi.toLowerCase()))return true;
+  if(item.doi){const dois=entry.match(/\b10\.\d{4,9}\/[^\s<>"\]]+/gi)||[];if(dois.some(doi=>doi.replace(/[.,;)]+$/g,"").toLowerCase()===item.doi!.toLowerCase()))return true;}
+  if(item.uri){try{const target=new URL(item.uri).href.replace(/\/$/,"");if((entry.match(/https?:\/\/[^\s<>"\]]+/gi)||[]).some(raw=>{try{return new URL(raw.replace(/[.,;)]+$/g,"")).href.replace(/\/$/,"")===target;}catch{return false;}}))return true;}catch{}}
   const title=normalize(item.title),line=normalize(entry);
   return title.length>=16 && line.includes(title);
 }
@@ -34,7 +35,12 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
   const used=[...new Set(known.flatMap(item=>item.source?[item.source]:[]))];
   const numeric=style==="ieee"||style==="vancouver";
   // Preserve numeric identities only when all entries matched; don't silently renumber in-text citations.
-  const references=used.map((item,i)=>numeric&&!unknown.length?known.find(k=>k.source===item)!.entry:(item.formatted||`[${item.title}](${item.uri||"https://doi.org/"+item.doi})`));
+  const references=used.map(item=>{
+    const matched=known.find(k=>k.source===item)!.entry;
+    const canonical=item.formatted||`[${item.title}](${item.uri||"https://doi.org/"+item.doi})`;
+    const label=/^(?:\[\d+\]|\d+[.)])\s*/.exec(matched)?.[0]||"";
+    return numeric&&!unknown.length?label+canonical.replace(/^(?:\[\d+\]|\d+[.)])\s*/,""):canonical;
+  });
   return {text:before+(references.length?`\n\n*${style==="mla"?"Works Cited":"References"}:*\n`+references.join("\n\n"):"\n\nTidak ada referensi formal yang cocok dengan sumber hasil penelusuran."),warnings:unknown.length?["Entri referensi yang tidak cocok dengan inventaris sumber telah dihapus; dukungan klaim tetap perlu diperiksa."]:[],blocked:false};
 }
 

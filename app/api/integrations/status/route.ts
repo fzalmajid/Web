@@ -6,6 +6,7 @@ import { aiCouncilPlan } from "@/lib/aiOrchestration";
 import { openRouterFreeStatus } from "@/lib/openRouterFree";
 import { webResearchStatus } from "@/lib/webResearch";
 import { documentEnhancementStatus } from "@/lib/documentEnhancements";
+import { scholarlyIndexStatus } from "@/lib/scholarlyIndexes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
       pubMed: { configured: true, publicApi: true, apiKeyOptional: true },
       semanticScholar: { configured: true, publicApi: true, apiKeyOptional: true, hasApiKey: semanticScholarHasApiKey() },
       crossref: { configured: true, publicApi: true },
+      ...scholarlyIndexStatus(),
       dataCite: { configured: true, publicApi: true },
       openLibrary: { configured: true, publicApi: true },
     },
@@ -45,7 +47,7 @@ export async function GET(req: NextRequest) {
       },
       freeHelper: openRouterFreeStatus(),
     },
-    webResearch: {...webResearchStatus(),scholarlyFallback:"Crossref + OpenAlex/Europe PMC/PubMed/Semantic Scholar",publicFullText:"bounded publisher PDF retrieval; title match; PDF page locators",formulaEvidenceGate:true},
+    webResearch: {...webResearchStatus(),scholarlyFallback:"Crossref + OpenAlex/Europe PMC/PubMed/Semantic Scholar; optional Scopus",publicFullText:"bounded public PDF + publisher HTML + OA JATS XML; title/DOI matching; page/section/table locators",explicitUrls:true,claimValidation:"retrieval and identity checks; not blanket independent fact verification",formulaEvidenceGate:true},
     documentEnhancements: documentEnhancementStatus(),
     publicResearch:{unpaywall:{configured:Boolean(process.env.UNPAYWALL_EMAIL),fallback:"OpenAlex/DOI"},openCitations:{publicApi:true,tokenOptional:true},openverse:{webOnly:true,automaticRagIngestion:false}},
     learningTools:{entryPoint:"+ Upload; shared modules on /tools",modelDebug:"Settings > Plugin & AI > Diagnostik",chatImages:"contextual PubChem/Openverse; provenance labels; no automatic RAG",pdfAnnotations:"local PDF.js annotations",audioTimeline:"waveform and bookmarks; timestamps for new local transcriptions",audioImport:"local-first mic/audio attachments; +Upload recording/transcript; explicit storage",imageOcclusion:"existing FSRS flashcards",offline:"automatic public shell; opt-in account snapshot, atomic conflict-aware review queue",dataLab:"local DuckDB/ECharts; deterministic calibration",molecules:"local RDKit, PubChem, 3Dmol/RCSB",epub:"sandboxed local DRM-free EPUB; no automatic RAG ingestion",localHelper:"opt-in WebLLM Qwen 0.5B; heuristic fallback"},

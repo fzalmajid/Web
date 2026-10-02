@@ -9,6 +9,8 @@ export type WebResearchHit = {
 import { isIP } from "node:net";
 import { crawl4aiContent, readResearchJson } from "./crawl4aiResult";
 import { isPublicAddress } from "./publicPageFetch";
+import { readableMarkup, pageTitle } from "./articleText";
+import { parseHtmlArticle } from "./articleText";
 
 function cleanText(value: unknown, max = 8000) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -48,22 +50,7 @@ function isSafePublicUrl(raw: string) {
 }
 
 function htmlToReadableText(html: string) {
-  return cleanText(
-    html
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
-      .replace(/<br\s*\/?>(\s*)/gi, "\n")
-      .replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, "\n")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">")
-      .replace(/&#39;/g, "'")
-      .replace(/&quot;/gi, '"'),
-    12000
-  );
+  return readableMarkup(html,false,undefined,12000);
 }
 
 function normalizeResult(item: any): { title: string; uri: string; snippet: string } | null {
@@ -129,11 +116,31 @@ async function crawl4ai(uri: string) {
 async function directFetch(uri: string) {
   if (!isSafePublicUrl(uri)) return null;
   const response=await fetchPublicPage(uri);
-  return cleanText(response.type.includes("html")?htmlToReadableText(response.text):response.text,12000)||null;
+  if(!response.type.includes("html")&&!response.type.includes("text/plain"))return null;
+  if(/cf-chl-|captcha|just a moment|one moment, please/i.test(response.text))return null;
+  const content=(response.type.includes("html")?htmlToReadableText(response.text):response.text).trim().slice(0,12000);
+  return content.length>=250?content:null;
+}
+
+/** Explicit URLs still work when no self-hosted search index is configured. */
+async function readExplicitUrl(uri:string):Promise<WebResearchHit|null>{
+  if(!isSafePublicUrl(uri))return null;
+  const response=await fetchPublicPage(uri);
+  if(!response.type.includes("html")||/cf-chl-|captcha|just a moment|one moment, please/i.test(response.text))return null;
+  const title=pageTitle(response.text),article=parseHtmlArticle(response.text);
+  const content=article.fullText?article.text:htmlToReadableText(response.text);
+  if(!title||content.length<250)return null;
+  return {title,uri:response.url,snippet:"",content,provider:"direct-fetch",contentKind:"page"};
 }
 
 export async function researchWeb(query: string, limit = 6) {
   try {
+    const explicitUrls=[...new Set(query.match(/https?:\/\/[^\s<>"'\])]+/gi)||[])].slice(0,2);
+    if(explicitUrls.length){
+      const rows=await Promise.all(explicitUrls.map(uri=>readExplicitUrl(uri.replace(/[.,;]+$/g,"")).catch(()=>null)));
+      const hits=rows.filter((row):row is WebResearchHit=>Boolean(row));
+      return {hits,status:hits.length?"explicit-pages-read":"explicit-pages-unavailable"};
+    }
     const results = await searchSearxng(query, limit);
     if (!results.length) return { hits: [] as WebResearchHit[], status: "searxng-unavailable" };
     const hits: WebResearchHit[] = [];
