@@ -1320,9 +1320,10 @@ export async function POST(req: NextRequest) {
         ? researchWeb(researchQuery(question), aiMode === "high" ? 8 : 5)
         : Promise.resolve({ hits: [], status: "not-requested" }),
     ]);
-    const scholarlyContext = scholarlyPromptContext(scholarlyHits);
     const quantitativePaper=requiresQuantitativePaperEvidence(question);
     const paperEvidence=useWeb ? await fetchScholarlyEvidence(scholarlyHits,quantitativePaper||aiMode==="high"?3:1) : [];
+    for(const evidence of paperEvidence){const index=scholarlyHits.findIndex(hit=>hit.doi&&evidence.source.doi?hit.doi.toLowerCase()===evidence.source.doi.toLowerCase():hit.title===evidence.source.title);if(index>=0)scholarlyHits[index]=evidence.source;}
+    const scholarlyContext = scholarlyPromptContext(scholarlyHits);
     const fullTextContext=fullTextPromptContext(paperEvidence);
     const citations=answerCitationInventory(scholarlyHits,data,citationStyle);
     const finalizeAnswer=(text:string)=>{

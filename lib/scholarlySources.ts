@@ -18,6 +18,8 @@ export type ScholarlyHit = {
   volume?: string | null;
   issue?: string | null;
   pages?: string | null;
+  metadataBasis?: "publisher";
+  metadataNotice?: string;
 };
 
 function cleanDoi(value: unknown) {

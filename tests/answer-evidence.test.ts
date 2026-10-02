@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {scientificQueryPlan,matchesRequiredTopic} from "../lib/researchQuery";
 import {guardAnswerBibliography,requiresQuantitativePaperEvidence} from "../lib/answerEvidence";
-import {publisherPdfLinks,paperTitleMatches,selectEvidencePages} from "../lib/scholarlyFullText";
+import {publisherPdfLinks,paperTitleMatches,selectEvidencePages,publisherArticleMetadata} from "../lib/scholarlyFullText";
 
 test("Indonesian recipe search retains the exact drug, not a sentence or DAP ambiguity",()=>{
   const question="carikan resep formulasi tablet konvensional dipyridamole dari jurnal tervalidai, baik modifikasi cocrystal maupun bukan, minimal 2 model resep formula, dari bahan aktif, eksipien, jumlah(mg) juga disebutkan";
@@ -11,6 +11,12 @@ test("Indonesian recipe search retains the exact drug, not a sentence or DAP amb
   assert.equal(plan.requiredTerm,"dipyridamole");assert.equal(plan.query,"dipyridamole tablet cocrystal");
   assert.equal(matchesRequiredTopic("Dapagliflozin DAP cocrystals",plan.requiredTerm),false);
   assert.equal(requiresQuantitativePaperEvidence(question),true);
+});
+test("publisher date is a publication date, not Crossref acceptance or DOI registration year",()=>{
+  const hit:any={title:"Dipyridamole cocrystal tablets with enhanced solubility",doi:"10.55262/example",year:2023,journal:"Repository host",authors:[]};
+  const meta='<meta name="citation_title" content="Dipyridamole cocrystal tablets with enhanced solubility"><meta name="citation_doi" content="10.55262/example"><meta name="citation_publication_date" content="2024-03-26"><meta name="citation_journal_title" content="Actual journal"><meta name="citation_volume" content="49"><meta name="citation_issue" content="1"><meta name="citation_firstpage" content="37"><meta name="citation_lastpage" content="50">';
+  const result=publisherArticleMetadata(meta,hit);assert.equal(result.year,2024);assert.equal(result.pages,"37-50");assert.equal(result.journal,"Actual journal");assert.match(result.metadataNotice!,/differs/);
+  assert.equal(publisherArticleMetadata(meta.replace("10.55262/example","10.55262/wrong"),hit),hit);
 });
 test("a fake internal library blocks the entire formula, not just its link",()=>{
   const result=guardAnswerBibliography("Drug 25 mg\nReferences:\nFormulasi tablet dipyridamole konvensional. (n.d.). Pustaka Internal Farmasi.",[],"apa",true);
