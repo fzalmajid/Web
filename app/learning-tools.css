@@ -3,3 +3,19 @@
 .learningPanel pre{white-space:pre-wrap;overflow-wrap:anywhere}.openMediaPanel{max-width:100%;min-width:0}.openMediaPanel[open]{max-height:min(32vh,300px);overflow:auto}
 .localAudioPanel audio{display:block;width:100%;margin:12px 0}.localAudioPanel button{min-height:44px}.localAudioPanel textarea{box-sizing:border-box}
 .learningTools nav button{min-height:44px}.learningTools nav button[aria-pressed="true"]{background:#244237;color:#fff;border-color:#244237}.learningTools button:focus-visible,.learningTools summary:focus-visible{outline:3px solid #305d83;outline-offset:2px}
+.learningTools,.learningWorkspace{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:var(--ink);min-width:0}
+.learningToolsHeader{padding-bottom:16px;border-bottom:1px solid var(--line)}
+.learningTools h1{font:800 clamp(1.5rem,3vw,2rem)/1.25 Inter,ui-sans-serif,system-ui,sans-serif;margin:12px 0}
+.learningTools h2,.learningWorkspace h2{font:750 1.15rem/1.3 Inter,ui-sans-serif,system-ui,sans-serif}
+.learningTools p,.learningWorkspace p{font-size:.9rem;line-height:1.65}
+.learningPanel{border-color:var(--line);background:var(--card);color:var(--ink)}
+.learningPanel input,.learningPanel textarea,.learningPanel select{background:var(--soft);color:var(--ink);border-color:var(--line)}
+.learningPanel button,.learningWorkspace nav button{min-height:44px;background:var(--soft);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 12px}
+.learningWorkspace nav button[aria-pressed="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.learningWorkspace button:focus-visible,.learningWorkspace summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.learningTools a,.learningWorkspace a,.chatImages a{color:var(--accent-strong)}
+.diagnosticToggle{display:flex!important;flex-direction:row!important;align-items:center;gap:10px;min-height:44px}.diagnosticToggle input{width:20px}
+.chatImages{border-top:1px solid var(--line);padding-top:12px;margin-top:16px}.chatImages figure{margin:0;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:12px}.chatImages figcaption{font-size:.8rem;line-height:1.6}.chatImages p:empty{display:none}
+.offlineConnection{position:relative;z-index:100;padding:10px 16px;background:var(--soft);border-bottom:1px solid var(--line);font-size:.85rem}.offlineConnection a{color:var(--accent-strong);text-decoration:underline}
+.aiInvalidEvidence{padding:12px;border:1px solid var(--danger);border-radius:12px;color:var(--danger);font-weight:700}
+@media(max-width:600px){.learningTools{margin:12px auto;padding:16px}.learningRow{align-items:stretch}.learningPanel{padding:12px}.learningWorkspace nav{gap:8px}.learningWorkspace nav button{flex:1 1 130px}.dataChart,.citationGraph{height:280px}}

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 test("learning tool navigation visibly distinguishes the active module and keyboard focus", () => {
   const css = readFileSync(join(process.cwd(), "app/learning-tools.css"), "utf8");
-  const page = readFileSync(join(process.cwd(), "app/tools/page.tsx"), "utf8");
+  const page = readFileSync(join(process.cwd(), "components/LearningWorkspace.tsx"), "utf8");
   assert.ok(page.includes("aria-pressed={tab===id}"));
   assert.match(css, /nav button\[aria-pressed="true"\]\{[^}]*background:[^}]*color:/);
   assert.match(css, /nav button\{min-height:44px\}/);
@@ -27,10 +27,10 @@ test("Record status reports actual VAD and no-speech results instead of claiming
   assert.ok(page.includes("Tidak ada ucapan terdeteksi; audio tetap bisa didengar ulang."));
 });
 
-test("Web media has its own composer row and cannot steal a depth-control grid column", () => {
+test("media search is contextual in chat, not a duplicate composer form", () => {
   const page = readFileSync(join(process.cwd(), "app/page.tsx"), "utf8");
   assert.ok(!page.includes("extraWebPanel"));
-  assert.match(page, /<div className="askWebPanel"><OpenMedia \/><\/div>/);
+  assert.ok(!page.includes("<OpenMedia"));assert.ok(page.includes("<ChatImages question="));
   const css = readFileSync(join(process.cwd(), "app/layout-alignment.css"), "utf8");
   assert.match(css, /\.askWebPanel\{\s*grid-column:1\/-1/);
   assert.match(css, /\.askTopControls\{[^}]*display:flex!important;[^}]*flex-wrap:wrap!important/);

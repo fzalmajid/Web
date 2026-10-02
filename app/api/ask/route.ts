@@ -38,6 +38,9 @@ import {
 import { buildCitationMetadataInventory, citationInstruction, citationStructuralWarnings, normalizeCitationOptions, type CitationOutput, type CitationStyle } from "@/lib/citations";
 import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } from "@/lib/artifacts";
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
+import { fetchScholarlyEvidence, fullTextPromptContext } from "@/lib/scholarlyFullText";
+import { answerCitationInventory, publicCitationPrompt } from "@/lib/answerCitationServer";
+import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules } from "@/lib/answerEvidence";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 import { rerankKnowledge } from "@/lib/documentEnhancements";
 import { normalizeAiExperienceMode } from "@/lib/aiOrchestration";
@@ -1308,17 +1311,29 @@ export async function POST(req: NextRequest) {
       : aiSelection.length === "long"
         ? (aiMode === "high" ? 63000 : aiMode === "medium" ? 48000 : 35000)
         : (aiMode === "high" ? 44000 : aiMode === "medium" ? 34000 : 25000);
-    const scholarlyHits =
+    const [scholarlyHits, webResearchResult] = await Promise.all([
       useWeb && !casualAiQuestion
-        ? await searchScholarlySources(question.trim(), aiMode === "high" ? 16 : 12).catch(() => [])
-        : [];
+        ? searchScholarlySources(question.trim(), aiMode === "high" ? 16 : 12).catch(() => [])
+        : Promise.resolve([]),
+      useWeb && !casualAiQuestion
+        ? researchWeb(researchQuery(question), aiMode === "high" ? 8 : 5)
+        : Promise.resolve({ hits: [], status: "not-requested" }),
+    ]);
     const scholarlyContext = scholarlyPromptContext(scholarlyHits);
-    const webResearchResult =
-      useWeb && !casualAiQuestion
-        ? await researchWeb(researchQuery(question), aiMode === "high" ? 8 : 5)
-        : { hits: [], status: "not-requested" };
+    const quantitativePaper=requiresQuantitativePaperEvidence(question);
+    const paperEvidence=useWeb ? await fetchScholarlyEvidence(scholarlyHits,quantitativePaper||aiMode==="high"?3:1) : [];
+    const fullTextContext=fullTextPromptContext(paperEvidence);
+    const citations=answerCitationInventory(scholarlyHits,data,citationStyle);
+    const finalizeAnswer=(text:string)=>{
+      const guarded=guardAnswerBibliography(text,citations,citationStyle,quantitativePaper);
+      return {answer:guarded.text,citationWarnings:[...guarded.warnings,...(guarded.blocked?[]:citationStructuralWarnings(guarded.text,citationStyle,citationOutputs))]};
+    };
+    const databaseFormulaEvidence=data.some((row:any)=>/\b(?:table|tabel|formulation|formulasi)\b/i.test(String(row.raw_content||row.content||""))&&/\bmg\b/i.test(String(row.raw_content||row.content||"")));
+    if(quantitativePaper&&!paperEvidence.some(item=>/\b(?:table|composition|formulation)\b/i.test(item.text)&&/\bmg\b/i.test(item.text))&&!databaseFormulaEvidence){
+      return NextResponse.json({answer:missingFormulaEvidence,sources:[],webSources:mergeWebSources([],scholarlyHits),selectedSources,publicWeb:useWeb,webResearch:{status:"formula-full-text-missing",scholarlyCount:scholarlyHits.length,fullTextCount:paperEvidence.length},citationWarnings:[],evidenceLimited:true,orchestration:{mode:aiMode,stages:[],description:"Evidence gate: no invented quantitative formula"}});
+    }
     const webResearchContext = webResearchPromptContext(webResearchResult.hits);
-    const adapterWebSources = webResearchSources(webResearchResult.hits);
+    const adapterWebSources = [...webResearchSources(webResearchResult.hits),...paperEvidence.map(item=>({title:item.source.title+" — PDF publik",uri:item.uri}))];
 
     const context = data.length
       ? buildKnowledgeContext(data, contextLimit, question.trim())
@@ -1398,7 +1413,7 @@ export async function POST(req: NextRequest) {
         ? '\n\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:"cose"|"breadthfirst"|"circle"|"grid"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok.'
         : "\n\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
       : "";
-    const prompt = buildPrompt({
+    const prompt = evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+fullTextContext+publicCitationPrompt(citations)+buildPrompt({
       question,
       historyText,
       context,
@@ -1652,7 +1667,7 @@ export async function POST(req: NextRequest) {
             mode: aiMode,
             useWeb,
             basePrompt: prompt,
-            generate: (stagePrompt, withWeb) => generateSelected(stagePrompt, withWeb) as Promise<CouncilGeneration>,
+            generate: (stagePrompt, withWeb) => generateSelected(stagePrompt, withWeb && !paperEvidence.length) as Promise<CouncilGeneration>,
             recordUsage: async (generation) => {
               if (!generation.model.startsWith("openrouter-free:")) {
                 await recordAiTokenUsage(supabase, generation.usage, generation.model, selectedUsageProvider());
@@ -1660,7 +1675,7 @@ export async function POST(req: NextRequest) {
             },
           })
         : null;
-      const result = council?.result || await generateSelected(prompt, useWeb);
+      const result = council?.result || await generateSelected(prompt, useWeb && !paperEvidence.length);
       if (!council) {
         await recordAiTokenUsage(supabase, result.usage, result.model, selectedUsageProvider());
       }
@@ -1670,8 +1685,7 @@ export async function POST(req: NextRequest) {
           : null;
 
       return NextResponse.json({
-        answer: result.text,
-        citationWarnings: citationStructuralWarnings(result.text, citationStyle, citationOutputs),
+        ...finalizeAnswer(result.text),
         sources: databaseSources,
         warning: [databaseWarning, semanticNotice, council?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · ") || undefined,
         semanticStatus,
@@ -1681,7 +1695,7 @@ export async function POST(req: NextRequest) {
           ...(council?.webSources || []),
           ...adapterWebSources,
         ], scholarlyHits),
-        webResearch: { status: webResearchResult.status, count: webResearchResult.hits.length },
+        webResearch: { status: paperEvidence.length?"public-full-text":webResearchResult.status, count: webResearchResult.hits.length, fullTextCount:paperEvidence.length },
         grounded: !useAi,
         publicWeb: useWeb,
         selectedSources,
@@ -1753,8 +1767,7 @@ export async function POST(req: NextRequest) {
       const alternate = await alternateWebResult();
       if (alternate) {
         return NextResponse.json({
-          answer: alternate.result.text,
-          citationWarnings: citationStructuralWarnings(alternate.result.text, citationStyle, citationOutputs),
+          ...finalizeAnswer(alternate.result.text),
           sources: databaseSources,
           webSources: mergeWebSources([...(alternate.result.webSources || []), ...adapterWebSources], scholarlyHits),
           webResearch: { status: webResearchResult.status, count: webResearchResult.hits.length },
@@ -1796,7 +1809,7 @@ export async function POST(req: NextRequest) {
         citationStyle,
         citationOutputs,
         artifactFormat,
-      }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction;
+      }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction + evidenceRules(false)+publicCitationPrompt(citations);
 
       const fallbackCouncil = useAi && (aiMode === "medium" || aiMode === "high")
         ? await runAiCouncil({ mode: aiMode, useWeb: hasPublicEvidence, basePrompt: fallbackPrompt,
@@ -1816,8 +1829,7 @@ export async function POST(req: NextRequest) {
           : null;
 
       return NextResponse.json({
-        answer: fallbackResult.text,
-        citationWarnings: citationStructuralWarnings(fallbackResult.text, citationStyle, citationOutputs),
+        ...finalizeAnswer(fallbackResult.text),
         sources: fallbackSources.includes("database") ? databaseSources : [],
         webSources: availablePublicSources,
         webResearch: { status: webResearchResult.status, count: webResearchResult.hits.length, scholarlyCount: scholarlyHits.length, groundingAvailable: false },

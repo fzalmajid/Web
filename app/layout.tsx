@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import TransientUiManager from "@/components/TransientUiManager";
 import LearningPrivacy from "@/components/LearningPrivacy";
+import OfflineAuto from "@/components/OfflineAuto";
 import "./learning-tools.css";
 import "./globals.css";
 import "./layout-alignment.css";
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         <TransientUiManager />
         <LearningPrivacy />
+        <OfflineAuto />
         {children}
       </body>
     </html>

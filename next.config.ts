@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 import withSerwistInit from "@serwist/next";
-const withSerwist=withSerwistInit({swSrc:"app/sw.ts",swDest:"public/learning-sw.js",swUrl:"/learning-sw.js",register:false,reloadOnOnline:false,globPublicPatterns:["manifest.webmanifest","icons/**/*"],disable:process.env.NODE_ENV!=="production",maximumFileSizeToCacheInBytes:2_000_000});
+const withSerwist=withSerwistInit({swSrc:"app/sw.ts",swDest:"public/learning-sw.js",swUrl:"/learning-sw.js",register:false,reloadOnOnline:false,additionalPrecacheEntries:[{url:"/offline",revision:process.env.VERCEL_GIT_COMMIT_SHA||process.env.GITHUB_SHA||"offline-shell-v2"}],globPublicPatterns:["manifest.webmanifest","icons/**/*"],disable:process.env.NODE_ENV!=="production",maximumFileSizeToCacheInBytes:2_000_000});
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,

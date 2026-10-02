@@ -4,7 +4,7 @@ import { transcribeBrowserAudio } from "@/lib/localWhisper";
 import { validateLocalAudio } from "@/lib/audioPolicy";
 import type { TranscriptSegment } from "@/lib/audioTimeline";
 
-export default function AudioTranscriber() {
+export default function AudioTranscriber({onUseTranscript}:{onUseTranscript?:(text:string)=>void} = {}) {
   const [file, setFile] = useState<File | null>(null), [url, setUrl] = useState("");
   const [message, setMessage] = useState(""), [busy, setBusy] = useState(false), [text, setText] = useState("");
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
@@ -39,7 +39,7 @@ export default function AudioTranscriber() {
     {url && <audio ref={audio} src={url} controls preload="metadata" aria-label="Audio asli untuk memeriksa transkrip"/>}
     <div className="learningRow"><button disabled={!file || busy} onClick={transcribe}>Transkripsi lokal</button><button disabled={!busy} onClick={() => { stop(); setMessage("Pemrosesan dibatalkan. Audio tetap di perangkat; tidak ada fallback cloud."); }}>Batalkan</button></div>
     <p role="status" aria-live="polite">{message}</p>
-    {text && <><label>Transkrip otomatis — periksa dengan audio asli<textarea readOnly rows={8} value={text}/></label><button onClick={async () => { try { await navigator.clipboard.writeText(text); setMessage("Transkrip disalin sebagai teks biasa."); } catch { setMessage("Clipboard tidak tersedia. Pilih dan salin teks di kotak transkrip."); } }}>Salin teks transkrip</button></>}
+    {text && <><label>Transkrip otomatis — periksa dengan audio asli<textarea readOnly rows={8} value={text}/></label><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(text); setMessage("Transkrip disalin sebagai teks biasa."); } catch { setMessage("Clipboard tidak tersedia. Pilih dan salin teks di kotak transkrip."); } }}>Salin teks transkrip</button>{onUseTranscript&&<button type="button" onClick={()=>onUseTranscript(text)}>Tinjau & simpan transkrip ke folder</button>}</>}
     {segments.length > 0 && <details><summary>Timestamp ucapan pada audio asli</summary>{segments.map((segment, index) => <p key={index}><button onClick={() => { if (audio.current) audio.current.currentTime = segment.timestamp[0]; }}>{Math.floor(segment.timestamp[0] / 60)}:{String(Math.floor(segment.timestamp[0] % 60)).padStart(2, "0")}</button> {segment.text}</p>)}</details>}
     <p>File tidak disimpan oleh modul ini. Navigasi keluar menghentikan pekerjaan yang berjalan. Mikrofon tidak digunakan; noise suppression WebRTC hanya berlaku ketika merekam langsung di Record.</p>
   </section>;

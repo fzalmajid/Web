@@ -20,6 +20,28 @@ export function rankResearchHits<T extends {title:string;abstract?:string|null}>
   }).filter(item=>item.keep).sort((a,b)=>b.score-a.score).map(item=>item.hit);
 }
 
+/** Small deterministic search plan, not a model-generated drug/DOI guess. */
+export function scientificQueryPlan(question: string) {
+  const original = researchQuery(question);
+  const formulation = /\b(?:formulasi|formulation|resep|eksipien|excipients?|cocrystals?|kokristal)\b/i.test(question);
+  if (!formulation) return { query: original, broadQuery: original, requiredTerm: "" };
+  const stop = new Set("carikan cari resep formulasi formulation tablet tablets konvensional conventional dari jurnal tervalidasi tervalidai validated baik modifikasi modification maupun bukan minimal model formula bahan aktif active eksipien excipients jumlah disebutkan cocrystal cocrystals kokristal dan atau dengan untuk dalam yang mg obat drug ingredient ingredients dari jurnal journal public access publik terbuka immediate release".split(" "));
+  stop.add("juga");stop.add("disebutkan");
+  const words = question.toLowerCase().match(/[a-z][a-z-]{3,}/g) || [];
+  // Only constrain a single unambiguous chemical/topic supplied by the user.
+  const candidates = [...new Set(words.filter(word => !stop.has(word)))];
+  const requiredTerm = candidates.length === 1 ? candidates[0] : "";
+  const normalized = original.toLowerCase()
+    .replace(/\bformulasi\b/g, "formulation").replace(/\b(?:kokristal|cocrystals?)\b/g, "cocrystal")
+    .replace(/\bdisolusi\b/g, "dissolution").replace(/\beksipien\b/g, "excipients");
+  const query = requiredTerm ? `${requiredTerm} tablet ${/cocrystal|kokristal/i.test(question) ? "cocrystal" : "formulation"}` : normalized;
+  return { query: query.slice(0, 240), broadQuery: requiredTerm ? `${requiredTerm} tablet formulation` : query.slice(0, 240), requiredTerm };
+}
+
+export function matchesRequiredTopic(title: string, requiredTerm: string) {
+  return !requiredTerm || title.toLowerCase().includes(requiredTerm.toLowerCase());
+}
+
 export function indexedAbstract(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const words = new Map<number, string>();

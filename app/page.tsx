@@ -33,6 +33,7 @@ import {
   providerModelId,
   selectionFromExperienceMode,
   selectionFromLegacyMode,
+  normalizeAiModel, normalizeAiEffort, normalizeAiResponseLength,
   type AiEffort,
   type AiModelId,
   type AiResponseLength,
@@ -49,7 +50,9 @@ const PdfAnnotations=dynamic(()=>import("@/components/PdfAnnotations"),{ssr:fals
 const AudioTimeline=dynamic(()=>import("@/components/AudioTimeline"),{ssr:false});
 const SignedRecordingAudio=dynamic(()=>import("@/components/SignedRecordingAudio"),{ssr:false});
 const PaperExplorer=dynamic(()=>import("@/components/PaperExplorer"),{ssr:false});
-const OpenMedia=dynamic(()=>import("@/components/OpenMedia"),{ssr:false});
+const LearningWorkspace=dynamic(()=>import("@/components/LearningWorkspace"),{ssr:false});
+const AudioTranscriber=dynamic(()=>import("@/components/AudioTranscriber"),{ssr:false});
+const ChatImages=dynamic(()=>import("@/components/ChatImages"),{ssr:false});
 
 
 type NodeType = "material" | "submaterial" | "database" | "recording" | "flashcards" | "quiz" | "study" | "task";
@@ -530,6 +533,12 @@ function readAiExperienceMode(): AiExperienceMode {
   return normalizeAiExperienceMode(window.localStorage.getItem("rb-ai-experience-mode") || "instant");
 }
 
+function readAiDebugSettings(){
+  const fallback={enabled:false,selection:defaultSelection("gemini-3.5-flash-lite","chat")};
+  if(typeof window==="undefined")return fallback;
+  try{const saved=JSON.parse(localStorage.getItem("rb-ai-debug-settings")||"null");if(!saved?.selection)return fallback;const model=normalizeAiModel(saved.selection.model,"chat");return {enabled:saved.enabled===true,selection:{model,effort:normalizeAiEffort(model,saved.selection.effort),length:normalizeAiResponseLength(saved.selection.length)}};}catch{return fallback;}
+}
+
 function aiRequestHeaders(
   session: Session,
   selection?: AiSelection,
@@ -641,12 +650,8 @@ export default function Home() {
     const result = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     const subscription = result.data.subscription;
 
-    if ("caches" in window) {
-      caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).catch(() => {});
-    }
-    if ("serviceWorker" in navigator && localStorage.getItem("rb-offline-enabled")==="1") {
-      navigator.serviceWorker.register("/learning-sw.js", { updateViaCache: "none" }).then((reg) => reg.update()).catch(() => {});
-    }
+    // Public offline shell registration is shared by the root layout. Never
+    // delete every browser cache on opening Home (including Whisper weights).
 
     return () => subscription.unsubscribe();
   }, []);
@@ -1781,6 +1786,10 @@ function SettingsPage({
   onProfileUpdated: () => void;
   onOpenProfile: (ownerId: string) => void;
 }) {
+  const [diagnostic,setDiagnostic]=useState(false);
+  const [diagnosticSelection,setDiagnosticSelection]=useState<AiSelection>(defaultSelection("gemini-3.5-flash-lite","chat"));
+  useEffect(()=>{const saved=readAiDebugSettings();setDiagnostic(saved.enabled);setDiagnosticSelection(saved.selection);},[]);
+  function updateDiagnostic(enabled:boolean,selection=diagnosticSelection){setDiagnostic(enabled);setDiagnosticSelection(selection);localStorage.setItem("rb-ai-debug-settings",JSON.stringify({enabled,selection}));window.dispatchEvent(new Event("rb-ai-debug-change"));}
   const nav: Array<{ id: SettingsSection; label: string; hint: string }> = [
     { id: "profile", label: "Profil", hint: "Nama, username & foto" },
     { id: "friends", label: "Teman", hint: "Pertemanan & rekomendasi" },
@@ -1865,6 +1874,8 @@ function SettingsPage({
                 <p className="muted">Hubungkan provider yang ingin digunakan di Ruang Belajar.</p>
               </div>
             </div>
+
+            <details className="learningPanel"><summary>Diagnostik AI — untuk pengujian</summary><p>Mode normal memilih jalur AI otomatis. Override di sini mematikan fallback model otomatis untuk membantu diagnosis; bukan syarat untuk bertanya.</p><label className="diagnosticToggle"><input type="checkbox" checked={diagnostic} onChange={e=>updateDiagnostic(e.target.checked)}/> Gunakan override model untuk debugging</label>{diagnostic&&<DebugAiModePicker value={diagnosticSelection} onChange={next=>updateDiagnostic(true,next)} action="ask" context="chat" allowLocal compact/>}</details>
 
             <div className="pluginSection">
               <small className="pluginSectionTitle">CLOUD AI</small>
@@ -3935,7 +3946,7 @@ function AddSheet({
   onAdded: () => void;
 }) {
   const [kind, setKind] = useState<
-    "folder" | "file" | "link" | "text" | "recording" | "flashcards" | "quiz" | "study" | "task"
+    "folder" | "file" | "link" | "text" | "recording" | "flashcards" | "quiz" | "study" | "task" | "tools"
   >("folder");
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("");
@@ -4000,7 +4011,8 @@ function AddSheet({
     { value: "file" as const, label: "Upload file / foto", hint: "PDF, dokumen, gambar, audio, video, atau file mentah" },
     { value: "link" as const, label: "Masukkan link", hint: "Simpan halaman web sebagai sumber RAW" },
     { value: "text" as const, label: "Masukkan teks", hint: "Catatan atau materi mentah langsung ke lokasi ini" },
-    { value: "recording" as const, label: "🎙️ Rekam audio", hint: "Rekaman + transkrip verbatim langsung ke lokasi ini" },
+    { value: "recording" as const, label: "🎙️ Rekaman & transkrip", hint: "Rekam langsung atau transkripsikan file audio lokal" },
+    { value: "tools" as const, label: "Alat belajar", hint: "Paper, CSV/kalibrasi, molekul, EPUB — tanpa otomatis memasukkan hasil ke RAG" },
     { value: "study", label: "Study", hint: "Atur sumber + model lalu langsung susun Study" },
     { value: "flashcards", label: "Flashcard", hint: "Atur sumber + model lalu langsung buat kartu" },
     { value: "quiz", label: "Kuis", hint: "Atur sumber + model lalu langsung buat soal" },
@@ -4449,8 +4461,10 @@ function AddSheet({
               node={parent}
               onChange={onAdded}
             />
+            <AudioTranscriber onUseTranscript={value=>{setTitle("Transkrip audio");setTextContent(value);setKind("text");}}/>
           </div>
         )}
+        {kind === "tools" && <LearningWorkspace/>}
 
         {kind === "folder" && (
           <form className="stack" onSubmit={createFolder}>
@@ -10530,6 +10544,7 @@ function BottomAskBar({
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("gemini-3.8-flash", "chat"));
   const [aiExperienceMode, setAiExperienceMode] = useState<AiExperienceMode>(readAiExperienceMode);
   const [debugModel, setDebugModel] = useState(false);
+  useEffect(()=>{const refresh=()=>{const saved=readAiDebugSettings();setDebugModel(saved.enabled);if(saved.enabled)setAiSelection(saved.selection);};refresh();window.addEventListener("rb-ai-debug-change",refresh);return()=>window.removeEventListener("rb-ai-debug-change",refresh);},[]);
   const aiMode = aiExperienceMode;
   const [composerBottom, setComposerBottom] = useState(16);
   const [composerHeight, setComposerHeight] = useState(118);
@@ -10543,13 +10558,17 @@ function BottomAskBar({
   const askVoiceLiveDraftRef = useRef("");
   const askVoiceTimerRef = useRef<number | null>(null);
   const askVoiceStartedRef = useRef(0);
+  const askLocalAudioRef = useRef<AbortController|null>(null);
+  const askAudioMountedRef = useRef(true);
   const [askVoiceRecording, setAskVoiceRecording] = useState(false);
   const [askVoiceBusy, setAskVoiceBusy] = useState(false);
   const [askVoiceStatus, setAskVoiceStatus] = useState("");
   const [askVoiceDbId, setAskVoiceDbId] = useState("");
   const [pendingVoice, setPendingVoice] = useState<{
-    id: string;
-    path: string;
+    id: string|null;
+    path: string|null;
+    blob: Blob;
+    segments: TranscriptSegment[];
     title: string;
     mimeType: string;
     duration: number;
@@ -10599,6 +10618,7 @@ function BottomAskBar({
   function changeExperienceMode(mode: AiExperienceMode) {
     setAiExperienceMode(mode);
     setDebugModel(false);
+    const diagnostic=readAiDebugSettings();localStorage.setItem("rb-ai-debug-settings",JSON.stringify({...diagnostic,enabled:false}));
     setModelRecovery(null);
     window.localStorage.setItem("rb-ai-experience-mode", mode);
     if (mode === "simple") {
@@ -10660,7 +10680,9 @@ function BottomAskBar({
   }, [askVoiceDatabases, attachmentDbId, scopeNodeId]);
 
   useEffect(() => {
+    askAudioMountedRef.current=true;
     return () => {
+      askAudioMountedRef.current=false;askLocalAudioRef.current?.abort();
       try { askVoiceSpeechRef.current?.stop(); } catch {}
       try {
         if (askVoiceRecorderRef.current?.state && askVoiceRecorderRef.current.state !== "inactive") {
@@ -11470,8 +11492,8 @@ function BottomAskBar({
   async function discardPendingVoice(silent = false) {
     const current = pendingVoice;
     if (!current) return;
-    await supabase.storage.from("recordings").remove([current.path]);
-    await supabase.from("recordings").delete().eq("id", current.id);
+    if(current.path)await supabase.storage.from("recordings").remove([current.path]);
+    if(current.id)await supabase.from("recordings").delete().eq("id", current.id);
     setPendingVoice(null);
     if (!silent) setAskVoiceStatus("Rekaman diabaikan. Teks pertanyaan tetap ada.");
     onChange();
@@ -11514,14 +11536,13 @@ function BottomAskBar({
         stream.getTracks().forEach((track) => track.stop());
         askVoiceStreamRef.current = null;
         const blob = new Blob(askVoiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        await processAskVoice(blob);
+        if(askAudioMountedRef.current)await processAskVoice(blob);
       };
 
       askVoiceStartedRef.current = Date.now();
       recorder.start(650);
-      const live = startAskSpeechRecognition();
       setAskVoiceRecording(true);
-      setAskVoiceStatus(live ? "🎙️ Merekam · transkrip live mentah muncul tiap ±20 detik." : "🎙️ Merekam audio...");
+      setAskVoiceStatus("🎙️ Merekam lokal · transkrip dibuat setelah Stop. Audio tidak diunggah sebelum Anda memilih Simpan.");
     } catch (error: any) {
       setAskVoiceStatus(
         error?.name === "NotAllowedError"
@@ -11554,7 +11575,7 @@ function BottomAskBar({
     }
   }
 
-  async function processAskVoice(blob: Blob) {
+  async function processAskVoice(blob: Blob, fileName?: string) {
     if (!blob.size) {
       setAskVoiceBusy(false);
       setAskVoiceStatus("Rekaman kosong.");
@@ -11562,88 +11583,18 @@ function BottomAskBar({
     }
 
     const mimeType = normalizeAudioMime(blob.type || "audio/webm");
-    const subtype = mimeType.split("/")[1]?.split(";")[0] || "webm";
-    const ext = subtype === "mp4" || subtype === "m4a" ? "m4a" : subtype;
-    const path = session.user.id + "/questions/" + crypto.randomUUID() + "." + ext;
-    const title = "Pertanyaan AI - " + new Date().toLocaleString("id-ID");
-    const duration = Math.max(1, Math.round((Date.now() - askVoiceStartedRef.current) / 1000));
-
-    const upload = await supabase.storage.from("recordings").upload(path, blob, { contentType: mimeType });
-    if (upload.error) {
-      setAskVoiceBusy(false);
-      setAskVoiceStatus("Audio gagal disiapkan.");
-      return alert(upload.error.message);
-    }
-
-    const { data: row, error: rowError } = await supabase
-      .from("recordings")
-      .insert({
-        user_id: session.user.id,
-        node_id: null,
-        title,
-        file_path: path,
-        mime_type: mimeType,
-        duration_seconds: duration,
-      })
-      .select("*")
-      .single();
-
-    if (rowError) {
-      await supabase.storage.from("recordings").remove([path]);
-      setAskVoiceBusy(false);
-      return alert(rowError.message);
-    }
-
-    const browserDraft = askVoiceLiveDraftRef.current.trim() || askVoiceTranscriptRef.current.trim() || question.trim();
-    let transcript = browserDraft;
-
-    setAskVoiceStatus("Mendengarkan audio asli secara verbatim · fokus bunyi dan vokal, tanpa koreksi...");
-    const transcriptionSelection = defaultSelection("gemini-2.5-flash", "transcription");
-    const response = await fetch("/api/transcribe", {
-      method: "POST",
-      headers: aiRequestHeaders(session, transcriptionSelection),
-      body: JSON.stringify({
-        recordingId: row.id,
-        filePath: path,
-        mimeType,
-        purpose: "question",
-        contextNodeId: null,
-        browserTranscript: browserDraft,
-        aiMode: legacyModeForSelection(transcriptionSelection),
-      }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (response.ok) {
-      transcript = String(data.rawTranscript || "").trim() || browserDraft;
-    }
-
-    if (transcript) {
-      setQuestion(transcript);
-      await supabase
-        .from("recordings")
-        .update({
-          transcript,
-          raw_transcript: transcript,
-          structured_transcript: transcript,
-          corrections: [],
-        })
-        .eq("id", row.id);
-    }
-
-    setPendingVoice({
-      id: row.id,
-      path,
-      title,
-      mimeType,
-      duration,
-      transcript,
-    });
-    setAskVoiceBusy(false);
-    setAskVoiceStatus(
-      transcript
-        ? "Transkrip mentah sudah masuk ke teks pertanyaan. Silakan edit sendiri bila perlu, lalu Abaikan atau Simpan ke Database."
-        : "Audio siap. Transkrip otomatis belum tersedia; ketik/koreksi pertanyaan lalu simpan atau abaikan."
-    );
+    const title = fileName || "Pertanyaan AI - " + new Date().toLocaleString("id-ID");
+    askLocalAudioRef.current?.abort();const controller=new AbortController();askLocalAudioRef.current=controller;
+    setAskVoiceBusy(true);setAskVoiceStatus("Memisahkan ucapan dan menyiapkan Whisper lokal...");
+    try{
+      const result=await transcribeBrowserAudio(blob,{signal:controller.signal,onProgress:value=>{if(askAudioMountedRef.current)setAskVoiceStatus(value);}});
+      if(controller.signal.aborted||!askAudioMountedRef.current)return;
+      if(result.noSpeech){setAskVoiceStatus("Tidak ada ucapan terdeteksi. Audio tidak diunggah atau dikirim ke AI.");return;}
+      setQuestion(current=>fileName&&current.trim()?current+"\n\n"+result.text:result.text);
+      setPendingVoice({id:null,path:null,blob,segments:result.chunks,title,mimeType,duration:fileName?0:Math.max(1,Math.round((Date.now()-askVoiceStartedRef.current)/1000)),transcript:result.text});
+      setAskVoiceStatus("Transkrip lokal masuk ke pertanyaan. Periksa istilah dan angka. Audio tetap di perangkat; Simpan ke Database hanya jika diperlukan.");
+    }catch(error:any){if(!controller.signal.aborted&&askAudioMountedRef.current)setAskVoiceStatus("Transkripsi lokal belum berhasil. Audio tidak dikirim ke cloud. Coba audio lebih pendek atau ketik pertanyaan; rekaman untuk folder tersedia di + Upload.");}
+    finally{if(askLocalAudioRef.current===controller){askLocalAudioRef.current=null;if(askAudioMountedRef.current)setAskVoiceBusy(false);}}
   }
 
   async function savePendingVoiceToDatabase() {
@@ -11655,6 +11606,16 @@ function BottomAskBar({
     const targetLabel = target?.title || "Home";
 
     setAskVoiceBusy(true);
+    let recordingId=pendingVoice.id;
+    if(!recordingId){
+      const subtype=pendingVoice.mimeType.split("/")[1]?.split(";")[0]||"webm";
+      const path=session.user.id+"/questions/"+crypto.randomUUID()+"."+(subtype==="mp4"?"m4a":subtype);
+      const upload=await supabase.storage.from("recordings").upload(path,pendingVoice.blob,{contentType:pendingVoice.mimeType});
+      if(upload.error){setAskVoiceBusy(false);setAskVoiceStatus("Gagal menyimpan audio. Transkrip dan audio masih tersedia di perangkat.");return;}
+      const created=await supabase.from("recordings").insert({user_id:session.user.id,node_id:targetNodeId,title:pendingVoice.title,file_path:path,mime_type:pendingVoice.mimeType,duration_seconds:pendingVoice.duration||null,transcript_segments:pendingVoice.segments}).select("id").single();
+      if(created.error){await supabase.storage.from("recordings").remove([path]);setAskVoiceBusy(false);setAskVoiceStatus("Audio belum dapat disimpan ke Database.");return;}
+      recordingId=created.data.id;setPendingVoice({...pendingVoice,id:recordingId,path});
+    }
     const editedText = question.trim() || pendingVoice.transcript.trim();
     let entryId: string | null = null;
 
@@ -11689,7 +11650,7 @@ function BottomAskBar({
         raw_transcript: pendingVoice.transcript || editedText || null,
         structured_transcript: editedText || pendingVoice.transcript || null,
       })
-      .eq("id", pendingVoice.id);
+      .eq("id", recordingId);
 
     setAskVoiceBusy(false);
     if (error) return alert(error.message);
@@ -11700,6 +11661,9 @@ function BottomAskBar({
   }
 
   async function processAskAttachment(file: File) {
+    if(file.type.startsWith("audio/")||/\.(wav|mp3|m4a|aac|ogg|oga|flac|opus|webm)$/i.test(file.name)){
+      setAttachMenuOpen(false);if(pendingVoice)await discardPendingVoice(true);await processAskVoice(file,file.name);return;
+    }
     try { await assertPdfFile(file); } catch (error: any) { return alert(error?.message || "PDF tidak valid."); }
     // Vercel Functions reject file request bodies above 4.5 MB. Upload directly to
     // Supabase and use its authenticated JSON import route instead of sending a
@@ -12330,19 +12294,22 @@ function BottomAskBar({
               </div>
             )}
 
-            {chatMessages.map((message) => (
+            {chatMessages.map((message,index) => (
               <article key={message.id} className={"aiChatMessage " + message.role}>
                 <div className="aiChatMessageMeta">
                   <strong>{message.role === "user" ? "Kamu" : "AI"}</strong>
                   {message.role === "assistant" && message.model && debugModel && <small>{message.model}</small>}
                 </div>
                 {message.warning && (
-                  <div className="aiWarning">
+                  <details className="aiWarning"><summary>Pemeriksaan sumber & keterbatasan</summary>
                     <RichText text={message.warning} />
-                  </div>
+                  </details>
                 )}
                 <div className="aiChatMessageBody">
-                  {message.role === "assistant" ? <AiMessageContent text={message.content} /> : <RichText text={message.content} />}
+                  {message.role === "assistant" ? /pustaka internal farmasi|referensi internal (?:ai|model)/i.test(message.content)
+                    ? <p className="aiInvalidEvidence" role="alert">Jawaban lama ini memuat referensi rekaan yang tidak dapat dibuktikan. Komposisi tidak ditampilkan agar tidak digunakan sebagai resep jurnal. Tanyakan ulang dengan Web atau PDF sumber; riwayat asli tetap tersimpan.</p>
+                    : <AiMessageContent text={message.content} /> : <RichText text={message.content} />}
+                  {message.role==="assistant"&&chatMessages[index-1]?.role==="user"&&<ChatImages question={chatMessages[index-1].content} allowWeb={Boolean(message.web_sources?.length)||selectedSources.includes("web")}/>}
                 </div>
                 {message.role === "assistant" &&
                   (!!message.sources?.length || !!message.web_sources?.length) && (
@@ -12455,7 +12422,6 @@ function BottomAskBar({
               }}
               experienceMode={aiExperienceMode}
               onExperienceModeChange={changeExperienceMode}
-              showModelDebug
               action="ask"
               context="chat"
               compact
@@ -12464,9 +12430,6 @@ function BottomAskBar({
             />
           </div>
         </div>
-        {selectedSources.includes("web") ? (
-          <div className="askWebPanel"><OpenMedia /></div>
-        ) : null}
         <div className="askInputRow">
           <input
             ref={askAttachmentInputRef}

@@ -9,3 +9,7 @@ test("free router and unavailable helper never trigger paid helper calls",async(
   assert.equal(calls,1);assert.equal(result?.result.text,"Final");
   assert.equal(result?.helpers.freeAgents,0);assert.equal(result?.helpers.structuralChecks,7);
 });
+test("synthesizer does not lose the evidence and question behind the former 22k boundary",async()=>{
+  delete process.env.OPENROUTER_API_KEY;
+  await runAiCouncil({mode:"high",useWeb:false,basePrompt:"x".repeat(23000)+"EVIDENCE_TABLE_END",generate:async(prompt)=>{assert.ok(prompt.includes("EVIDENCE_TABLE_END"));return {text:"Final",model:"primary"};}});
+});
