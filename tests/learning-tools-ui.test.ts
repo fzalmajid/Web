@@ -11,3 +11,11 @@ test("learning tool navigation visibly distinguishes the active module and keybo
   assert.match(css, /nav button\{min-height:44px\}/);
   assert.match(css, /:focus-visible\{outline:3px/);
 });
+
+test("Record status reports actual VAD and no-speech results instead of claiming an unavailable integration", () => {
+  const page = readFileSync(join(process.cwd(), "app/page.tsx"), "utf8");
+  assert.match(page, /localVad = result\.usedVad/);
+  assert.match(page, /localNoSpeech = Boolean\(result\.noSpeech\)/);
+  assert.ok(page.includes("audio utuh, pemisahan ucapan belum tersedia"));
+  assert.ok(page.includes("Tidak ada ucapan terdeteksi; audio tetap bisa didengar ulang."));
+});
