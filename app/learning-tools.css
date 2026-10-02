@@ -2,3 +2,4 @@
 .openMediaGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.openMediaGrid img{width:100%;height:140px;object-fit:contain}.openMediaGrid article{padding:8px;border:1px solid #dde5df;border-radius:8px}
 .learningPanel pre{white-space:pre-wrap;overflow-wrap:anywhere}.openMediaPanel{max-width:100%;min-width:0}.openMediaPanel[open]{max-height:min(32vh,300px);overflow:auto}
 .localAudioPanel audio{display:block;width:100%;margin:12px 0}.localAudioPanel button{min-height:44px}.localAudioPanel textarea{box-sizing:border-box}
+.learningTools nav button{min-height:44px}.learningTools nav button[aria-pressed="true"]{background:#244237;color:#fff;border-color:#244237}.learningTools button:focus-visible,.learningTools summary:focus-visible{outline:3px solid #305d83;outline-offset:2px}
