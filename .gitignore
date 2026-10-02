@@ -6,6 +6,8 @@ node_modules
 .vercel
 *.tsbuildinfo
 public/learning-assets/
+public/vad/*.jsep.mjs
+public/vad/*.jsep.wasm
 public/sw.js*
 public/learning-sw.js*
 public/swe-worker-*.js*
