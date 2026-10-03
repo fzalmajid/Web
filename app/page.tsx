@@ -7,6 +7,8 @@ import AnswerProse from "@/components/AnswerProse";
 // only as an explicit debugging escape hatch while provider integrations settle.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useViewportPopover } from "../lib/useViewportPopover";
+import { ViewportPopover } from "../components/ViewportPopover";
 import katex from "katex";
 import "katex/contrib/mhchem";
 import { scientificRichPattern, scientificScriptPattern } from "@/lib/scientificNotation";
@@ -9377,6 +9379,8 @@ function AiDatabaseSourcePicker({
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [vectorRunning, setVectorRunning] = useState(false);
+  const sourcePopoverRef = useRef<HTMLDivElement | null>(null);
+  const sourcePopoverStyle = useViewportPopover(open, sourcePopoverRef, () => setOpen(false));
   const [vectorStatus, setVectorStatus] = useState<{
     model: string; pendingEntries: number; indexedVectors: number; indexedEntries: number
   } | null>(null);
@@ -9680,7 +9684,7 @@ function AiDatabaseSourcePicker({
   }
 
   return (
-    <div className="aiDatabaseSourcePicker">
+    <div className="aiDatabaseSourcePicker" ref={sourcePopoverRef}>
       <button
         type="button"
         className={
@@ -9701,7 +9705,7 @@ function AiDatabaseSourcePicker({
       </button>
 
       {open && (
-        <div className="aiDatabaseSourcePopover">
+        <ViewportPopover className="aiDatabaseSourcePopover rbViewportPopover" style={sourcePopoverStyle}>
           <div className="aiDatabaseSourceHead">
             <div>
               <strong>Pilih sumber</strong>
@@ -9822,7 +9826,7 @@ function AiDatabaseSourcePicker({
             <button type="button" className="primary" onClick={() => setOpen(false)}>Selesai</button>
           </div>
           </div>
-        </div>
+        </ViewportPopover>
       )}
     </div>
   );
@@ -10128,6 +10132,7 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [prefs, setPrefs] = useState<CitationPrefs>({ style: "none", outputs: ["in-text"] });
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const citationPopoverStyle = useViewportPopover(open, wrapRef, () => setOpen(false));
 
   useEffect(() => {
     setPrefs(readCitationPrefs());
@@ -10135,21 +10140,6 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
     window.addEventListener("rb-citation-change", sync as EventListener);
     return () => window.removeEventListener("rb-citation-change", sync as EventListener);
   }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent | TouchEvent) => {
-      const target = event.target as Node | null;
-      if (target && wrapRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("touchstart", close);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("touchstart", close);
-    };
-  }, [open]);
 
   function setStyle(style: CitationStyle) {
     const next = { ...prefs, style };
@@ -10187,7 +10177,7 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
       </button>
 
       {open && (
-        <div className="citationPopover">
+        <ViewportPopover className="citationPopover rbViewportPopover" style={citationPopoverStyle}>
           <div className="citationPopoverHead">
             <div>
               <small>CHOOSE CITATION</small>
@@ -10258,7 +10248,7 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
               </div>
             </>
           )}
-        </div>
+        </ViewportPopover>
       )}
     </div>
   );
@@ -10273,6 +10263,9 @@ function AiExperiencePicker({
   onChange: (value: AiExperienceMode) => void;
   allowSimple?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const popoverStyle = useViewportPopover(open, wrapRef, () => setOpen(false), 320);
   const options: Array<{ value: AiExperienceMode; label: string; hint: string }> = [
     { value: "simple", label: "Simple", hint: "Local/browser" },
     { value: "instant", label: "Instant", hint: "Jawaban cepat" },
@@ -10280,9 +10273,11 @@ function AiExperiencePicker({
     { value: "high", label: "High", hint: "Council + verifier" },
   ];
   return (
-    <div className="aiExperiencePicker" role="group" aria-label="Mode AI Ruang Belajar">
-      <span className="aiExperienceLabel">AI RUANG BELAJAR</span>
-      <div className="aiExperienceChoices">
+    <div ref={wrapRef} className="aiExperiencePicker" role="group" aria-label="Mode AI Ruang Belajar">
+      <button type="button" className="aiExperienceTrigger" aria-expanded={open} aria-label={`AI Ruang Belajar: ${value}`} onClick={() => setOpen(!open)}>
+        <span><strong>AI Ruang Belajar</strong><small>{options.find(option => option.value === value)?.label}</small></span><b>⌄</b>
+      </button>
+      {open && <ViewportPopover className="aiExperienceChoices rbViewportPopover" style={popoverStyle}>
         {options.filter(option=>allowSimple||option.value!=="simple").map((option) => (
           <button
             type="button"
@@ -10291,14 +10286,15 @@ function AiExperiencePicker({
             onClick={() => {
               onChange(option.value);
               window.localStorage.setItem("rb-ai-experience-mode", option.value);
+              setOpen(false);
             }}
             aria-pressed={value === option.value}
             title={option.hint}
           >
-            {option.label}
+            <strong>{option.label}</strong><small>{option.hint}</small>
           </button>
         ))}
-      </div>
+      </ViewportPopover>}
     </div>
   );
 }

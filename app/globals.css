@@ -11872,6 +11872,33 @@ body,
 }
 
 .aiAnswerTable { overflow-x: auto; margin: 0.8rem 0; white-space: normal; }
+/* Composer controls stay in one row; labels, not controls, yield at narrow widths. */
+.gptComposer .askTopControls{display:flex!important;flex-wrap:nowrap!important;align-items:center!important;gap:6px!important;min-width:0!important;width:100%!important}
+.gptComposer .askTopControls>.aiSourceModelBar{display:contents!important}
+.gptComposer .askScope{flex:0 1 80px!important;min-width:0!important;max-width:80px!important;margin:0!important;overflow:hidden!important}
+.gptComposer .askScope span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gptComposer .aiDatabaseSourcePicker,.gptComposer .citationPicker,.gptComposer .aiExperiencePicker{flex:1 1 0!important;min-width:0!important;width:auto!important;margin:0!important;max-width:none!important;display:block!important;position:relative}
+.gptComposer .aiDatabaseSourcePicker{order:1!important}
+.gptComposer .citationPicker{order:2!important}
+.gptComposer .aiExperiencePicker{order:3!important;flex-grow:1.15!important}
+.gptComposer .chooseSourcesTrigger,.gptComposer .citationTrigger,.aiExperienceTrigger{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:5px!important;width:100%!important;min-width:0!important;height:44px!important;min-height:44px!important;padding:5px 8px!important;box-sizing:border-box!important;border:1px solid #7891ad55!important;border-radius:10px!important;background:var(--card)!important;color:inherit!important;font:inherit!important;text-align:left!important;margin:0!important}
+.gptComposer .chooseSourcesTrigger>span:nth-child(2),.gptComposer .citationTrigger>span,.aiExperienceTrigger>span{flex:1 1 auto!important;min-width:0!important;overflow:hidden!important}
+.gptComposer .chooseSourcesTrigger strong,.gptComposer .citationTrigger strong,.aiExperienceTrigger strong{display:block!important;font-size:.72rem!important;font-weight:600!important;line-height:1.25!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.gptComposer .chooseSourcesTrigger small,.gptComposer .citationTrigger small,.aiExperienceTrigger small{display:block!important;font-size:.64rem!important;line-height:1.25!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;opacity:.7}
+.gptComposer .chooseSourcesTrigger>span:first-child,.gptComposer .chooseSourcesTrigger>b,.gptComposer .citationTrigger>b,.aiExperienceTrigger>b{flex:0 0 auto!important;font-size:.7rem!important}
+.aiExperienceChoices.rbViewportPopover{display:grid!important;grid-template-columns:1fr 1fr!important;gap:8px!important;padding:10px!important;background:var(--card);border:1px solid #7891ad55;border-radius:14px;box-shadow:0 12px 40px #0004}
+.aiExperienceChoices.rbViewportPopover button{min-height:52px!important;text-align:left;padding:8px!important;white-space:normal!important}
+.aiExperienceChoices.rbViewportPopover strong,.aiExperienceChoices.rbViewportPopover small{display:block}
+.aiExperienceChoices.rbViewportPopover small{font-size:.7rem;opacity:.7}
+.rbViewportPopover,.gptComposer .aiDatabaseSourcePicker .rbViewportPopover,.gptComposer .citationPicker .rbViewportPopover,.gptComposer .aiExperiencePicker .rbViewportPopover{position:fixed!important;left:var(--rb-popover-left)!important;right:auto!important;top:var(--rb-popover-top)!important;bottom:var(--rb-popover-bottom)!important;width:var(--rb-popover-width)!important;min-width:0!important;max-width:calc(100vw - 24px)!important;max-height:var(--rb-popover-height)!important;height:auto!important;transform:none!important;margin:0!important;box-sizing:border-box!important;overflow:auto!important;overscroll-behavior:contain;z-index:1500!important}
+.aiExperienceTrigger:focus-visible,.aiExperienceChoices button:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.rbViewportPopover{padding:10px!important;border:1px solid #7891ad55!important;border-radius:14px!important;background:var(--card)!important;box-shadow:0 12px 40px #0004!important}
+.citationPopover.rbViewportPopover .citationStyleGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.rbViewportPopover button{min-height:44px;max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.rbViewportPopover .citationStyleGrid button{min-width:0;min-height:44px;padding:8px}
+.rbViewportPopover .citationStyleGrid small{overflow-wrap:anywhere}
+.rbViewportPopover .aiDatabaseSourceTree{max-height:none!important}
+@media(max-width:760px){.gptComposer .askScope{flex-basis:24px!important;max-width:24px!important}.gptComposer .chooseSourcesTrigger>span:first-child{display:none!important}.gptComposer .askTopControls{gap:4px!important}.gptComposer .chooseSourcesTrigger,.gptComposer .citationTrigger,.gptComposer .aiExperienceTrigger{padding:5px 6px!important}}
 .aiAnswerTable table { border-collapse: collapse; width: 100%; font: inherit; }
 .aiAnswerTable th, .aiAnswerTable td { border: 1px solid #7891ad55; padding: 0.5rem 0.7rem; text-align: left; }
 .aiChatSources > summary { cursor: pointer; width: 100%; }
