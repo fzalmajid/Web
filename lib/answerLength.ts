@@ -21,6 +21,16 @@ const reportSections = [
   { name: "Kesimpulan", pattern: /\b(?:kesimpulan|conclusion)\b/i, weight: 500 },
 ];
 
+// Optional presentation/document sections are additive, not defaults for every report.
+const documentSections = [
+  { name: "Usulan formulasi", pattern: /\b(?:usulan formulasi|rancangan formulasi|proposed formulation)\b/i, weight: 2400 },
+  { name: "Perhitungan bahan", pattern: /\b(?:perhitungan bahan|perhitungan batch|batch calculation)\b/i, weight: 1000 },
+  { name: "Diagram alir", pattern: /\b(?:diagram alir|flowchart|flow chart)\b/i, weight: 800 },
+  { name: "Evaluasi mutu", pattern: /\b(?:evaluasi mutu|uji mutu|quality control)\b/i, weight: 3000 },
+  { name: "Studi kasus", pattern: /\b(?:studi kasus|case stud(?:y|ies)|troubleshooting)\b/i, weight: 2400 },
+  { name: "Daftar pustaka", pattern: /\b(?:daftar pustaka|bibliography|references)\b/i, weight: 1000 },
+];
+
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
 function explicitLength(question: string): AnswerLengthPlan["explicit"] {
@@ -35,9 +45,9 @@ function explicitLength(question: string): AnswerLengthPlan["explicit"] {
 /** Cheap sizing fallback. The answering AI makes the semantic sizing decision in the prompt. */
 export function planAnswerLength(question: string, effort: AiEffort = "none"): AnswerLengthPlan {
   const text = String(question || "").trim().slice(0, 12000);
-  const sections = reportSections.filter(section => section.pattern.test(text));
+  const sections = [...reportSections, ...documentSections].filter(section => section.pattern.test(text));
   const writingRequest = /\b(?:buat(?:kan)?|susun(?:kan)?|tulis(?:kan)?|hasilkan|write|draft|prepare)\b/i.test(text);
-  const documentRequest = writingRequest && /\b(?:laporan|makalah|proposal|artikel|esai|essay|report|monografi|monograph)\b/i.test(text);
+  const documentRequest = writingRequest && /\b(?:laporan|makalah|proposal|artikel|esai|essay|report|monografi|monograph|ppt|presentasi|presentation|slides?)\b/i.test(text);
   const complete = /\b(?:utuh|lengkap|komprehensif|full|complete)\b/i.test(text);
   const concise = /\b(?:singkat|ringkas|padat|brief|concise)\b/i.test(text);
   const detailed = /\b(?:secara|dengan|jelaskan|uraikan|bahas)\s+(?:sangat\s+)?(?:rinci|detail|mendalam|lengkap|panjang)\b/i.test(text);

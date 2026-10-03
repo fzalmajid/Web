@@ -40,7 +40,7 @@ import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } 
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
 import { fetchScholarlyEvidence, fullTextPromptContext } from "@/lib/scholarlyFullText";
 import { answerCitationInventory, publicCitationPrompt } from "@/lib/answerCitationServer";
-import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice, identityInEntry, readableEvidenceLabels } from "@/lib/answerEvidence";
+import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice, identityInEntry, readableEvidenceLabels, userFormulaProposal, userFormulaPrompt, userFormulaNotice } from "@/lib/answerEvidence";
 import { citationMetadataReady } from "@/lib/referenceMetadata";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 import { rerankKnowledge } from "@/lib/documentEnhancements";
@@ -747,6 +747,7 @@ function buildPrompt({
     citationInstruction(citationStyle, citationOutputs),
     aiModeInstruction(aiMode),
     "- Jawab dengan jelas dan terstruktur.",
+    "- Untuk rumus matematika, gunakan LaTeX dalam $...$ atau $$...$$ agar dirender sebagai rumus. Jangan gunakan garis bawah Markdown untuk subskrip di luar delimiter matematika.",
     "- Jika user meminta tabel, berikan tabel Markdown dengan baris header dan pemisah | --- |, bukan daftar berpoin yang disebut tabel. Jangan bungkus tabel dalam blok kode.",
     "- Bila diminta studi primer, jangan hitung artikel review/tinjauan/meta-analisis sebagai eksperimen primer. Desain, jumlah sampel dan hasil hanya boleh dinyatakan bila terlihat dalam abstrak atau full text yang tersedia; metadata judul saja tidak cukup. Bila studi primer yang terbukti kurang dari jumlah yang diminta, nyatakan kekurangannya, jangan mengisi dengan review atau tebakan.",
     "- Untuk kalibrasi dan pengenceran, konsentrasi yang dihitung dari respons adalah konsentrasi larutan yang diukur (setelah pengenceran); kalikan faktor pengenceran untuk mendapatkan konsentrasi sampel asal. R² tinggi saja bukan bukti validasi metode.",
@@ -1326,6 +1327,8 @@ export async function POST(req: NextRequest) {
         : Promise.resolve({ hits: [], status: "not-requested" }),
     ]);
     const quantitativePaper=requiresQuantitativePaperEvidence(question);
+    const suppliedFormula=quantitativePaper&&userFormulaProposal(question);
+    const proposalPrompt=userFormulaPrompt(suppliedFormula);
     const paperEvidence=useWeb ? await fetchScholarlyEvidence(scholarlyHits,quantitativePaper||aiMode==="high"?3:1,question) : [];
     for(const evidence of paperEvidence){const index=scholarlyHits.findIndex(hit=>hit.doi&&evidence.source.doi?hit.doi.toLowerCase()===evidence.source.doi.toLowerCase():hit.title===evidence.source.title);if(index>=0)scholarlyHits[index]=evidence.source;}
     const scholarlyContext = scholarlyPromptContext(scholarlyHits);
@@ -1336,12 +1339,12 @@ export async function POST(req: NextRequest) {
     for(const hit of webResearchResult.hits)if(hit.contentKind==="page"&&!blockedCitations.some(conflict=>identityInEntry(`${hit.title} ${hit.uri}`,conflict)))citations.push({title:hit.title,uri:hit.uri,formatted:`[${hit.title}](${hit.uri})`});
     const finalizeAnswer=(text:string,groundingSources:Array<{title:string;uri:string}>=[])=>{
       const providerIdentities=groundingSources.filter(item=>/^https?:\/\//i.test(item.uri)).map(item=>({title:item.title,uri:item.uri,formatted:`[${item.title}](${item.uri})`}));
-      const guarded=guardAnswerBibliography(readableEvidenceLabels(text,paperEvidence.length),[...citations,...providerIdentities],citationStyle,quantitativePaper,blockedCitations);
+      const guarded=guardAnswerBibliography(readableEvidenceLabels(text,paperEvidence.length),[...citations,...providerIdentities],citationStyle,quantitativePaper&&!suppliedFormula,blockedCitations);
       const skipFormatWarnings=/\btanpa (?:referensi|sitasi|daftar pustaka)\b|\bno (?:references|citations)\b/i.test(question);
-      return {answer:guarded.text,citationWarnings:[...guarded.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(guarded.text,citationStyle,citationOutputs))]};
+      return {answer:suppliedFormula&&!guarded.blocked?userFormulaNotice+"\n\n"+guarded.text:guarded.text,citationWarnings:[...guarded.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(guarded.text,citationStyle,citationOutputs))]};
     };
     const databaseFormulaEvidence=data.some((row:any)=>row.bibliographic_metadata?.type==="journal_article"&&citationMetadataReady(row.bibliographic_metadata)&&/\b(?:table|tabel|formulation|formulasi)\b/i.test(String(row.raw_content||row.content||""))&&/\bmg\b/i.test(String(row.raw_content||row.content||"")));
-    if(quantitativePaper&&!paperEvidence.some(item=>/\b(?:table|composition|formulation)\b/i.test(item.text)&&/\bmg\b/i.test(item.text))&&!databaseFormulaEvidence){
+    if(quantitativePaper&&!suppliedFormula&&!paperEvidence.some(item=>/\b(?:table|composition|formulation)\b/i.test(item.text)&&/\bmg\b/i.test(item.text))&&!databaseFormulaEvidence){
       return NextResponse.json({answer:missingFormulaEvidence,sources:[],webSources:mergeWebSources([],scholarlyHits),selectedSources,publicWeb:useWeb,webResearch:{status:"formula-full-text-missing",scholarlyCount:scholarlyHits.length,fullTextCount:paperEvidence.length},citationWarnings:[],evidenceLimited:true,orchestration:{mode:aiMode,stages:[],description:"Evidence gate: no invented quantitative formula"}});
     }
     const webResearchContext = webResearchPromptContext(webResearchResult.hits);
@@ -1427,7 +1430,7 @@ export async function POST(req: NextRequest) {
         ? '\n\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:"cose"|"breadthfirst"|"circle"|"grid"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok.'
         : "\n\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
       : "";
-    const prompt = adaptiveLengthPrompt+"\n\n"+evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+fullTextContext+publicCitationPrompt(citations)+buildPrompt({
+    const prompt = adaptiveLengthPrompt+"\n\n"+evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+fullTextContext+publicCitationPrompt(citations)+buildPrompt({
       question,
       historyText,
       context,
@@ -1827,7 +1830,7 @@ export async function POST(req: NextRequest) {
         citationStyle,
         citationOutputs,
         artifactFormat,
-      }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction + evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+publicCitationPrompt(citations);
+      }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction + evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+publicCitationPrompt(citations);
 
       const fallbackPreflight=sharedGemini?await checkAiCredits(supabase,"ask",aiMode):null;
       if(fallbackPreflight&&!fallbackPreflight.allowed)return NextResponse.json(aiQuotaError(fallbackPreflight),{status:429});

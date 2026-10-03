@@ -26,6 +26,22 @@ export function requiresQuantitativePaperEvidence(question:string){
   return /\b(?:formulasi|formulation|resep|formula)\b/i.test(question)&&/\b(?:mg|milligram|miligram|jumlah|komposisi|composition|eksipien|excipients?)\b/i.test(question)&&/\b(?:jurnal|journal|paper|tervalidasi|tervalida[i]?|validated)\b/i.test(question);
 }
 
+/** A user-provided proposal is input data, not proof of a published recipe.
+ * Permit its arithmetic/documentation without weakening journal-recipe gates. */
+export function userFormulaProposal(question:string){
+  if(!/\b(?:usulan|rancangan|formula saya|formulasi saya|my formula|proposed formulation)\b/i.test(question))return false;
+  if(!/\b(?:buatkan|buat|susun|tulis|evaluasi|analisis|write|draft|evaluate)\b/i.test(question))return false;
+  const items=Array.from(question.matchAll(/([a-z][a-z0-9_-]*(?:[\t ]+[a-z][a-z0-9_-]*){0,3})[\t ]+(\d+(?:[.,]\d+)?)[\t ]*mg\b/gi))
+    .filter(item=>! /\b(?:untuk|total|tablet|tab|bobot|berat|dosis|per|of|at|weight|dose|for)\b/i.test(item[1]));
+  return new Set(items.map(item=>item[1].toLowerCase().trim())).size>=2;
+}
+
+export const userFormulaNotice="Komposisi dan perhitungan batch di bawah memakai usulan Anda, bukan formula jurnal tervalidasi. Kesetaraan massa kokristal/API, kelayakan eksipien, dan mutu produk belum dibuktikan; materi ini untuk rancangan pembelajaran, bukan petunjuk produksi atau penggunaan klinis.";
+
+export function userFormulaPrompt(allowed:boolean){
+  return allowed ? "\n\nUSULAN KOMPOSISI DARI USER: angka bahan yang ditulis user boleh dipakai sebagai data usulan dan dihitung secara aritmetis (mg/tablet × jumlah tablet ÷ 1000 = g/batch). Labeli setiap tabel komposisi sebagai usulan user, bukan angka yang diambil dari jurnal. Periksa total massa dan persentase; jangan mengubah angka diam-diam. Ekuivalen kokristal/API dari user adalah asumsi belum diverifikasi, bukan temuan literatur. Jangan berhenti menulis seluruh dokumen hanya karena tabel jurnal belum ditemukan: lengkapi semua bagian yang diminta dengan data usulan, bukti yang benar-benar tersedia, atau penanda kekurangan bukti pada bagian terkait. Jangan menciptakan rentang lazim eksipien, spesifikasi mutu, klasifikasi BCS, monografi atau nomor halaman dari sumber yang belum dibaca. Bila monografi wajib FI/FHI/HOPE, tampilkan hanya informasi yang terlihat di sumber tersebut; bila tidak tersedia, buat checklist parameter yang perlu dilengkapi tanpa mengarang isi buku. Jangan mengisi kuota minimal jurnal/buku dengan identitas rekaan atau jurnal tidak relevan; nyatakan jumlah yang benar-benar ditemukan dan kekurangannya. Daftar pustaka harus menjadi bagian paling akhir dan hanya memuat inventaris sumber yang cocok. Pisahkan diagram/prosedur usulan konseptual dari proses yang sudah divalidasi." : "";
+}
+
 export const missingFormulaEvidence="Saya belum memperoleh full text jurnal yang memuat tabel komposisi dan jumlah bahan untuk formula yang Anda minta. Karena itu saya tidak akan membuat resep mg atau referensi dari pengetahuan internal. Metadata/abstrak saja tidak cukup. Aktifkan Web atau lampirkan PDF publik yang relevan; formula akan diambil dari tabel sumber, dengan nama bahan, satuan, jenis pelepasan, dan link yang dapat diperiksa.";
 
 export function publicEvidenceFallbackNotice(state:{fullTextRead:boolean;pagesRead:boolean;metadataAvailable:boolean}){
