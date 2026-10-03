@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { libraryCitationReady } from "../lib/documentPolicy";
 import { citationMetadataReady, type ReferenceMetadata } from "../lib/referenceMetadata";
-import { answerCitationInventory } from "../lib/answerCitationServer";
+import { answerCitationInventory, citationAuthorYearKeys } from "../lib/answerCitationServer";
 import { formatVerifiedReference, referenceToCsl, buildDeterministicCitationInventory, processLibraryCitations } from "../lib/citationFormatterServer";
 import { buildCitationMetadataInventory } from "../lib/citations";
 import { guardAnswerBibliography } from "../lib/answerEvidence";
@@ -21,6 +21,11 @@ test("Library title-only journal retains absent fields without fabrication", () 
   assert.equal(csl.author, undefined); assert.equal(csl.issued, undefined);
   assert.equal(csl.DOI, undefined); assert.equal(csl.page, undefined);
   assert.ok(formatVerifiedReference(metadata, "apa6", true));
+});
+test("Legacy Database title edition labels match without inventing edition metadata", () => {
+  const metadata = { ...book, title: "Farmakope Indonesia Edisi VI (2020) Kementerian Kesehatan", edition: null };
+  assert.ok(citationAuthorYearKeys(metadata, true).includes("Farmakope Indonesia Edisi VI 2020"));
+  assert.equal(referenceToCsl(metadata, true).edition, undefined);
 });
 test("Nonpublication materials remain context even if trusted", () => {
   for (const type of ["lecture_slides", "other", "webpage", undefined]) {

@@ -24,8 +24,8 @@ export function citationAuthorYearKeys(metadata:ReferenceMetadata,trustedLibrary
   if(csl.type==="book"||csl.type==="chapter"){
     const title=csl.title||"";
     const aliases=[title];
-    if(/farmakope herbal indonesia/i.test(title))aliases.push("FHI");
-    else if(/farmakope indonesia/i.test(title))aliases.push("FI");
+    if(/farmakope herbal indonesia/i.test(title))aliases.push("FHI","Farmakope Herbal Indonesia");
+    else if(/farmakope indonesia/i.test(title))aliases.push("FI","Farmakope Indonesia");
     if(/handbook of pharmaceutical excipients/i.test(title))aliases.push("HOPE","HPE");
     const organization=trustedLibrary||metadata.audit?.basis==="manual"||Boolean(metadata.provenance?.corporate_author&&metadata.provenance.corporate_author.confidence>=.9&&!["filename","mendeley"].includes(metadata.provenance.corporate_author.source))?metadata.corporate_author:"";
     if(organization){
@@ -38,9 +38,12 @@ export function citationAuthorYearKeys(metadata:ReferenceMetadata,trustedLibrary
       if(/kementerian kesehatan/i.test(name))aliases.push(name,"Kemenkes","Kemenkes RI","Kementerian Kesehatan RI","Kementerian Kesehatan Republik Indonesia");
       if(/departemen kesehatan/i.test(name))aliases.push(name,"Depkes","Depkes RI","Departemen Kesehatan RI","Departemen Kesehatan Republik Indonesia");
     }
+    // Older Database titles can include the edition on the actual title itself.
+    // Use that explicit label for matching only, never infer a missing edition.
+    const edition=csl.edition||title.match(/\b(?:edisi|edition)\s+([IVXLCDM]+|\d+)\b/i)?.[1];
     for(const alias of aliases.filter(Boolean)){
       keys.push(`${alias} ${year}`);
-      if(csl.edition)keys.push(`${alias} ${csl.edition} ${year}`,`${alias} Edisi ${csl.edition} ${year}`);
+      if(edition)keys.push(`${alias} ${edition} ${year}`,`${alias} Edisi ${edition} ${year}`);
     }
   }
   return [...new Set(keys)];
