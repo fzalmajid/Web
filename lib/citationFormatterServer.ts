@@ -5,6 +5,7 @@ import { citationMetadataReady, normalizeDoi, normalizeIsbn, isbnIdentity } from
 import type { CitationStyle } from "@/lib/citations";
 import cslStyles from "@/lib/cslStyles.json";
 import cslApa6 from "@/lib/cslApa6.json";
+import { libraryCitationReady } from "./documentPolicy";
 
 export type ProcessorStyle = Exclude<CitationStyle, "none">;
 const styleTemplates: Record<ProcessorStyle, string> = {
@@ -47,11 +48,11 @@ function cslType(type: ReferenceMetadata["type"]) {
   }
 }
 
-export function referenceToCsl(metadata: ReferenceMetadata) {
+export function referenceToCsl(metadata: ReferenceMetadata, trustedLibrary = false) {
   // A verified work may still contain an unverified candidate year/type. CSL
   // must not promote those fields merely because its title/author were verified.
   metadata = { ...metadata };
-  if (metadata.audit?.basis !== "manual") {
+  if (!trustedLibrary && metadata.audit?.basis !== "manual") {
     for (const field of Object.keys(metadata)) {
       if (field === "audit" || field === "provenance") continue;
       const info = metadata.provenance?.[field];
@@ -86,11 +87,12 @@ export function referenceToCsl(metadata: ReferenceMetadata) {
 
 export function formatVerifiedReference(
   metadata: ReferenceMetadata,
-  style: ProcessorStyle
+  style: ProcessorStyle,
+  trustedLibrary = false
 ) {
-  if (!citationMetadataReady(metadata)) return null;
+  if (!(trustedLibrary ? libraryCitationReady(metadata) : citationMetadataReady(metadata))) return null;
   try {
-    const cite = new Cite([referenceToCsl(metadata)]);
+    const cite = new Cite([referenceToCsl(metadata, trustedLibrary)]);
     const result = String(cite.format("bibliography", {
       format: "text",
       style: styleTemplates[style],
@@ -108,7 +110,7 @@ export function formatVerifiedReferences(
 ) {
   if (!items.length) return "";
   try {
-    const cite = new Cite(items.filter(citationMetadataReady).map(referenceToCsl));
+    const cite = new Cite(items.filter(citationMetadataReady).map(metadata => referenceToCsl(metadata)));
     return String(cite.format("bibliography", {
       format: "text",
       style: styleTemplates[style],
@@ -156,7 +158,7 @@ export function buildDeterministicCitationInventory(
   let index = 1;
   for (const [key, row] of unique) {
     const metadata = metadataFromKnowledgeSource(row);
-    const formatted = formatVerifiedReference(metadata, style as ProcessorStyle);
+    const formatted = formatVerifiedReference(metadata, style as ProcessorStyle, true);
     if (!formatted) continue;
     const clean = style === "vancouver" || style === "ieee"
       ? formatted.replace(/^\s*(?:\[\d+\]|\d+[.)])\s*/, "")
@@ -182,14 +184,14 @@ export function citationPreviews(metadata: ReferenceMetadata) {
 
 /** Fully local, non-AI citation generation. Numeric input order is first-use order. */
 export function processLibraryCitations(items: Array<{ id: string; metadata: ReferenceMetadata }>, style: ProcessorStyle) {
-  const ready = items.filter((item) => citationMetadataReady(item.metadata));
-  const excluded = items.filter((item) => !citationMetadataReady(item.metadata)).map((item) => item.id);
+  const ready = items.filter((item) => libraryCitationReady(item.metadata));
+  const excluded = items.filter((item) => !libraryCitationReady(item.metadata)).map((item) => item.id);
   if (!ready.length) return { csl: [], citations: [], bibliography: "", excluded };
   const workId = (item: { id: string; metadata: ReferenceMetadata }) =>
     normalizeDoi(item.metadata.doi) ? "doi:" + normalizeDoi(item.metadata.doi) :
     isbnIdentity(item.metadata.isbn) ? "isbn:" + isbnIdentity(item.metadata.isbn) :
     item.metadata.pmid ? "pmid:" + item.metadata.pmid : item.id;
-  const unique = new Map(ready.map((item) => [workId(item), { ...referenceToCsl(item.metadata), id: workId(item) }]));
+  const unique = new Map(ready.map((item) => [workId(item), { ...referenceToCsl(item.metadata, true), id: workId(item) }]));
   const csl = [...unique.values()];
   const cite = new Cite(csl);
   const citations = ready.map((item, index) => ({

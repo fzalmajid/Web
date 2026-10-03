@@ -1000,7 +1000,8 @@ export function buildKnowledgeContext(rows: KnowledgeSource[], maxChars = 28000,
       "DOI=" + (row.bibliographic_doi || "[tidak tersedia]"),
       "ISBN=" + (row.bibliographic_isbn || "[tidak tersedia]"),
       "URL=" + (row.bibliographic_url || "[tidak tersedia]"),
-      "STATUS=" + (row.bibliographic_metadata_status || "unreviewed"),
+      "AUDIT_METADATA_MESIN=" + (row.bibliographic_metadata_status || "unreviewed"),
+      "VALIDASI_SUMBER=Database divalidasi pengguna; audit metadata bukan penghalang sitasi buku/publikasi. Bahan nonpublikasi hanya konteks.",
     ].join(" | ");
     const part =
       `[WORK_ID: ${workId} | KARYA BIBLIOGRAFIS: ${publication} | SOURCE_ID: ${sourceId} | FILE/HALAMAN: ${row.title}${row.category ? ` | ${row.category}` : ""}${pageLabel} | METADATA BIBLIOGRAFIS: ${metadataLine} | CUPLIKAN ISI RAW ASLI]\n${body}`;

@@ -43,7 +43,7 @@ import { answerCitationInventory, publicCitationPrompt } from "@/lib/answerCitat
 import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice, identityInEntry, readableEvidenceLabels, userFormulaProposal, userFormulaPrompt, userFormulaNotice } from "@/lib/answerEvidence";
 import { recoverDocumentBibliography, monographInstruction } from "@/lib/documentEvidence";
 import { documentWritingPolicy, isFormalPublication, monographAliases } from "@/lib/documentPolicy";
-import { citationMetadataReady } from "@/lib/referenceMetadata";
+import { libraryCitationReady } from "@/lib/documentPolicy";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 import { rerankKnowledge } from "@/lib/documentEnhancements";
 import { normalizeAiExperienceMode } from "@/lib/aiOrchestration";
@@ -1351,7 +1351,7 @@ export async function POST(req: NextRequest) {
         : {text:guarded.text,warnings:[] as string[]};
       return {answer:suppliedFormula&&!guarded.blocked?userFormulaNotice+"\n\n"+recovered.text:recovered.text,citationWarnings:[...guarded.warnings,...recovered.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(recovered.text,citationStyle,citationOutputs))]};
     };
-    const databaseFormulaEvidence=data.some((row:any)=>row.bibliographic_metadata?.type==="journal_article"&&citationMetadataReady(row.bibliographic_metadata)&&/\b(?:table|tabel|formulation|formulasi)\b/i.test(String(row.raw_content||row.content||""))&&/\bmg\b/i.test(String(row.raw_content||row.content||"")));
+    const databaseFormulaEvidence=data.some((row:any)=>row.bibliographic_metadata?.type==="journal_article"&&libraryCitationReady(row.bibliographic_metadata)&&/\b(?:table|tabel|formulation|formulasi)\b/i.test(String(row.raw_content||row.content||""))&&/\bmg\b/i.test(String(row.raw_content||row.content||"")));
     if(quantitativePaper&&!suppliedFormula&&!paperEvidence.some(item=>/\b(?:table|composition|formulation)\b/i.test(item.text)&&/\bmg\b/i.test(item.text))&&!databaseFormulaEvidence){
       return NextResponse.json({answer:missingFormulaEvidence,sources:[],webSources:mergeWebSources([],scholarlyHits),selectedSources,publicWeb:useWeb,webResearch:{status:"formula-full-text-missing",scholarlyCount:scholarlyHits.length,fullTextCount:paperEvidence.length},citationWarnings:[],evidenceLimited:true,orchestration:{mode:aiMode,stages:[],description:"Evidence gate: no invented quantitative formula"}});
     }

@@ -92,14 +92,15 @@ test("catalog name suffixes and surname-first initials do not become surnames",(
   assert.match(formatted!,/Roediger, H\. L\., III/);assert.doesNotMatch(formatted!,/III, H\./);
 });
 
-test("Library citation processor excludes unverified and legacy metadata", () => {
+test("Library processor trusts uploaded publications without loosening public metadata checks", () => {
   const result = processLibraryCitations([
     { id: "a", metadata: confirmed() }, { id: "b", metadata: article },
   ], "vancouver");
-  assert.deepEqual(result.excluded, ["b"]);
+  assert.deepEqual(result.excluded, []);
   assert.equal(result.csl.length, 1);
   assert.equal(result.citations[0].sourceFileId, "a");
-  assert.equal(buildDeterministicCitationInventory("apa", [{ source_file_id: "b", bibliographic_metadata: article }]), "");
+  assert.match(buildDeterministicCitationInventory("apa", [{ source_file_id: "b", bibliographic_metadata: article }]), /CSL_APA_EXACT/);
+  assert.equal(formatVerifiedReference(article, "apa"), null);
 });
 
 test("numeric bibliography follows first-use order", () => {

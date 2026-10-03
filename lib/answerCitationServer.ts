@@ -2,14 +2,14 @@ import type { ScholarlyHit } from "./scholarlySources";
 import type { CitationStyle } from "./citations";
 import type { CitationIdentity } from "./answerEvidence";
 import { formatVerifiedReference, referenceToCsl } from "./citationFormatterServer";
-import { citationMetadataReady, REFERENCE_ENGINE_VERSION, type ReferenceMetadata } from "./referenceMetadata";
+import { REFERENCE_ENGINE_VERSION, type ReferenceMetadata } from "./referenceMetadata";
 import type { ScholarlyEvidence } from "./scholarlyFullText";
-import { isFormalPublication } from "./documentPolicy";
+import { libraryCitationReady } from "./documentPolicy";
 import { detectPrintedPageRange } from "./knowledge";
 
 /** Reuse verified CSL name parsing (including surname-first initials/suffixes). */
-export function citationAuthorYearKeys(metadata:ReferenceMetadata){
-  const csl=referenceToCsl(metadata);
+export function citationAuthorYearKeys(metadata:ReferenceMetadata,trustedLibrary=false){
+  const csl=referenceToCsl(metadata,trustedLibrary);
   const year=csl.issued?.["date-parts"]?.[0]?.[0];
   const authors=(csl.author||[]).map(name=>String(name?.family||name?.literal||"").trim()).filter(Boolean);
   if(!year)return [];
@@ -24,23 +24,26 @@ export function citationAuthorYearKeys(metadata:ReferenceMetadata){
   if(csl.type==="book"||csl.type==="chapter"){
     const title=csl.title||"";
     const aliases=[title];
-    if(/farmakope herbal indonesia/i.test(title))aliases.push("FHI");
-    else if(/farmakope indonesia/i.test(title))aliases.push("FI");
+    if(/farmakope herbal indonesia/i.test(title))aliases.push("FHI","Farmakope Herbal Indonesia");
+    else if(/farmakope indonesia/i.test(title))aliases.push("FI","Farmakope Indonesia");
     if(/handbook of pharmaceutical excipients/i.test(title))aliases.push("HOPE","HPE");
-    const organization=metadata.audit?.basis==="manual"||Boolean(metadata.provenance?.corporate_author&&metadata.provenance.corporate_author.confidence>=.9&&!["filename","mendeley"].includes(metadata.provenance.corporate_author.source))?metadata.corporate_author:"";
+    const organization=trustedLibrary||metadata.audit?.basis==="manual"||Boolean(metadata.provenance?.corporate_author&&metadata.provenance.corporate_author.confidence>=.9&&!["filename","mendeley"].includes(metadata.provenance.corporate_author.source))?metadata.corporate_author:"";
     if(organization){
       aliases.push(organization);
       if(/kementerian kesehatan/i.test(organization))aliases.push("Kemenkes","Kemenkes RI","Kementerian Kesehatan RI","Kementerian Kesehatan Republik Indonesia");
       if(/departemen kesehatan/i.test(organization))aliases.push("Depkes","Depkes RI","Departemen Kesehatan RI","Departemen Kesehatan Republik Indonesia");
     }
-    const authorsVerified=metadata.audit?.basis==="manual"||Boolean(metadata.provenance?.authors&&metadata.provenance.authors.confidence>=.9&&!["filename","mendeley"].includes(metadata.provenance.authors.source));
+    const authorsVerified=trustedLibrary||metadata.audit?.basis==="manual"||Boolean(metadata.provenance?.authors&&metadata.provenance.authors.confidence>=.9&&!["filename","mendeley"].includes(metadata.provenance.authors.source));
     if(authorsVerified)for(const name of metadata.authors||[]){
       if(/kementerian kesehatan/i.test(name))aliases.push(name,"Kemenkes","Kemenkes RI","Kementerian Kesehatan RI","Kementerian Kesehatan Republik Indonesia");
       if(/departemen kesehatan/i.test(name))aliases.push(name,"Depkes","Depkes RI","Departemen Kesehatan RI","Departemen Kesehatan Republik Indonesia");
     }
+    // Older Database titles can include the edition on the actual title itself.
+    // Use that explicit label for matching only, never infer a missing edition.
+    const edition=csl.edition||title.match(/\b(?:edisi|edition)\s+([IVXLCDM]+|\d+)\b/i)?.[1];
     for(const alias of aliases.filter(Boolean)){
       keys.push(`${alias} ${year}`);
-      if(csl.edition)keys.push(`${alias} ${csl.edition} ${year}`);
+      if(edition)keys.push(`${alias} ${edition} ${year}`,`${alias} Edisi ${edition} ${year}`);
     }
   }
   return [...new Set(keys)];
@@ -51,13 +54,13 @@ export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:Cit
   const libraryByWork=new Map<string,CitationIdentity>();
   for(const row of rows){
     const metadata:ReferenceMetadata=row.bibliographic_metadata||{};
-    if(!isFormalPublication(metadata.type)||!citationMetadataReady(metadata))continue;
+    if(!libraryCitationReady(metadata))continue;
     const printed=row.printed_page_start?{start:String(row.printed_page_start),end:String(row.printed_page_end||row.printed_page_start)}:detectPrintedPageRange(String(row.raw_content||row.content||""));
     const pages=printed.start?[printed.end&&printed.end!==printed.start?`${printed.start}–${printed.end}`:String(printed.start)]:[];
     const workKey=String(row.bibliographic_work_id||row.source_file_id||metadata.isbn||`${metadata.title}|${metadata.edition||""}|${metadata.year||""}`);
     const existing=libraryByWork.get(workKey);
     if(existing){existing.printedPages=[...new Set([...(existing.printedPages||[]),...pages])];continue;}
-    result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,workType:metadata.type||undefined,year:metadata.year,printedPages:pages,authorYearKeys:citationAuthorYearKeys(metadata),formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined});
+    result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,workType:metadata.type||undefined,year:metadata.year,printedPages:pages,authorYearKeys:citationAuthorYearKeys(metadata,true),formatted:style!=="none"?formatVerifiedReference(metadata,style,true)||undefined:undefined});
     libraryByWork.set(workKey,result[result.length-1]);
   }
   for(const hit of hits){
