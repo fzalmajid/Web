@@ -36,3 +36,11 @@ test("publisher PDF discovery does not invent mirrors or follow bibliography lin
   assert.equal(paperTitleMatches("Dipyridamole cocrystal tablets with enhanced solubility","Dapagliflozin drug product"),false);
   assert.ok(selectEvidencePages([{page:1,text:"Introduction".repeat(1000)},{page:2,text:"Table 1: composition mg 26 4 64 102 4"}],900).some(page=>page.page===2&&page.text.includes("26 4 64 102 4")));
 });
+test("public full-text links are attached only to matched references actually read",()=>{
+  const inventory=[{title:"Actual article about learning",doi:"10.1000/read",formatted:"Author (2024). Actual article about learning. https://doi.org/10.1000/read",readSource:{uri:"https://example.org/article.pdf",format:"full-text-pdf",pages:[3,5]}},{title:"Other article metadata only",doi:"10.1000/catalog",formatted:"Other (2020). Other article metadata only.",catalogOnly:true}];
+  const answer="Summary.\nReferences:\nActual article about learning. https://doi.org/10.1000/read\nOther article metadata only. https://doi.org/10.1000/catalog";
+  const result=guardAnswerBibliography(answer,inventory,"apa");
+  assert.equal(result.blocked,false);assert.match(result.text,/Teks lengkap publik — PDF dibaca; halaman PDF 3, 5/);assert.match(result.text,/https:\/\/example.org\/article.pdf/);assert.match(result.text,/metadata\/abstrak; teks lengkap belum dibaca/);
+  const unused=guardAnswerBibliography("References:\nOther article metadata only.",inventory,"apa");assert.doesNotMatch(unused.text,/article.pdf/);
+  const unsafe=guardAnswerBibliography("References:\nActual article about learning.",[{...inventory[0],readSource:{uri:"javascript:alert(1)",format:"full-text-pdf",pages:[3]}}],"apa");assert.doesNotMatch(unsafe.text,/javascript:|Teks lengkap publik/);
+});

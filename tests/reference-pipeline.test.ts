@@ -82,6 +82,16 @@ test("all six styles render locally; APA 7 and Vancouver differ", () => {
   assert.equal(referenceToCsl(confirmed()).author?.[0]?.family, "Watson");
 });
 
+test("catalog name suffixes and surname-first initials do not become surnames",()=>{
+  const metadata={...article,authors:["Henry L. Roediger III","Agarwal PK","Roediger, Henry L., Jr."],author_details:[]};
+  const names=referenceToCsl({...metadata,audit:auditReferenceMetadata(metadata,{manual:true})}).author as any[];
+  assert.deepEqual(names[0],{family:"Roediger",given:"Henry L.",suffix:"III"});
+  assert.deepEqual(names[1],{family:"Agarwal",given:"P K"});
+  assert.deepEqual(names[2],{family:"Roediger",given:"Henry L.",suffix:"Jr."});
+  const formatted=formatVerifiedReference({...metadata,audit:auditReferenceMetadata(metadata,{manual:true})},"apa");
+  assert.match(formatted!,/Roediger, H\. L\., III/);assert.doesNotMatch(formatted!,/III, H\./);
+});
+
 test("Library citation processor excludes unverified and legacy metadata", () => {
   const result = processLibraryCitations([
     { id: "a", metadata: confirmed() }, { id: "b", metadata: article },

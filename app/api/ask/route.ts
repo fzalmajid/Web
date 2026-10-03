@@ -1325,7 +1325,7 @@ export async function POST(req: NextRequest) {
     for(const evidence of paperEvidence){const index=scholarlyHits.findIndex(hit=>hit.doi&&evidence.source.doi?hit.doi.toLowerCase()===evidence.source.doi.toLowerCase():hit.title===evidence.source.title);if(index>=0)scholarlyHits[index]=evidence.source;}
     const scholarlyContext = scholarlyPromptContext(scholarlyHits);
     const fullTextContext=fullTextPromptContext(paperEvidence);
-    const citations=answerCitationInventory(scholarlyHits,data,citationStyle);
+    const citations=answerCitationInventory(scholarlyHits,data,citationStyle,paperEvidence);
     // A fetched Web page is a valid source identity, not automatically a journal or fact-verified claim.
     for(const hit of webResearchResult.hits)if(hit.contentKind==="page")citations.push({title:hit.title,uri:hit.uri,formatted:`[${hit.title}](${hit.uri})`});
     const finalizeAnswer=(text:string,groundingSources:Array<{title:string;uri:string}>=[])=>{

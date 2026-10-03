@@ -1,6 +1,7 @@
 import type { CitationStyle } from "./citations";
+import { publicUrl } from "./researchLinks";
 
-export type CitationIdentity={title:string;doi?:string|null;uri?:string;formatted?:string};
+export type CitationIdentity={title:string;doi?:string|null;uri?:string;formatted?:string;readSource?:{uri:string;format:string;pages:number[]};catalogOnly?:boolean};
 const heading=/^[\t ]*(?:#{1,6}[\t ]*)?(?:\*{1,2}|_{1,2})?(?:\d{1,3}[.)][\t ]+)?(?:References|Daftar Pustaka|Referensi(?: Ilmiah)?|Bibliography|Works Cited)[\t ]*:?[\t ]*(?:\*{1,2}|_{1,2})?[\t ]*:?[\t ]*$/im;
 const normalize=(text:string)=>text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
 
@@ -37,11 +38,17 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
   // Preserve numeric identities only when all entries matched; don't silently renumber in-text citations.
   const references=used.map(item=>{
     const matched=known.find(k=>k.source===item)!.entry;
-    const canonical=item.formatted||`[${item.title}](${item.uri||"https://doi.org/"+item.doi})`;
+    let canonical=item.formatted||`[${item.title}](${item.uri||"https://doi.org/"+item.doi})`;
+    const readUrl=publicUrl(item.readSource?.uri);
+    if(readUrl){
+      const format=item.readSource!.format==="full-text-pdf"?"PDF":item.readSource!.format==="full-text-xml"?"XML":"HTML";
+      const locators=item.readSource!.pages.length?`; halaman PDF ${item.readSource!.pages.join(", ")}`:"; cuplikan bagian/tabel";
+      canonical+=` · [Teks lengkap publik — ${format} dibaca${locators}](${readUrl.replace(/\(/g,"%28").replace(/\)/g,"%29")})`;
+    }else if(item.catalogOnly){canonical+=" · Bukti tersedia: metadata/abstrak; teks lengkap belum dibaca.";}
     const label=/^(?:\[\d+\]|\d+[.)])\s*/.exec(matched)?.[0]||"";
     return numeric&&!unknown.length?label+canonical.replace(/^(?:\[\d+\]|\d+[.)])\s*/,""):canonical;
   });
   return {text:before+(references.length?`\n\n*${style==="mla"?"Works Cited":"References"}:*\n`+references.join("\n\n"):"\n\nTidak ada referensi formal yang cocok dengan sumber hasil penelusuran."),warnings:unknown.length?["Entri referensi yang tidak cocok dengan inventaris sumber telah dihapus; dukungan klaim tetap perlu diperiksa."]:[],blocked:false};
 }
 
-export function evidenceRules(hasFullText:boolean){return "\n\nBATAS BUKTI WAJIB: pengetahuan internal AI bukan karya bibliografis dan tidak boleh dibuat menjadi referensi. Tidak boleh ada ‘Pustaka Internal Farmasi’, sumber anonim rekaan, DOI atau judul dari ingatan. Hanya karya dalam inventaris sumber boleh masuk References. Bila user meminta resep formulasi dari jurnal, angka bahan harus terlihat dalam full text/tabel yang tersedia. "+(hasFullText?"Full text yang benar-benar dibaca ditandai EVIDENCE; sitasikan judul/DOI yang cocok dan link PDF tersebut.":"Belum ada full text jurnal publik yang berhasil dibaca; jangan menyebut komposisi mg sebagai resep jurnal. Jelaskan kekurangan bukti.");}
+export function evidenceRules(hasFullText:boolean){return "\n\nBATAS BUKTI WAJIB: pengetahuan internal AI bukan karya bibliografis dan tidak boleh dibuat menjadi referensi. Tidak boleh ada ‘Pustaka Internal Farmasi’, sumber anonim rekaan, DOI atau judul dari ingatan. Hanya karya dalam inventaris sumber boleh masuk References. Bila user meminta resep formulasi dari jurnal, angka bahan harus terlihat dalam full text/tabel yang tersedia. "+(hasFullText?"Full text yang benar-benar dibaca ditandai EVIDENCE; sitasikan judul/DOI yang cocok dan link sumber publik tersebut. Utamakan temuan pada EVIDENCE. Bila mengutip temuan dari abstrak katalog, tulis eksplisit ‘berdasarkan abstrak’, bukan seolah seluruh paper telah dibaca. Metadata tanpa abstrak hanya boleh menjadi saran bacaan, bukan bukti temuan.":"Belum ada full text jurnal publik yang berhasil dibaca; jangan menyebut komposisi mg sebagai resep jurnal. Jelaskan kekurangan bukti. Bila abstrak tersedia, labeli temuan sebagai berdasarkan abstrak, bukan pembacaan full text.");}
