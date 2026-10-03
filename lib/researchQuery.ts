@@ -3,7 +3,7 @@ export function researchQuery(question: string) {
   const clean = question.trim().replace(/\s+/g, " ");
   if (/https?:\/\/|\b10\.\d{4,9}\//i.test(clean)) return clean.slice(0, 1200);
   const topic = /\b(?:tentang|mengenai|about)\s+(.+?)(?=[.!?]|$)/i.exec(clean)?.[1];
-  const candidate = (topic || clean).split(/\b(?:buat(?:kan)?|tampilkan|sertakan|verifikasi|jangan|format|berikan|include|return|formatting)\b/i)[0]
+  const candidate = (topic || clean).split(/\b(?:buat(?:kan)?|tampilkan|sertakan|verifikasi|jangan|format|berikan|include|return|formatting|doi|tautan penerbit|\d{1,2}\s*(?:tahun|years?)\s*(?:terakhir|last|recent))\b/i)[0]
     .replace(/\b(?:cari(?:kan)?|temukan|tolong|sumber|primer|referensi|paper|jurnal|artikel|studi|penelitian|terbaru|untuk|belajar|find|sources?|primary|references?|papers?|please|about)\b/gi, " ")
     .replace(/[/:;,]+/g, " ").replace(/\s+/g, " ").trim();
   return candidate.length >= 3 ? candidate.slice(0, 240) : clean.slice(0, 240);
@@ -28,7 +28,7 @@ export function scientificQueryPlan(question: string) {
   const formulation = /\b(?:formulasi|formulation|resep|eksipien|excipients?|cocrystals?|kokristal)\b/i.test(question);
   if (!formulation) return { query: topicSearchTerms(original), broadQuery: original, requiredTerm: "" };
   const stop = new Set("carikan cari resep formulasi formulation tablet tablets konvensional conventional dari jurnal tervalidasi tervalidai validated baik modifikasi modification maupun bukan minimal model formula bahan aktif active eksipien excipients jumlah disebutkan cocrystal cocrystals kokristal dan atau dengan untuk dalam yang mg obat drug ingredient ingredients dari jurnal journal public access publik terbuka immediate release".split(" "));
-  stop.add("juga");stop.add("disebutkan");
+  for(const term of "juga disebutkan relevan relevant konteks context paragraf paragraph singkat short".split(" "))stop.add(term);
   const core=topicSearchTerms(original).split(/\b(?:dasar teori|usulan|perhitungan|monografi bahan|alat (?:dan )?bahan|cara kerja|daftar pustaka)\b/i)[0];
   for(const term of "buatkan buat susun ppt presentasi presentation slides laporan report tab pcs batch jumlah per untuk berisi lengkap".split(" "))stop.add(term);
   const words = core.toLowerCase().match(/[a-z][a-z-]{3,}/g) || [];

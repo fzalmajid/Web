@@ -9,6 +9,12 @@ import {answerCitationInventory} from "../lib/answerCitationServer";
 import {prioritizeQuestionRelevantSources} from "../lib/knowledge";
 
 const request="buatkan untuk ppt formulasi tablet konvensional dipiridamol untuk 500mg tab, untuk 500pcs per batch, dasar teori, monografi bahan, alat bahan, daftar pustaka; jurnal terbaru 10 tahun terakhir";
+test("live beta query separates topic from recency and DOI instructions",()=>{
+  const question="Jelaskan konteks formulasi tablet konvensional dipiridamol dalam paragraf singkat. Sertakan daftar pustaka jurnal tentang dipiridamol yang relevan dari 10 tahun terakhir, DOI atau tautan penerbit. Jangan memakai floating atau sustained-release sebagai formula konvensional; bedakan metadata dari teks penuh yang dibaca.";
+  assert.equal(scientificQueryPlan(question).requiredTerm,"dipyridamole");
+  assert.equal(withinResearchScope({title:"Tren Riset Kesadaran Karier dalam 10 Tahun Terakhir",year:2025},question,2026),false);
+  assert.equal(withinResearchScope({title:"Dipyridamole cocrystal tablet formulation",year:2024},question,2026),true);
+});
 test("long PPT request retains the named drug rather than general tablet vocabulary",()=>{
   const plan=scientificQueryPlan(request);assert.equal(plan.requiredTerm,"dipyridamole");
   assert.equal(withinResearchScope({title:"Atenolol tablet formulation",year:2024},request,2026),false);
