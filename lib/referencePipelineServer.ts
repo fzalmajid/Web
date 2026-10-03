@@ -12,7 +12,7 @@ export const REFERENCE_CAPABILITIES = {
   identifiers: ["doi", "pmid", "isbn"],
   catalogs: ["crossref", "openalex", "pubmed", "europepmc", "datacite", "openlibrary"],
   normalizedCsl: true,
-  styles: ["apa", "vancouver", "mla", "harvard", "ieee", "chicago"],
+  styles: ["apa", "apa6", "vancouver", "mla", "harvard", "ieee", "chicago"],
   ai: "existing-local-ocr-or-gemini-fallback-only",
   requiresMendeley: false,
   requiresGpt: false,

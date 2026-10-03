@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     if (!auth.user) return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
     const body = await req.json();
     const style = String(body?.style || "apa") as ProcessorStyle;
-    if (!["apa", "vancouver", "mla", "harvard", "ieee", "chicago"].includes(style)) {
+    if (!["apa", "apa6", "vancouver", "mla", "harvard", "ieee", "chicago"].includes(style)) {
       return NextResponse.json({ error: "Gaya sitasi tidak didukung." }, { status: 400 });
     }
     const ids: string[] = [...new Set<string>((Array.isArray(body?.sourceFileIds) ? body.sourceFileIds : []).map(String))];
