@@ -41,6 +41,7 @@ import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServ
 import { fetchScholarlyEvidence, fullTextPromptContext } from "@/lib/scholarlyFullText";
 import { answerCitationInventory, publicCitationPrompt } from "@/lib/answerCitationServer";
 import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice, identityInEntry, readableEvidenceLabels, userFormulaProposal, userFormulaPrompt, userFormulaNotice } from "@/lib/answerEvidence";
+import { recoverDocumentBibliography, monographInstruction } from "@/lib/documentEvidence";
 import { citationMetadataReady } from "@/lib/referenceMetadata";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 import { rerankKnowledge } from "@/lib/documentEnhancements";
@@ -1342,7 +1343,10 @@ export async function POST(req: NextRequest) {
       const providerIdentities=groundingSources.filter(item=>/^https?:\/\//i.test(item.uri)).map(item=>({title:item.title,uri:item.uri,formatted:`[${item.title}](${item.uri})`}));
       const guarded=guardAnswerBibliography(readableEvidenceLabels(text,paperEvidence.length),[...citations,...providerIdentities],citationStyle,quantitativePaper&&!suppliedFormula,blockedCitations);
       const skipFormatWarnings=/\btanpa (?:referensi|sitasi|daftar pustaka)\b|\bno (?:references|citations)\b/i.test(question);
-      return {answer:suppliedFormula&&!guarded.blocked?userFormulaNotice+"\n\n"+guarded.text:guarded.text,citationWarnings:[...guarded.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(guarded.text,citationStyle,citationOutputs))]};
+      const recovered=!guarded.blocked&&!skipFormatWarnings&&citationStyle!=="none"&&/\b(?:daftar pustaka|references|bibliography|monografi|monographs?)\b/i.test(question)
+        ? recoverDocumentBibliography(guarded.text,citations,blockedCitations)
+        : {text:guarded.text,warnings:[] as string[]};
+      return {answer:suppliedFormula&&!guarded.blocked?userFormulaNotice+"\n\n"+recovered.text:recovered.text,citationWarnings:[...guarded.warnings,...recovered.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(recovered.text,citationStyle,citationOutputs))]};
     };
     const databaseFormulaEvidence=data.some((row:any)=>row.bibliographic_metadata?.type==="journal_article"&&citationMetadataReady(row.bibliographic_metadata)&&/\b(?:table|tabel|formulation|formulasi)\b/i.test(String(row.raw_content||row.content||""))&&/\bmg\b/i.test(String(row.raw_content||row.content||"")));
     if(quantitativePaper&&!suppliedFormula&&!paperEvidence.some(item=>/\b(?:table|composition|formulation)\b/i.test(item.text)&&/\bmg\b/i.test(item.text))&&!databaseFormulaEvidence){
@@ -1431,7 +1435,8 @@ export async function POST(req: NextRequest) {
         ? '\n\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:"cose"|"breadthfirst"|"circle"|"grid"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok.'
         : "\n\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
       : "";
-    const prompt = adaptiveLengthPrompt+"\n\n"+evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+fullTextContext+publicCitationPrompt(citations)+buildPrompt({
+    const documentEvidencePrompt=monographInstruction(question);
+    const prompt = adaptiveLengthPrompt+"\n\n"+evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+documentEvidencePrompt+visualLearningInstruction+publicCitationPrompt(citations)+citationMetadataInventory+deterministicCitationInventory+fullTextContext+buildPrompt({
       question,
       historyText,
       context,
@@ -1444,7 +1449,7 @@ export async function POST(req: NextRequest) {
       citationStyle,
       citationOutputs,
       artifactFormat,
-    }) + citationMetadataInventory + deterministicCitationInventory + scholarlyContext + visualLearningInstruction +
+    }) + scholarlyContext +
       (/\b(eksipien|excipients?)\b/i.test(question.trim()) && data.length
         ? "\n\nPRIORITAS RELEVANSI: Untuk fungsi atau pemilihan eksipien tablet, gunakan monografi eksipien yang benar-benar cocok dari Handbook of Pharmaceutical Excipients atau referensi eksipien lain. Farmakope dipakai untuk fakta zat aktif/spesifikasi yang relevan, bukan sebagai satu-satunya sumber eksipien. Eksipien yang tidak menyebut PCT tetap bisa relevan sebagai bahan tambahan, tetapi jangan mengklaim formula tablet PCT sudah terbukti tanpa sumber formulasi. Sitasi hanya halaman yang memuat fakta terkait."
         : "") +
@@ -1831,7 +1836,7 @@ export async function POST(req: NextRequest) {
         citationStyle,
         citationOutputs,
         artifactFormat,
-      }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction + evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+publicCitationPrompt(citations);
+      }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction + evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+documentEvidencePrompt+publicCitationPrompt(citations);
 
       const fallbackPreflight=sharedGemini?await checkAiCredits(supabase,"ask",aiMode):null;
       if(fallbackPreflight&&!fallbackPreflight.allowed)return NextResponse.json(aiQuotaError(fallbackPreflight),{status:429});
