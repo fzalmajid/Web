@@ -47,13 +47,18 @@ export function matchesRequiredTopic(title: string, requiredTerm: string) {
 }
 
 /** Identity matching alone does not satisfy the user's scope. */
-export function withinResearchScope(hit:{title:string;abstract?:string|null;year?:number|null},question:string,nowYear=new Date().getFullYear()){
+export function withinResearchScope(hit:{title:string;abstract?:string|null;year?:number|null;workType?:string},question:string,nowYear=new Date().getFullYear()){
   const plan=scientificQueryPlan(question);
   if(!matchesRequiredTopic(hit.title,plan.requiredTerm))return false;
   const conventional=/\b(?:konvensional|conventional|lepas segera|immediate.release)\b/i.test(question);
   if(conventional&&/sustained.release|controlled.release|extended.release|floating|gastro.retenti|mucoadhesive/i.test(hit.title))return false;
   const years=/\b(\d{1,2})\s*(?:tahun|years?)\s*(?:terakhir|last|recent)\b/i.exec(question)?.[1];
-  if(years&&(!hit.year||hit.year<nowYear-Number(years)||hit.year>nowYear))return false;
+  const book=hit.workType==="book"||hit.workType==="chapter";
+  // In mixed requests journal recency must not exclude the requested books.
+  // An explicit book-specific age requirement still applies.
+  const bookYears=/\b(?:buku|books?|bab buku|chapters?)\s+(?:(?:terbit(?:an)?|published|dalam|within|terbaru)\s+)*(\d{1,2})\s*(?:tahun|years?)\s*(?:terakhir|last|recent)\b/i.exec(question)?.[1];
+  const age=book?bookYears:years;
+  if(age&&(!hit.year||hit.year<nowYear-Number(age)||hit.year>nowYear))return false;
   return true;
 }
 

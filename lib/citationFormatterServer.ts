@@ -4,13 +4,15 @@ import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { citationMetadataReady, normalizeDoi, normalizeIsbn, isbnIdentity } from "@/lib/referenceMetadata";
 import type { CitationStyle } from "@/lib/citations";
 import cslStyles from "@/lib/cslStyles.json";
+import cslApa6 from "@/lib/cslApa6.json";
 
 export type ProcessorStyle = Exclude<CitationStyle, "none">;
 const styleTemplates: Record<ProcessorStyle, string> = {
-  apa: "apa", vancouver: "vancouver", mla: "modern-language-association",
+  apa: "apa", apa6: "apa-6th-edition", vancouver: "vancouver", mla: "modern-language-association",
   chicago: "chicago-author-date", harvard: "harvard-university-of-leeds", ieee: "ieee",
 };
 for (const [name, xml] of Object.entries(cslStyles)) plugins.config.get("@csl").styles.add(name, xml);
+plugins.config.get("@csl").styles.add("apa-6th-edition", cslApa6.style);
 
 function splitPerson(value: string): NonNullable<ReferenceMetadata["author_details"]>[number] | null {
   let name = String(value || "").trim();

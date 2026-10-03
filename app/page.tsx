@@ -232,13 +232,14 @@ const nodeColors = [
   { value: "slate", label: "Slate" },
 ];
 
-type CitationStyle = "none" | "apa" | "mla" | "harvard" | "vancouver" | "ieee" | "chicago";
+type CitationStyle = "none" | "apa" | "apa6" | "mla" | "harvard" | "vancouver" | "ieee" | "chicago";
 type CitationOutput = "in-text" | "bibliography";
 type CitationPrefs = { style: CitationStyle; outputs: CitationOutput[] };
 
 const citationStyleOptions: Array<{ value: CitationStyle; label: string; preview: string }> = [
   { value: "none", label: "Tanpa sitasi", preview: "Tidak ada marker" },
   { value: "apa", label: "APA 7", preview: "(Nama, Tahun) · (Nama et al., Tahun)" },
+  { value: "apa6", label: "APA 6", preview: "(Nama, Tahun) · aturan APA edisi 6" },
   { value: "mla", label: "MLA 9", preview: "(Nama Halaman) · (Halaman)" },
   { value: "harvard", label: "Harvard (Leeds)", preview: "(Nama, Tahun) · (Nama et al., Tahun)" },
   { value: "vancouver", label: "Vancouver", preview: "(1) · (2)" },

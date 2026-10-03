@@ -12,10 +12,38 @@ export function citationAuthorYearKeys(metadata:ReferenceMetadata){
   const csl=referenceToCsl(metadata);
   const year=csl.issued?.["date-parts"]?.[0]?.[0];
   const authors=(csl.author||[]).map(name=>String(name?.family||name?.literal||"").trim()).filter(Boolean);
-  if(!year||!authors.length)return [];
-  if(authors.length===1)return [`${authors[0]} ${year}`];
-  if(authors.length===2)return ["&","and","dan"].map(joiner=>`${authors[0]} ${joiner} ${authors[1]} ${year}`);
-  return [`${authors[0]} et al ${year}`,`${authors[0]} dkk ${year}`];
+  if(!year)return [];
+  const keys=authors.length===1?[`${authors[0]} ${year}`]:authors.length===2
+    ?["&","and","dan"].map(joiner=>`${authors[0]} ${joiner} ${authors[1]} ${year}`)
+    :authors.length?[`${authors[0]} et al ${year}`,`${authors[0]} dkk ${year}`]:[];
+  if(authors.length>=3)for(const joiner of ["&","and","dan"]){
+    keys.push(`${authors.slice(0,-1).join(", ")} ${joiner} ${authors[authors.length-1]} ${year}`);
+  }
+  // Aliases describe an already retrieved identity, never create a book/edition.
+  // Collisions across works are rejected by omittedAuthorYearReferences.
+  if(csl.type==="book"||csl.type==="chapter"){
+    const title=csl.title||"";
+    const aliases=[title];
+    if(/farmakope herbal indonesia/i.test(title))aliases.push("FHI");
+    else if(/farmakope indonesia/i.test(title))aliases.push("FI");
+    if(/handbook of pharmaceutical excipients/i.test(title))aliases.push("HOPE","HPE");
+    const organization=metadata.audit?.basis==="manual"||Boolean(metadata.provenance?.corporate_author&&metadata.provenance.corporate_author.confidence>=.9&&!["filename","mendeley"].includes(metadata.provenance.corporate_author.source))?metadata.corporate_author:"";
+    if(organization){
+      aliases.push(organization);
+      if(/kementerian kesehatan/i.test(organization))aliases.push("Kemenkes","Kemenkes RI","Kementerian Kesehatan RI","Kementerian Kesehatan Republik Indonesia");
+      if(/departemen kesehatan/i.test(organization))aliases.push("Depkes","Depkes RI","Departemen Kesehatan RI","Departemen Kesehatan Republik Indonesia");
+    }
+    const authorsVerified=metadata.audit?.basis==="manual"||Boolean(metadata.provenance?.authors&&metadata.provenance.authors.confidence>=.9&&!["filename","mendeley"].includes(metadata.provenance.authors.source));
+    if(authorsVerified)for(const name of metadata.authors||[]){
+      if(/kementerian kesehatan/i.test(name))aliases.push(name,"Kemenkes","Kemenkes RI","Kementerian Kesehatan RI","Kementerian Kesehatan Republik Indonesia");
+      if(/departemen kesehatan/i.test(name))aliases.push(name,"Depkes","Depkes RI","Departemen Kesehatan RI","Departemen Kesehatan Republik Indonesia");
+    }
+    for(const alias of aliases.filter(Boolean)){
+      keys.push(`${alias} ${year}`);
+      if(csl.edition)keys.push(`${alias} ${csl.edition} ${year}`);
+    }
+  }
+  return [...new Set(keys)];
 }
 
 export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:CitationStyle,evidence:ScholarlyEvidence[]=[]):CitationIdentity[]{

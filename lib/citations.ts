@@ -1,4 +1,4 @@
-export type CitationStyle = "none" | "apa" | "mla" | "harvard" | "vancouver" | "ieee" | "chicago";
+export type CitationStyle = "none" | "apa" | "apa6" | "mla" | "harvard" | "vancouver" | "ieee" | "chicago";
 import { citationMetadataReady } from "./referenceMetadata";
 export type CitationOutput = "in-text" | "bibliography";
 
@@ -9,6 +9,7 @@ export const CITATION_STYLE_GUIDES: Record<Exclude<CitationStyle, "none">, {
   name: string; url: string; secondaryUrl?: string;
 }> = {
   apa: { name: "APA Style — panduan gratis sitasi dan contoh referensi APA 7", url: "https://apastyle.apa.org/style-grammar-guidelines/references/examples", secondaryUrl: "https://apastyle.apa.org/style-grammar-guidelines/citations/basic-principles" },
+  apa6: { name: "CSL — American Psychological Association 6th edition", url: "https://github.com/citation-style-language/styles/blob/master/apa-6th-edition.csl" },
   mla: { name: "MLA Style Center — panduan gratis Works Cited MLA 9", url: "https://style.mla.org/works-cited/works-cited-a-quick-guide/", secondaryUrl: "https://style.mla.org/in-text-citations-overview/" },
   harvard: { name: "University of Leeds — Leeds Harvard, pedoman gratis", url: "https://library.leeds.ac.uk/info/1402/referencing/50/leeds_harvard_introduction/1", secondaryUrl: "https://library.leeds.ac.uk/referencing-examples/9/leeds-harvard/73/book" },
   vancouver: {
@@ -22,7 +23,7 @@ export const CITATION_STYLE_GUIDES: Record<Exclude<CitationStyle, "none">, {
 
 
 
-const styles = new Set<CitationStyle>(["none", "apa", "mla", "harvard", "vancouver", "ieee", "chicago"]);
+const styles = new Set<CitationStyle>(["none", "apa", "apa6", "mla", "harvard", "vancouver", "ieee", "chicago"]);
 const outputs = new Set<CitationOutput>(["in-text", "bibliography"]);
 
 export function normalizeCitationOptions(body: any) {
@@ -75,6 +76,12 @@ export function citationInstruction(
   }
 
   const styleRules: Record<Exclude<CitationStyle, "none">, string[]> = {
+    apa6: [
+      "GAYA: APA 6th edition, bukan APA 7. Gunakan keluaran CSL_EXACT untuk entri bibliografi.",
+      "IN-TEXT: author-date. Satu penulis (Surname, 2020); dua (Surname & Surname, 2020). Untuk 3–5 penulis sebut semua pada sitasi pertama, lalu penulis pertama et al.; 6+ penulis pertama et al. sejak awal. Jangan mengarang nama untuk melengkapi aturan.",
+      "REFERENCES: alfabetis. Hingga 7 penulis cantumkan semua; 8+ cantumkan 6 pertama, ellipsis, dan terakhir. Buku memakai edisi serta tempat/penerbit bila metadata tersedia; jangan mengarang kota. Jangan menerapkan batas 20 penulis APA 7.",
+      "LOCATOR: gunakan p./pp. untuk halaman cetak yang tersedia. Identitas penulis/tahun dan suffix a/b harus konsisten dengan entri sumber yang sama. Jangan mengarang locator atau DOI.",
+    ],
     apa: [
       "GAYA: APA 7th edition.",
       "IN-TEXT: gunakan author-date. Satu penulis: (Surname, 2020). Dua penulis parenthetical: (Surname & Surname, 2020); narrative memakai and di teks bahasa Inggris. Tiga atau lebih: (Surname et al., 2020) sejak sitasi pertama, KECUALI penyingkatan menyebabkan dua karya berbeda menjadi ambigu; perluas nama hingga berbeda.",

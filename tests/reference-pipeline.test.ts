@@ -73,9 +73,9 @@ test("explicit title is checked against exact identifier to avoid citing another
   assert.equal(referenceIdentity(input, article).accepted, false);
 });
 
-test("all six styles render locally; APA 7 and Vancouver differ", () => {
+test("all seven styles render locally; APA 7 and Vancouver differ", () => {
   const previews = citationPreviews(confirmed());
-  assert.equal(Object.keys(previews).length, 6);
+  assert.equal(Object.keys(previews).length, 7);
   for (const [style, text] of Object.entries(previews)) assert.ok(text && text.includes("Watson"), style);
   assert.ok(previews.apa?.includes("(1953)"));
   assert.notEqual(previews.apa, previews.vancouver);

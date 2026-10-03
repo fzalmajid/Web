@@ -22,6 +22,23 @@ export function omittedAuthorYearReferences(body:string,inventory:CitationIdenti
   }));
 }
 
+/** Flag unresolved parenthetical author-year markers; never synthesize metadata. */
+function unresolvedCitationWarnings(body:string,inventory:CitationIdentity[]){
+  const unresolved:string[]=[];
+  const signatures=new Map<string,Set<CitationIdentity>>();
+  for(const item of inventory)for(const raw of item.authorYearKeys||[]){
+    const key=normalize(raw);const works=signatures.get(key)||new Set<CitationIdentity>();works.add(item);signatures.set(key,works);
+  }
+  for(const group of body.matchAll(/\(([^()\n]{1,240})\)/g))for(const part of group[1].split(";")){
+    if(!/^\s*[\p{L}]/u.test(part)||!/(?:18|19|20|21)\d{2}/.test(part))continue;
+    const marker=` ${normalize(part)} `;
+    const matches=new Set<CitationIdentity>();
+    for(const [key,works] of signatures)if(marker.includes(` ${key} `))for(const work of works)matches.add(work);
+    if(matches.size!==1)unresolved.push(part.trim());
+  }
+  return unresolved.length?["Sitasi dalam teks belum dapat dipasangkan secara unik dengan inventaris sumber: "+[...new Set(unresolved)].slice(0,8).join("; ")+". Identitas/edisi perlu diperiksa; entri tidak dikarang."]:[];
+}
+
 export function requiresQuantitativePaperEvidence(question:string){
   return /\b(?:formulasi|formulation|resep|formula)\b/i.test(question)&&/\b(?:mg|milligram|miligram|jumlah|komposisi|composition|eksipien|excipients?)\b/i.test(question)&&/\b(?:jurnal|journal|paper|tervalidasi|tervalida[i]?|validated)\b/i.test(question);
 }
@@ -73,8 +90,15 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
   const fabricated=/pustaka internal farmasi|referensi internal (?:ai|model)|internal (?:ai|model) knowledge library/i.test(answer);
   if(fabricated)return {text:"Jawaban ditahan karena memuat sumber yang tidak dapat dibuktikan. Tidak ada referensi bernama ‘Pustaka Internal Farmasi’ dalam hasil penelusuran. Diperlukan sumber nyata sebelum komposisi atau sitasi tersebut dapat digunakan.",warnings:["Referensi rekaan diblokir; jawaban tidak boleh dipakai sebagai resep dari jurnal."],blocked:true};
   if(!match){
+    const eligible=inventory.filter(item=>!blocked.some(conflict=>identityInEntry(`${item.title} ${item.uri||""} ${item.doi||""}`,conflict)));
+    const cited=style!=="none"&&style!=="ieee"&&style!=="vancouver"?omittedAuthorYearReferences(answer,eligible,[]):[];
+    if(cited.length){
+      // Restore actual body citations even when the model omitted the heading.
+      // Reuse the same canonical formatter/locator warnings, never a reading list.
+      return guardAnswerBibliography(answer+"\n\nReferences:\n"+cited.map(item=>item.doi?`https://doi.org/${item.doi}`:item.title).join("\n"),cited,style,strict,blocked);
+    }
     if(strict&&style!=="none")return {text:"Jawaban belum memiliki referensi jurnal yang dapat dicocokkan. Komposisi tidak ditampilkan sebagai resep tervalidasi. Gunakan PDF publik yang tersedia di panel sumber untuk memeriksa tabel bahan; jangan gunakan angka tanpa asal sumber yang jelas.",warnings:["Jawaban kuantitatif tanpa referensi sumber diblokir."],blocked:true};
-    return {text:answer,warnings:[] as string[],blocked:false};
+    return {text:answer,warnings:style!=="none"&&style!=="ieee"&&style!=="vancouver"?unresolvedCitationWarnings(answer,eligible):[],blocked:false};
   }
   const before=answer.slice(0,match.index).trim();
   const tail=answer.slice(match.index+match[0].length).trim();
@@ -112,6 +136,7 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
     return numeric&&!unknown.length?label+canonical.replace(/^(?:\[\d+\]|\d+[.)])\s*/,""):canonical;
   });
   const warnings=unknown.length?["Entri referensi yang tidak cocok dengan inventaris sumber telah dihapus; dukungan klaim tetap perlu diperiksa."]:[];
+  if(!numeric&&style!=="none")warnings.push(...unresolvedCitationWarnings(before,eligible));
   if(used.some(item=>(item.workType==="book"||item.workType==="chapter")&&!item.printedPages?.length))warnings.push("Ada buku tanpa halaman cetak terverifikasi; nomor PDF tidak digunakan sebagai pengganti.");
   return {text:before+(references.length?`\n\n*${style==="mla"?"Works Cited":"References"}:*\n`+references.join("\n\n"):"\n\nTidak ada referensi formal yang cocok dengan sumber hasil penelusuran."),warnings,blocked:false};
 }
