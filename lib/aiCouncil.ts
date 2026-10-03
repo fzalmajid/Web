@@ -13,6 +13,7 @@ export type CouncilGeneration = {
   model: string;
   usage?: CouncilUsage | null;
   webSources?: Array<{ title: string; uri: string }>;
+  finishReason?: string;
 };
 
 function clip(value: string, max: number) {

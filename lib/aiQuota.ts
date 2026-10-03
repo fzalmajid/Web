@@ -122,7 +122,7 @@ export async function checkAiCredits(
 
 export function aiModeInstruction(mode: AiMode) {
   if (mode === "high") {
-    return "Mode High: teliti seluruh konteks yang relevan, hubungkan beberapa bagian database bila perlu, cek konsistensi istilah, dan berikan hasil paling lengkap namun tetap hanya berdasarkan sumber.";
+    return "Mode High: teliti seluruh konteks yang relevan, hubungkan beberapa bagian database bila perlu, dan cek konsistensi istilah/sumber. Panjang jawaban menyesuaikan kebutuhan user: sederhana tetap singkat, dokumen lengkap tetap utuh.";
   }
   if (mode === "medium") {
     return "Mode Medium: jawab dengan penjelasan cukup mendalam, hubungkan konteks yang relevan, dan tetap ringkas bila fakta sudah jelas.";
@@ -130,7 +130,7 @@ export function aiModeInstruction(mode: AiMode) {
   if (mode === "simple") {
     return "Mode Simple harus diproses tanpa Gemini.";
   }
-  return "Mode Instant: utamakan jawaban cepat, langsung, singkat, dan hanya ambil fakta yang paling relevan.";
+  return "Mode Instant: utamakan jawaban langsung dengan fakta yang paling relevan. Panjang menyesuaikan permintaan user; jangan memendekkan laporan atau menghilangkan bagian yang diminta demi mode cepat.";
 }
 
 export async function consumeAiCredits(
