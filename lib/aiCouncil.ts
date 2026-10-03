@@ -1,5 +1,5 @@
 import { aiCouncilPlan, type AiCouncilStage, type AiExperienceMode } from "@/lib/aiOrchestration";
-import { openRouterFreeConfigured, openRouterFreeGenerate } from "@/lib/openRouterFree";
+import {routeCouncilStage,type CouncilRoute} from "@/lib/councilRouter";
 
 export type CouncilUsage = {
   inputTokens?: number;
@@ -33,6 +33,7 @@ function stagePrompt(stage: AiCouncilStage, basePrompt: string, notes: string) {
   };
   return [
     "PERAN ANDA: " + instructions[stage],
+    stage!=="synthesizer"?"Helper ini hanya menganalisis konteks yang diberikan, tanpa alat browsing. URL terlihat bukan bukti bahwa halaman sudah dibaca. Jangan mengklaim pencarian/pembacaan tambahan.":"",
     "",
     "PERMINTAAN DAN KONTEKS UTAMA:",
     clip(basePrompt, stage === "synthesizer" ? 100000 : 22000),
@@ -51,6 +52,8 @@ export async function runAiCouncil(options: {
   if (!plan.stages.length) return null;
 
   const completed: Array<{ stage: AiCouncilStage; generation: CouncilGeneration }> = [];
+  const routes:CouncilRoute[]=[];
+  const helperDeadline=Date.now()+35000;
   const allWebSources: Array<{ title: string; uri: string }> = [];
   const helperStatus = () => {
     const helpers = completed.filter(item => item.stage !== "synthesizer");
@@ -58,22 +61,10 @@ export async function runAiCouncil(options: {
   };
 
   async function run(stage: AiCouncilStage, notes: string, withWeb = false, allowFree = true) {
-    let generation: CouncilGeneration;
-    if (stage!=="synthesizer" && openRouterFreeConfigured()) {
-      try {
-        const free = await openRouterFreeGenerate({
-          prompt: stagePrompt(stage, options.basePrompt, notes),
-          maxTokens: stage === "critic" ? 1200 : 900,
-        });
-        generation = free;
-      } catch {
-        generation = localStage(stage,options.basePrompt,notes);
-      }
-    } else if(stage==="synthesizer") {
-      generation = await options.generate(stagePrompt(stage, options.basePrompt, notes), withWeb);
-    } else {
-      generation=localStage(stage,options.basePrompt,notes);
-    }
+    const routed=await routeCouncilStage({stage,prompt:stagePrompt(stage,options.basePrompt,notes),withWeb,deadline:helperDeadline,
+      usedModels:completed.map(item=>item.generation.model.replace(/^openrouter-free:/,"")),
+      primary:options.generate,local:()=>localStage(stage,options.basePrompt,notes)});
+    const generation=routed.generation;routes.push(routed.route);
     completed.push({ stage, generation });
     allWebSources.push(...(generation.webSources || []));
     if(generation.model!=="local-structural-helper")await options.recordUsage?.(generation, stage);
@@ -90,7 +81,7 @@ export async function runAiCouncil(options: {
       options.useWeb,
       false
     );
-    return { result: final, stages: completed.map((item) => item.stage), webSources: allWebSources, helpers: helperStatus() };
+    return { result: final, stages: completed.map((item) => item.stage), webSources: allWebSources, helpers: helperStatus(), routes };
   }
 
   const web = options.useWeb ? await run("web-researcher", planner.text, true, false) : null;
@@ -112,7 +103,7 @@ export async function runAiCouncil(options: {
     options.useWeb,
     false
   );
-  return { result: final, stages: completed.map((item) => item.stage), webSources: allWebSources, helpers: helperStatus() };
+  return { result: final, stages: completed.map((item) => item.stage), webSources: allWebSources, helpers: helperStatus(), routes };
 }
 
 function localStage(stage:AiCouncilStage,base:string,notes:string):CouncilGeneration{
