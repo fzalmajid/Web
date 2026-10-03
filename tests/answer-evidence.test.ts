@@ -30,7 +30,7 @@ test("unknown journal identities cannot become validated recipes",()=>{
   assert.equal(result.blocked,true);assert.doesNotMatch(result.text,/75 mg/);
 });
 test("known bibliography uses canonical retrieved metadata",()=>{
-  const result=guardAnswerBibliography("Study result.\nReferences:\nWrong Author (2020). Real article title. https://doi.org/10.1/real",[{title:"Real article title",doi:"10.1/real",formatted:"Actual Author (2024). Real article title. https://doi.org/10.1/real"}],"apa",true);
+  const result=guardAnswerBibliography("Study result (Actual Author, 2024).\nReferences:\nWrong Author (2020). Real article title. https://doi.org/10.1/real",[{title:"Real article title",doi:"10.1/real",formatted:"Actual Author (2024). Real article title. https://doi.org/10.1/real",authorYearKeys:["Actual Author 2024"]}],"apa",true);
   assert.equal(result.blocked,false);assert.match(result.text,/Actual Author \(2024\)/);assert.doesNotMatch(result.text,/Wrong Author/);
 });
 test("publisher PDF discovery does not invent mirrors or follow bibliography links",()=>{
@@ -40,18 +40,18 @@ test("publisher PDF discovery does not invent mirrors or follow bibliography lin
   assert.ok(selectEvidencePages([{page:1,text:"Introduction".repeat(1000)},{page:2,text:"Table 1: composition mg 26 4 64 102 4"}],900).some(page=>page.page===2&&page.text.includes("26 4 64 102 4")));
 });
 test("public full-text links are attached only to matched references actually read",()=>{
-  const inventory=[{title:"Actual article about learning",doi:"10.1000/read",formatted:"Author (2024). Actual article about learning. https://doi.org/10.1000/read",readSource:{uri:"https://example.org/article.pdf",format:"full-text-pdf",pages:[3,5]}},{title:"Other article metadata only",doi:"10.1000/catalog",formatted:"Other (2020). Other article metadata only.",catalogOnly:true}];
-  const answer="Summary.\nReferences:\nActual article about learning. https://doi.org/10.1000/read\nOther article metadata only. https://doi.org/10.1000/catalog";
+  const inventory=[{title:"Actual article about learning",doi:"10.1000/read",formatted:"Author (2024). Actual article about learning. https://doi.org/10.1000/read",authorYearKeys:["Author 2024"],readSource:{uri:"https://example.org/article.pdf",format:"full-text-pdf",pages:[3,5]}},{title:"Other article metadata only",doi:"10.1000/catalog",formatted:"Other (2020). Other article metadata only.",authorYearKeys:["Other 2020"],catalogOnly:true}];
+  const answer="Summary (Author, 2024; Other, 2020).\nReferences:\nActual article about learning. https://doi.org/10.1000/read\nOther article metadata only. https://doi.org/10.1000/catalog";
   const result=guardAnswerBibliography(answer,inventory,"apa");
   assert.equal(result.blocked,false);assert.match(result.text,/Teks lengkap publik — PDF dibaca; halaman PDF 3, 5/);assert.match(result.text,/https:\/\/example.org\/article.pdf/);assert.match(result.text,/metadata\/abstrak; teks lengkap belum dibaca/);
   const unused=guardAnswerBibliography("References:\nOther article metadata only.",inventory,"apa");assert.doesNotMatch(unused.text,/article.pdf/);
   const unsafe=guardAnswerBibliography("References:\nActual article about learning.",[{...inventory[0],readSource:{uri:"javascript:alert(1)",format:"full-text-pdf",pages:[3]}}],"apa");assert.doesNotMatch(unsafe.text,/javascript:|Teks lengkap publik/);
 });
 test("repository alternatives require a real catalog PMCID and never become read or OA claims",()=>{
-  const hit:any={title:"Actual public repository article",provider:"europepmc",doi:"10.1000/article",authors:[],pmcid:"PMC4808484",uri:"https://doi.org/10.1000/article",openAccess:false};
+  const hit:any={title:"Actual public repository article",provider:"europepmc",doi:"10.1000/article",authors:["Author Example"],year:2024,pmcid:"PMC4808484",uri:"https://doi.org/10.1000/article",openAccess:false};
   const inventory=answerCitationInventory([hit],[],"none");
   assert.deepEqual(inventory[0].repositoryLinks?.map(item=>item.uri),["https://pmc.ncbi.nlm.nih.gov/articles/PMC4808484/","https://europepmc.org/articles/PMC4808484"]);
-  const result=guardAnswerBibliography("Summary.\nReferences:\nActual public repository article.",inventory,"apa");
+  const result=guardAnswerBibliography("Summary (Example, 2024).\nReferences:\nActual public repository article.",inventory,"apa");
   assert.match(result.text,/Artikel di PMC/);assert.match(result.text,/teks lengkap belum dibaca/);assert.doesNotMatch(result.text,/PDF dibaca|open.access=yes/);
   assert.deepEqual(answerCitationInventory([{...hit,pmcid:"PMC4808484/../../wrong"}],[],"none")[0].repositoryLinks,[]);
 });
