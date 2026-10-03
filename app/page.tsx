@@ -9,6 +9,7 @@ import AnswerProse from "@/components/AnswerProse";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import katex from "katex";
 import "katex/contrib/mhchem";
+import { scientificRichPattern } from "@/lib/scientificNotation";
 import { createPortal } from "react-dom";
 import type { ClipboardEvent as ReactClipboardEvent, FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
@@ -8476,8 +8477,7 @@ function RichTextPlain({ text, className = "" }: { text: string; className?: str
   const parts: any[] = [];
   // Parse scientific scripts before WA-style emphasis. This makes r^{2}, C_2,
   // t_{1/2}, and π^* render as actual super/subscript instead of leaking ^/_.
-  const pattern =
-    /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_|\^\{[^{}\n]+\}|\^\([^()\n]+\)|\^[*+\-0-9A-Za-z]+|_\{[^{}\n]+\}|_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)(?!_))/g;
+  const pattern = scientificRichPattern();
   let last = 0;
   let match: RegExpExecArray | null;
   let key = 0;
