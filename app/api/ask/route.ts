@@ -747,6 +747,7 @@ function buildPrompt({
     citationInstruction(citationStyle, citationOutputs),
     aiModeInstruction(aiMode),
     "- Jawab dengan jelas dan terstruktur.",
+    "- Untuk usulan formulasi, jangan menebak kepanjangan kode bahan, identitas koformer kokristal, bentuk serbuk/ekstrak, atau ekuivalen API. Gunakan hanya identitas yang dinyatakan user atau terlihat pada sumber cocok; bila ambigu, tandai belum dikonfirmasi.",
     "- Untuk rumus matematika, gunakan LaTeX dalam $...$ atau $$...$$ agar dirender sebagai rumus. Jangan gunakan garis bawah Markdown untuk subskrip di luar delimiter matematika.",
     "- Jika user meminta tabel, berikan tabel Markdown dengan baris header dan pemisah | --- |, bukan daftar berpoin yang disebut tabel. Jangan bungkus tabel dalam blok kode.",
     "- Bila diminta studi primer, jangan hitung artikel review/tinjauan/meta-analisis sebagai eksperimen primer. Desain, jumlah sampel dan hasil hanya boleh dinyatakan bila terlihat dalam abstrak atau full text yang tersedia; metadata judul saja tidak cukup. Bila studi primer yang terbukti kurang dari jumlah yang diminta, nyatakan kekurangannya, jangan mengisi dengan review atau tebakan.",
@@ -969,7 +970,7 @@ export async function POST(req: NextRequest) {
 
     const lengthPlan = planAnswerLength(question, aiSelection.effort);
     const adaptiveLengthPrompt = answerLengthInstruction(lengthPlan);
-    const generationLength = { responseLength: undefined, maxOutputTokens: lengthPlan.maxOutputTokens };
+    const generationLength = { responseLength: undefined, maxOutputTokens: lengthPlan.maxOutputTokens, maxThinkingTokens: lengthPlan.kind === "document" ? 8192 : undefined, retryTruncatedDocument: lengthPlan.kind === "document" };
 
     const useAi = selectedSources.includes("ai");
     const useDatabase = selectedSources.includes("database");
