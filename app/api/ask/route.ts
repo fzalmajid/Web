@@ -47,6 +47,7 @@ import { rerankKnowledge } from "@/lib/documentEnhancements";
 import { normalizeAiExperienceMode } from "@/lib/aiOrchestration";
 import { runAiCouncil, type CouncilGeneration } from "@/lib/aiCouncil";
 import { researchWeb, webResearchPromptContext, webResearchSources } from "@/lib/webResearch";
+import { planAnswerLength, answerLengthInstruction, answerLengthStatus } from "@/lib/answerLength";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -965,6 +966,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Pilih minimal satu sumber: AI, Database, atau Web." }, { status: 400 });
     }
 
+    const lengthPlan = planAnswerLength(question, aiSelection.effort);
+    const adaptiveLengthPrompt = answerLengthInstruction(lengthPlan);
+    const generationLength = { responseLength: undefined, maxOutputTokens: lengthPlan.maxOutputTokens };
+
     const useAi = selectedSources.includes("ai");
     const useDatabase = selectedSources.includes("database");
     const useWeb = selectedSources.includes("web");
@@ -1422,7 +1427,7 @@ export async function POST(req: NextRequest) {
         ? '\n\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:"cose"|"breadthfirst"|"circle"|"grid"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok.'
         : "\n\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
       : "";
-    const prompt = evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+fullTextContext+publicCitationPrompt(citations)+buildPrompt({
+    const prompt = adaptiveLengthPrompt+"\n\n"+evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+fullTextContext+publicCitationPrompt(citations)+buildPrompt({
       question,
       historyText,
       context,
@@ -1463,8 +1468,7 @@ export async function POST(req: NextRequest) {
           prompt: targetPrompt,
           system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
           effort: casualAiQuestion && aiSelection.effort !== "none" ? "low" : aiSelection.effort,
-          responseLength: aiSelection.length,
-          maxOutputTokens: casualAiQuestion ? 512 : undefined,
+          ...generationLength,
           web: withWeb,
           attachments: externalRawAttachments(rawAssets),
         });
@@ -1477,7 +1481,7 @@ export async function POST(req: NextRequest) {
           prompt: targetPrompt,
           system: "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
           effort: aiSelection.effort,
-          responseLength: aiSelection.length,
+          ...generationLength,
           web: withWeb,
           attachments: externalRawAttachments(rawAssets),
         });
@@ -1495,7 +1499,8 @@ export async function POST(req: NextRequest) {
           allowedFallbackModels: debugModel ? undefined : ["gemini-3.5-flash-lite","gemini-3.5-flash","gemini-2.5-flash"],
           maxAttempts: debugModel ? 1 : 3,
           effort: aiSelection.effort,
-          responseLength: aiSelection.length,
+          ...generationLength,
+          outputBudgetMultiplier: 1,
           apiKey: geminiAuth.apiKey,
           accessToken: geminiAuth.accessToken,
           projectId: geminiAuth.projectId,
@@ -1519,7 +1524,8 @@ export async function POST(req: NextRequest) {
             googleSearch: true,
             models: modelPlanForSelection("gemini-2.5-flash", aiMode, "web"),
             effort: "none",
-            responseLength: aiSelection.length,
+            ...generationLength,
+            outputBudgetMultiplier: 1,
             apiKey: geminiAuth.apiKey,
             accessToken: geminiAuth.accessToken,
             projectId: geminiAuth.projectId,
@@ -1550,7 +1556,7 @@ export async function POST(req: NextRequest) {
             prompt,
             system: "Anda adalah tutor Ruang Belajar. Gunakan Web sebagai sumber publik dan hormati sumber lain yang dipilih user.",
             effort: "none",
-            responseLength: aiSelection.length,
+            ...generationLength,
             web: true,
             attachments: externalRawAttachments(rawAssets),
           });
@@ -1586,7 +1592,7 @@ export async function POST(req: NextRequest) {
             prompt,
             system: "Anda adalah tutor Ruang Belajar. Gunakan Web sebagai sumber publik dan hormati sumber lain yang dipilih user.",
             effort: "none",
-            responseLength: aiSelection.length,
+            ...generationLength,
             web: true,
             attachments: externalRawAttachments(rawAssets),
           });
@@ -1624,7 +1630,8 @@ export async function POST(req: NextRequest) {
             googleSearch: true,
             models: modelPlanForSelection("gemini-2.5-flash", aiMode, "web"),
             effort: "none",
-            responseLength: aiSelection.length,
+            ...generationLength,
+            outputBudgetMultiplier: 1,
             apiKey: sharedKey,
           }
         );
@@ -1695,8 +1702,9 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         ...finalizeAnswer(result.text,result.webSources),
+        answerLength: answerLengthStatus(lengthPlan,result.text,result.finishReason),
         sources: databaseSources,
-        warning: [databaseWarning, semanticNotice, council?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · ") || undefined,
+        warning: [databaseWarning, semanticNotice, answerLengthStatus(lengthPlan,result.text,result.finishReason).truncated ? "Jawaban mencapai batas keluaran dan mungkin belum lengkap. Minta lanjutkan bagian yang belum selesai." : "", council?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · ") || undefined,
         semanticStatus,
         semanticModel,
         webSources: mergeWebSources([
@@ -1777,6 +1785,7 @@ export async function POST(req: NextRequest) {
       if (alternate) {
         return NextResponse.json({
           ...finalizeAnswer(alternate.result.text,alternate.result.webSources),
+          answerLength: answerLengthStatus(lengthPlan,alternate.result.text,alternate.result.finishReason),
           sources: databaseSources,
           webSources: mergeWebSources([...(alternate.result.webSources || []), ...adapterWebSources], scholarlyHits),
           webResearch: { status: webResearchResult.status, count: webResearchResult.hits.length },
@@ -1784,7 +1793,7 @@ export async function POST(req: NextRequest) {
           publicWeb: true,
           selectedSources,
           webFallback: true,
-          warning: alternate.warning,
+          warning: [alternate.warning, answerLengthStatus(lengthPlan,alternate.result.text,alternate.result.finishReason).truncated ? "Jawaban mencapai batas keluaran dan mungkin belum lengkap. Minta lanjutkan bagian yang belum selesai." : ""].filter(Boolean).join(" · "),
           model: alternate.result.model,
           aiUsage: alternate.aiUsage,
           provider: alternate.provider,
@@ -1807,7 +1816,7 @@ export async function POST(req: NextRequest) {
 
       const fallbackPrompt = hasPublicEvidence
         ? prompt + "\n\nGROUNDING LANGSUNG SEMENTARA TIDAK TERSEDIA: Gunakan sumber publik yang sudah diambil di konteks di atas. Metadata/abstrak bukan bukti bahwa full text sudah dibaca. Jangan mengklaim melakukan pencarian tambahan atau verifikasi independen. Judul/DOI harus cocok dengan inventaris sumber; jangan membuat referensi baru dari ingatan."
-        : buildPrompt({
+        : adaptiveLengthPrompt + "\n\n" + buildPrompt({
         question,
         historyText,
         context,
@@ -1841,6 +1850,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         ...finalizeAnswer(fallbackResult.text,fallbackResult.webSources),
+        answerLength: answerLengthStatus(lengthPlan,fallbackResult.text,fallbackResult.finishReason),
         sources: fallbackSources.includes("database") ? databaseSources : [],
         webSources: availablePublicSources,
         webResearch: { status: paperEvidence.length?"public-full-text":webResearchResult.status, count: webResearchResult.hits.length, scholarlyCount: scholarlyHits.length, fullTextCount:paperEvidence.length, evidence:webEvidence, groundingAvailable: false },
@@ -1849,6 +1859,7 @@ export async function POST(req: NextRequest) {
         selectedSources: hasPublicEvidence ? selectedSources : fallbackSources,
         webFallback: true,
         warning: [publicEvidenceFallbackNotice({fullTextRead:paperEvidence.length>0,pagesRead:webResearchResult.hits.some(hit=>hit.contentKind==="page"),metadataAvailable:hasPublicEvidence}),
+          answerLengthStatus(lengthPlan,fallbackResult.text,fallbackResult.finishReason).truncated ? "Jawaban mencapai batas keluaran dan mungkin belum lengkap. Minta lanjutkan bagian yang belum selesai." : "",
           fallbackCouncil?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · "),
         model: fallbackResult.model,
         orchestration: fallbackCouncil ? {mode:aiMode,stages:fallbackCouncil.stages,helpers:fallbackCouncil.helpers} : {mode:aiMode,stages:[]},

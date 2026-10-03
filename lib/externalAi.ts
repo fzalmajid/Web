@@ -136,7 +136,7 @@ export async function openaiGenerateDetailed(options: {
     options.responseLength === "long" ? 6144 :
     simpleRequest ? 1024 : 2048;
   const maxOutputTokens = Math.min(
-    16384, Math.max(256, Math.floor(Number(options.maxOutputTokens ?? defaultBudget)))
+    32768, Math.max(256, Math.floor(Number(options.maxOutputTokens ?? defaultBudget)))
   );
 
   const effort =
@@ -251,6 +251,7 @@ export async function openaiGenerateDetailed(options: {
     webSources: uniqueSources(webSources),
     usage,
     model: options.model,
+    finishReason: data?.status === "incomplete" ? String(data?.incomplete_details?.reason || "incomplete") : String(data?.status || "completed"),
   };
 }
 
@@ -384,5 +385,6 @@ export async function anthropicGenerateDetailed(options: {
     webSources: uniqueSources(webSources),
     usage,
     model: options.model,
+    finishReason: String(data?.stop_reason || ""),
   };
 }

@@ -320,7 +320,7 @@ export async function geminiGenerateDetailed(
         {
           method: "POST",
           headers: geminiAuthHeaders(accessToken, projectId, key),
-          signal: AbortSignal.timeout(options?.googleSearch ? 40000 : 30000),
+          signal: AbortSignal.timeout(requestedOutputBudget > 8192 ? 90000 : options?.googleSearch ? 40000 : 30000),
           body: JSON.stringify({
             systemInstruction: effectiveSystemInstruction
               ? { parts: [{ text: effectiveSystemInstruction }] }
@@ -405,7 +405,7 @@ export async function geminiGenerateDetailed(
       webSources.push({ title, uri });
     }
 
-    return { text, webSources, usage, model };
+    return { text, webSources, usage, model, finishReason: String(candidate?.finishReason || "") };
   }
 
   throw lastError || new GeminiUnavailableError();
