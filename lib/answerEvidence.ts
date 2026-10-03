@@ -28,6 +28,13 @@ export function requiresQuantitativePaperEvidence(question:string){
 
 export const missingFormulaEvidence="Saya belum memperoleh full text jurnal yang memuat tabel komposisi dan jumlah bahan untuk formula yang Anda minta. Karena itu saya tidak akan membuat resep mg atau referensi dari pengetahuan internal. Metadata/abstrak saja tidak cukup. Aktifkan Web atau lampirkan PDF publik yang relevan; formula akan diambil dari tabel sumber, dengan nama bahan, satuan, jenis pelepasan, dan link yang dapat diperiksa.";
 
+export function publicEvidenceFallbackNotice(state:{fullTextRead:boolean;pagesRead:boolean;metadataAvailable:boolean}){
+  if(state.fullTextRead)return "Cuplikan teks penuh publik berhasil dibaca dan tersedia untuk jawaban ini. Pencocokan referensi bukan jaminan kebenaran setiap klaim.";
+  if(state.pagesRead)return "Halaman publik berhasil dibaca dan tersedia untuk jawaban ini; dukungan tiap klaim tetap perlu diperiksa.";
+  if(state.metadataAvailable)return "Bukti publik yang tersedia hanya metadata, abstrak, atau cuplikan hasil penelusuran. Teks penuh belum berhasil dibaca.";
+  return "Belum ada halaman Web atau teks penuh publik yang berhasil dibaca. Pengetahuan internal AI bukan publikasi terverifikasi.";
+}
+
 /** Match a bibliography identity against actual retrieval, not the model's assertion that it exists. */
 export function identityInEntry(entry:string,item:CitationIdentity){
   if(item.doi){const dois=entry.match(/\b10\.\d{4,9}\/[^\s<>"\]]+/gi)||[];if(dois.some(doi=>doi.replace(/[.,;)]+$/g,"").toLowerCase()===item.doi!.toLowerCase()))return true;}

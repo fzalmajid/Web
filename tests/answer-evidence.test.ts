@@ -1,7 +1,8 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import {scientificQueryPlan,matchesRequiredTopic} from "../lib/researchQuery";
-import {guardAnswerBibliography,requiresQuantitativePaperEvidence} from "../lib/answerEvidence";
+import {guardAnswerBibliography,requiresQuantitativePaperEvidence,publicEvidenceFallbackNotice} from "../lib/answerEvidence";
 import {publisherPdfLinks,paperTitleMatches,selectEvidencePages,publisherArticleMetadata} from "../lib/scholarlyFullText";
 import {answerCitationInventory} from "../lib/answerCitationServer";
 
@@ -77,4 +78,22 @@ test("author-year matching uses verified CSL names and the exact year, never sur
   for(const text of ["Wikarsa dan Mauilida (2010)","Wikarsa discussed this in 2011", "NotWikarsa dan Mauilida (2011)"]){
     assert.doesNotMatch(guardAnswerBibliography(text+"\nReferences:\nMain publication title.",[main,item],"apa").text,/10.1000\/study/);
   }
+});
+
+test("public evidence notices report the actual read level, not a false Web failure",()=>{
+  const full=publicEvidenceFallbackNotice({fullTextRead:true,pagesRead:false,metadataAvailable:true});
+  assert.match(full,/teks penuh publik berhasil dibaca/);assert.doesNotMatch(full,/belum|tidak tersedia|Grounding/);
+  const page=publicEvidenceFallbackNotice({fullTextRead:false,pagesRead:true,metadataAvailable:true});
+  assert.match(page,/Halaman publik berhasil dibaca/);assert.doesNotMatch(page,/teks penuh.*berhasil dibaca/);
+  const catalog=publicEvidenceFallbackNotice({fullTextRead:false,pagesRead:false,metadataAvailable:true});
+  assert.match(catalog,/hanya metadata/);assert.match(catalog,/Teks penuh belum/);
+  assert.match(publicEvidenceFallbackNotice({fullTextRead:false,pagesRead:false,metadataAvailable:false}),/Belum ada halaman Web/);
+});
+
+test("plain-provider fallback retains the actual full-text evidence state in its instructions",()=>{
+  const route=readFileSync("app/api/ask/route.ts","utf8");
+  const fallback=route.slice(route.indexOf("const fallbackPrompt"));
+  assert.match(fallback,/evidenceRules\(Boolean\(paperEvidence\.length\|\|databaseFormulaEvidence\)\)/);
+  assert.doesNotMatch(fallback,/evidenceRules\(false\)/);
+  assert.match(fallback,/publicEvidenceFallbackNotice/);
 });
