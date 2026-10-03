@@ -1,7 +1,7 @@
 import type { CitationStyle } from "./citations";
 import { publicUrl } from "./researchLinks";
 
-export type CitationIdentity={title:string;doi?:string|null;uri?:string;formatted?:string;readSource?:{uri:string;format:string;pages:number[]};catalogOnly?:boolean};
+export type CitationIdentity={title:string;doi?:string|null;uri?:string;formatted?:string;readSource?:{uri:string;format:string;pages:number[]};catalogOnly?:boolean;repositoryLinks?:Array<{label:string;uri:string}>};
 const heading=/^[\t ]*(?:#{1,6}[\t ]*)?(?:\*{1,2}|_{1,2})?(?:\d{1,3}[.)][\t ]+)?(?:References|Daftar Pustaka|Referensi(?: Ilmiah)?|Bibliography|Works Cited)[\t ]*:?[\t ]*(?:\*{1,2}|_{1,2})?[\t ]*:?[\t ]*$/im;
 const normalize=(text:string)=>text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
 
@@ -45,6 +45,14 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
       const locators=item.readSource!.pages.length?`; halaman PDF ${item.readSource!.pages.join(", ")}`:"; cuplikan bagian/tabel";
       canonical+=` · [Teks lengkap publik — ${format} dibaca${locators}](${readUrl.replace(/\(/g,"%28").replace(/\)/g,"%29")})`;
     }else if(item.catalogOnly){canonical+=" · Bukti tersedia: metadata/abstrak; teks lengkap belum dibaca.";}
+    // Catalog-returned PMCID links give human-readable alternatives to a
+    // publisher PDF that may fail on cookies. They do not assert an OA license
+    // or that this alternate version was read by the server.
+    const linked=new Set([readUrl]);
+    for(const alternative of (item.repositoryLinks||[]).slice(0,2)){
+      const uri=publicUrl(alternative.uri);if(!uri||linked.has(uri))continue;linked.add(uri);
+      canonical+=` · [${alternative.label.replace(/[\[\]\n]/g,"")}](${uri.replace(/\(/g,"%28").replace(/\)/g,"%29")})`;
+    }
     const label=/^(?:\[\d+\]|\d+[.)])\s*/.exec(matched)?.[0]||"";
     return numeric&&!unknown.length?label+canonical.replace(/^(?:\[\d+\]|\d+[.)])\s*/,""):canonical;
   });

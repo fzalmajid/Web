@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {scientificQueryPlan,matchesRequiredTopic} from "../lib/researchQuery";
 import {guardAnswerBibliography,requiresQuantitativePaperEvidence} from "../lib/answerEvidence";
 import {publisherPdfLinks,paperTitleMatches,selectEvidencePages,publisherArticleMetadata} from "../lib/scholarlyFullText";
+import {answerCitationInventory} from "../lib/answerCitationServer";
 
 test("Indonesian recipe search retains the exact drug, not a sentence or DAP ambiguity",()=>{
   const question="carikan resep formulasi tablet konvensional dipyridamole dari jurnal tervalidai, baik modifikasi cocrystal maupun bukan, minimal 2 model resep formula, dari bahan aktif, eksipien, jumlah(mg) juga disebutkan";
@@ -43,4 +44,12 @@ test("public full-text links are attached only to matched references actually re
   assert.equal(result.blocked,false);assert.match(result.text,/Teks lengkap publik — PDF dibaca; halaman PDF 3, 5/);assert.match(result.text,/https:\/\/example.org\/article.pdf/);assert.match(result.text,/metadata\/abstrak; teks lengkap belum dibaca/);
   const unused=guardAnswerBibliography("References:\nOther article metadata only.",inventory,"apa");assert.doesNotMatch(unused.text,/article.pdf/);
   const unsafe=guardAnswerBibliography("References:\nActual article about learning.",[{...inventory[0],readSource:{uri:"javascript:alert(1)",format:"full-text-pdf",pages:[3]}}],"apa");assert.doesNotMatch(unsafe.text,/javascript:|Teks lengkap publik/);
+});
+test("repository alternatives require a real catalog PMCID and never become read or OA claims",()=>{
+  const hit:any={title:"Actual public repository article",provider:"europepmc",doi:"10.1000/article",authors:[],pmcid:"PMC4808484",uri:"https://doi.org/10.1000/article",openAccess:false};
+  const inventory=answerCitationInventory([hit],[],"none");
+  assert.deepEqual(inventory[0].repositoryLinks?.map(item=>item.uri),["https://pmc.ncbi.nlm.nih.gov/articles/PMC4808484/","https://europepmc.org/articles/PMC4808484"]);
+  const result=guardAnswerBibliography("Summary.\nReferences:\nActual public repository article.",inventory,"apa");
+  assert.match(result.text,/Artikel di PMC/);assert.match(result.text,/teks lengkap belum dibaca/);assert.doesNotMatch(result.text,/PDF dibaca|open.access=yes/);
+  assert.deepEqual(answerCitationInventory([{...hit,pmcid:"PMC4808484/../../wrong"}],[],"none")[0].repositoryLinks,[]);
 });
