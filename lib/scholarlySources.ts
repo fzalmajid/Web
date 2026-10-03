@@ -22,6 +22,7 @@ export type ScholarlyHit = {
   pages?: string | null;
   metadataBasis?: "publisher";
   metadataNotice?: string;
+  publicationVersionConflict?: boolean;
   indexedIn?: Array<"scopus">;
   workType?: ReferenceDocumentType;
 };
@@ -338,13 +339,14 @@ export function scholarlyPromptContext(hits: ScholarlyHit[]) {
   const rows = hits.map((hit, index) => [
     (index + 1) + ". " + hit.title,
     hit.authors.length ? "authors=" + hit.authors.slice(0, 8).join("; ") : "",
-    hit.year ? "year=" + hit.year : "",
+    hit.year ? (hit.publicationVersionConflict?"catalog_year_disputed="+hit.year:"year="+hit.year) : "",
     hit.journal ? "journal=" + hit.journal : "",
     hit.doi ? "doi=" + hit.doi : "",
     hit.pmid ? "pmid=" + hit.pmid : "",
     "provider=" + hit.provider,
     hit.indexedIn?.length ? "index_record=" + hit.indexedIn.join(",") + " (not claim validation or automatic full-text access)" : "",
     hit.metadataNotice ? "metadata_notice=" + cleanText(hit.metadataNotice, 600) : "",
+    hit.publicationVersionConflict ? "formal_citation=blocked (edition unresolved; link is a research lead only, not evidence for findings or a verified publication year)" : "",
     "url=" + hit.uri,
     hit.openAccess ? "open_access=yes" : "open_access=unknown/no",
     hit.abstract ? "abstract=" + cleanText(hit.abstract, 2200) : "",

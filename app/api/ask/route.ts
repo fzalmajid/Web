@@ -40,7 +40,7 @@ import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } 
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
 import { fetchScholarlyEvidence, fullTextPromptContext } from "@/lib/scholarlyFullText";
 import { answerCitationInventory, publicCitationPrompt } from "@/lib/answerCitationServer";
-import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice } from "@/lib/answerEvidence";
+import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice, identityInEntry } from "@/lib/answerEvidence";
 import { citationMetadataReady } from "@/lib/referenceMetadata";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 import { rerankKnowledge } from "@/lib/documentEnhancements";
@@ -1327,10 +1327,11 @@ export async function POST(req: NextRequest) {
     const fullTextContext=fullTextPromptContext(paperEvidence);
     const citations=answerCitationInventory(scholarlyHits,data,citationStyle,paperEvidence);
     // A fetched Web page is a valid source identity, not automatically a journal or fact-verified claim.
-    for(const hit of webResearchResult.hits)if(hit.contentKind==="page")citations.push({title:hit.title,uri:hit.uri,formatted:`[${hit.title}](${hit.uri})`});
+    const blockedCitations=scholarlyHits.filter(hit=>hit.publicationVersionConflict);
+    for(const hit of webResearchResult.hits)if(hit.contentKind==="page"&&!blockedCitations.some(conflict=>identityInEntry(`${hit.title} ${hit.uri}`,conflict)))citations.push({title:hit.title,uri:hit.uri,formatted:`[${hit.title}](${hit.uri})`});
     const finalizeAnswer=(text:string,groundingSources:Array<{title:string;uri:string}>=[])=>{
       const providerIdentities=groundingSources.filter(item=>/^https?:\/\//i.test(item.uri)).map(item=>({title:item.title,uri:item.uri,formatted:`[${item.title}](${item.uri})`}));
-      const guarded=guardAnswerBibliography(text,[...citations,...providerIdentities],citationStyle,quantitativePaper);
+      const guarded=guardAnswerBibliography(text,[...citations,...providerIdentities],citationStyle,quantitativePaper,blockedCitations);
       const skipFormatWarnings=/\btanpa (?:referensi|sitasi|daftar pustaka)\b|\bno (?:references|citations)\b/i.test(question);
       return {answer:guarded.text,citationWarnings:[...guarded.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(guarded.text,citationStyle,citationOutputs))]};
     };

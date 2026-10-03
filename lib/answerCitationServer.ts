@@ -20,6 +20,9 @@ export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:Cit
   const result:CitationIdentity[]=[];
   for(const row of rows){const metadata:ReferenceMetadata=row.bibliographic_metadata||{};if(!citationMetadataReady(metadata))continue;result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,authorYearKeys:citationAuthorYearKeys(metadata),formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined});}
   for(const hit of hits){
+    // A catalog identity cannot promote a known unresolved edition/year to a
+    // formal reference. Preserve it in the source panel as a research lead.
+    if(hit.publicationVersionConflict)continue;
     const source=hit.metadataBasis==="publisher"||hit.provider==="semanticscholar"||hit.provider==="scopus"?"official":hit.provider;
     const metadata:ReferenceMetadata={title:hit.title,authors:hit.authors,year:hit.year,type:hit.workType||"journal_article",container_title:hit.journal,doi:hit.doi,url:hit.uri,volume:hit.volume,issue:hit.issue,pages:hit.pages,
       audit:{engineVersion:REFERENCE_ENGINE_VERSION,checkedAt:new Date().toISOString(),status:"verified",basis:hit.metadataBasis==="publisher"?"document":"catalog",matches:[{source:hit.metadataBasis||hit.provider,similarity:1,method:hit.metadataBasis==="publisher"?"publisher identity matched":"retrieved catalog record"}],issues:[],missing:[],history:[]},provenance:{}};

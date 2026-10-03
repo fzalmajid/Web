@@ -104,6 +104,7 @@ async function readPaper(hit: ScholarlyHit,query=""):Promise<ScholarlyEvidence|n
         if(!paperPublicationYearMatches(source.year,parsed.pages[0]?.text||"")){
           // Request-local diagnostic; no catalog or Library record is overwritten.
           hit.metadataNotice=`PDF publication edition conflicts with catalog/publisher year ${source.year}; this PDF body was not used as evidence for that record. Check the original edition before citing findings.`;
+          hit.publicationVersionConflict=true;
           continue;
         }
         const selected=selectEvidencePages(parsed.pages,13000,query);
