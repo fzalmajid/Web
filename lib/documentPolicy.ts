@@ -1,4 +1,14 @@
 /** Product policy: file extension is never the publication type. */
+import type { ReferenceMetadata } from "./referenceMetadata";
+
+/** Only authenticated Database records use this user-validated source policy.
+ * Machine audit status describes metadata extraction, not the user's source trust.
+ * Missing fields remain missing; notes/slides/audio never become publications.
+ */
+export function libraryCitationReady(metadata: ReferenceMetadata) {
+  return isFormalPublication(metadata.type) && Boolean(String(metadata.title || "").trim());
+}
+
 export function isFormalPublication(type:unknown){
   return /^(?:book|chapter|journal_article|report|thesis)$/.test(String(type||""));
 }
