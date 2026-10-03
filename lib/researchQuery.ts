@@ -16,7 +16,7 @@ export function rankResearchHits<T extends {title:string;abstract?:string|null}>
     const title=hit.title.toLowerCase(),body=(hit.abstract||"").toLowerCase();
     const titleMatches=terms.filter(term=>title.includes(term)).length;
     const bodyMatches=terms.filter(term=>body.includes(term)).length;
-    return {hit,score:titleMatches*6+bodyMatches,keep:terms.length<3||titleMatches>0||bodyMatches>=Math.ceil(terms.length*.8)};
+    return {hit,score:titleMatches*6+bodyMatches,keep:titleMatches>0||bodyMatches>=Math.ceil(terms.length*.8)};
   }).filter(item=>item.keep).sort((a,b)=>b.score-a.score).map(item=>item.hit);
 }
 
@@ -29,11 +29,13 @@ export function scientificQueryPlan(question: string) {
   if (!formulation) return { query: topicSearchTerms(original), broadQuery: original, requiredTerm: "" };
   const stop = new Set("carikan cari resep formulasi formulation tablet tablets konvensional conventional dari jurnal tervalidasi tervalidai validated baik modifikasi modification maupun bukan minimal model formula bahan aktif active eksipien excipients jumlah disebutkan cocrystal cocrystals kokristal dan atau dengan untuk dalam yang mg obat drug ingredient ingredients dari jurnal journal public access publik terbuka immediate release".split(" "));
   stop.add("juga");stop.add("disebutkan");
-  const words = topicSearchTerms(original).toLowerCase().match(/[a-z][a-z-]{3,}/g) || [];
+  const core=topicSearchTerms(original).split(/\b(?:dasar teori|usulan|perhitungan|monografi bahan|alat (?:dan )?bahan|cara kerja|daftar pustaka)\b/i)[0];
+  for(const term of "buatkan buat susun ppt presentasi presentation slides laporan report tab pcs batch jumlah per untuk berisi lengkap".split(" "))stop.add(term);
+  const words = core.toLowerCase().match(/[a-z][a-z-]{3,}/g) || [];
   // Only constrain a single unambiguous chemical/topic supplied by the user.
   const candidates = [...new Set(words.filter(word => !stop.has(word)))];
   const requiredTerm = candidates.length === 1 ? candidates[0] : "";
-  const normalized = topicSearchTerms(original).toLowerCase()
+  const normalized = core.toLowerCase()
     .replace(/\bformulasi\b/g, "formulation").replace(/\b(?:kokristal|cocrystals?)\b/g, "cocrystal")
     .replace(/\bdisolusi\b/g, "dissolution").replace(/\beksipien\b/g, "excipients");
   const query = requiredTerm ? `${requiredTerm} tablet ${/cocrystal|kokristal/i.test(question) ? "cocrystal" : "formulation"}` : normalized;
@@ -42,6 +44,17 @@ export function scientificQueryPlan(question: string) {
 
 export function matchesRequiredTopic(title: string, requiredTerm: string) {
   return !requiredTerm || title.toLowerCase().includes(requiredTerm.toLowerCase());
+}
+
+/** Identity matching alone does not satisfy the user's scope. */
+export function withinResearchScope(hit:{title:string;abstract?:string|null;year?:number|null},question:string,nowYear=new Date().getFullYear()){
+  const plan=scientificQueryPlan(question);
+  if(!matchesRequiredTopic(hit.title,plan.requiredTerm))return false;
+  const conventional=/\b(?:konvensional|conventional|lepas segera|immediate.release)\b/i.test(question);
+  if(conventional&&/sustained.release|controlled.release|extended.release|floating|gastro.retenti|mucoadhesive/i.test(hit.title))return false;
+  const years=/\b(\d{1,2})\s*(?:tahun|years?)\s*(?:terakhir|last|recent)\b/i.exec(question)?.[1];
+  if(years&&(!hit.year||hit.year<nowYear-Number(years)||hit.year>nowYear))return false;
+  return true;
 }
 
 /** Conservative topic vocabulary; never invent a chemical, author, title, or identifier. */

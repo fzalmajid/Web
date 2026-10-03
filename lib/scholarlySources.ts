@@ -1,5 +1,5 @@
-import { indexedAbstract, rankResearchHits, scientificQueryPlan, matchesRequiredTopic } from "./researchQuery";
-import { boundedJson } from "./publicResearch";
+import { indexedAbstract, rankResearchHits, scientificQueryPlan, matchesRequiredTopic, withinResearchScope } from "./researchQuery";
+import { boundedJson, paperConnections } from "./publicResearch";
 import { searchScopus } from "./scholarlyIndexes";
 import type { ReferenceDocumentType } from "./referenceMetadata";
 
@@ -292,7 +292,7 @@ export async function searchCrossref(query: string, limit = 12): Promise<Scholar
   }).filter((hit:ScholarlyHit|null):hit is ScholarlyHit=>Boolean(hit));
 }
 
-export async function searchScholarlySources(query: string, limit = 12) {
+export async function searchScholarlySources(query: string, limit = 12, expandConnections=false) {
   const plan=scientificQueryPlan(cleanText(query,1200));
   const clean = plan.query;
   if (!clean) return [] as ScholarlyHit[];
@@ -331,7 +331,19 @@ export async function searchScholarlySources(query: string, limit = 12) {
   }
   const exactDoi=/\b10\.\d{4,9}\/[^\s]+/i.exec(clean)?.[0]?.replace(/[.,;)]+$/g,"").toLowerCase();
   if(exactDoi)return [...merged.values()].filter(hit=>hit.doi?.toLowerCase()===exactDoi).slice(0,1);
-  return rankResearchHits([...merged.values()].filter(hit=>matchesRequiredTopic(hit.title,plan.requiredTerm)),clean).slice(0, Math.max(1, Math.min(20, limit)));
+  let ranked=rankResearchHits([...merged.values()].filter(hit=>withinResearchScope(hit,query)),clean);
+  // One public seed, four resolved DOI neighbors at most. A citation edge is
+  // discovery only: resolve identity and reapply the original scope afterwards.
+  if(expandConnections&&ranked[0]?.doi){
+    try{
+      const connections=await paperConnections(ranked[0].doi);
+      const missing=connections.edges.filter(edge=>![...merged.values()].some(hit=>hit.doi?.toLowerCase()===edge.doi.toLowerCase())).slice(0,4);
+      const resolved=await Promise.allSettled(missing.map(edge=>searchCrossref(edge.doi,1)));
+      for(const result of resolved)if(result.status==="fulfilled")for(const hit of result.value)if(withinResearchScope(hit,query))merged.set(stableKey(hit),hit);
+      ranked=rankResearchHits([...merged.values()].filter(hit=>withinResearchScope(hit,query)),clean);
+    }catch{/* Existing providers remain usable when OpenCitations fails. */}
+  }
+  return ranked.slice(0, Math.max(1, Math.min(20, limit)));
 }
 
 export function scholarlyPromptContext(hits: ScholarlyHit[]) {

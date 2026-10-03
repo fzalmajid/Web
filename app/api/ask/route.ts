@@ -42,6 +42,7 @@ import { fetchScholarlyEvidence, fullTextPromptContext } from "@/lib/scholarlyFu
 import { answerCitationInventory, publicCitationPrompt } from "@/lib/answerCitationServer";
 import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice, identityInEntry, readableEvidenceLabels, userFormulaProposal, userFormulaPrompt, userFormulaNotice } from "@/lib/answerEvidence";
 import { recoverDocumentBibliography, monographInstruction } from "@/lib/documentEvidence";
+import { documentWritingPolicy, isFormalPublication, monographAliases } from "@/lib/documentPolicy";
 import { citationMetadataReady } from "@/lib/referenceMetadata";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 import { rerankKnowledge } from "@/lib/documentEnhancements";
@@ -767,6 +768,8 @@ function buildPrompt({
  */
 function expandPharmacyQuery(question: string) {
   let expanded = question;
+  const aliases=monographAliases(question);
+  if(aliases.length)expanded+=" "+aliases.join(" ");
 
   // Cross-language/pharmacopoeial spelling variants must survive even when
   // browser E5 is cold. This broadens both FTS and semantic query text.
@@ -1322,7 +1325,7 @@ export async function POST(req: NextRequest) {
         : (aiMode === "high" ? 44000 : aiMode === "medium" ? 34000 : 25000);
     const [scholarlyHits, webResearchResult] = await Promise.all([
       useWeb && !casualAiQuestion
-        ? searchScholarlySources(question.trim(), aiMode === "high" ? 16 : 12).catch(() => [])
+        ? searchScholarlySources(question.trim(), aiMode === "high" ? 16 : 12, aiMode === "high").catch(() => [])
         : Promise.resolve([]),
       useWeb && !casualAiQuestion
         ? researchWeb(researchQuery(question), aiMode === "high" ? 8 : 5)
@@ -1420,13 +1423,14 @@ export async function POST(req: NextRequest) {
       /\b(dasar teori|laporan praktikum|praktikum)\b/i.test(question.trim()) &&
       /\b(spektrofot(?:ometer|ometri)?|spectrophot(?:ometer|ometry|ometric)?|uv[\s-]?vis(?:ible)?|ultraviolet|visible)\b/i.test(question.trim());
 
+    const formalCitationData=data.filter((row:any)=>isFormalPublication(row.bibliographic_metadata?.type||row.bibliographic_type));
     const citationMetadataInventory =
       useDatabase && !databaseWarning && !casualAiQuestion
-        ? buildCitationMetadataInventory(citationStyle, data)
+        ? buildCitationMetadataInventory(citationStyle, formalCitationData)
         : "";
     const deterministicCitationInventory =
       useDatabase && !databaseWarning && !casualAiQuestion
-        ? buildDeterministicCitationInventory(citationStyle, data)
+        ? buildDeterministicCitationInventory(citationStyle, formalCitationData)
         : "";
 
     const {requested:visualLearningIntent,interactive:interactiveGraphIntent}=visualLearningRequest(question.trim());
@@ -1435,7 +1439,7 @@ export async function POST(req: NextRequest) {
         ? '\n\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:"cose"|"breadthfirst"|"circle"|"grid"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok.'
         : "\n\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
       : "";
-    const documentEvidencePrompt=monographInstruction(question);
+    const documentEvidencePrompt=documentWritingPolicy()+monographInstruction(question);
     const prompt = adaptiveLengthPrompt+"\n\n"+evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+documentEvidencePrompt+visualLearningInstruction+publicCitationPrompt(citations)+citationMetadataInventory+deterministicCitationInventory+fullTextContext+buildPrompt({
       question,
       historyText,
