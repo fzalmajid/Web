@@ -1,7 +1,7 @@
 import type { CitationStyle } from "./citations";
 import { publicUrl } from "./researchLinks";
 
-export type CitationIdentity={title:string;doi?:string|null;uri?:string;formatted?:string;authorYearKeys?:string[];readSource?:{uri:string;format:string;pages:number[]};catalogOnly?:boolean;repositoryLinks?:Array<{label:string;uri:string}>};
+export type CitationIdentity={title:string;doi?:string|null;uri?:string;formatted?:string;authorYearKeys?:string[];workType?:string;year?:number|null;printedPages?:string[];readSource?:{uri:string;format:string;pages:number[]};catalogOnly?:boolean;repositoryLinks?:Array<{label:string;uri:string}>};
 const heading=/^[\t ]*(?:#{1,6}[\t ]*)?(?:\*{1,2}|_{1,2})?(?:(?:Slide[\t ]+\d{1,3}[\t ]*[-–—:.][\t ]*)|(?:\d{1,3}[.)][\t ]+))?(?:References|Daftar Pustaka|Referensi(?: Ilmiah)?|Bibliography|Works Cited)[\t ]*:?[\t ]*(?:\*{1,2}|_{1,2})?[\t ]*:?[\t ]*$/im;
 const normalize=(text:string)=>text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
 
@@ -91,7 +91,9 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
   // Preserve numeric identities only when all entries matched; don't silently renumber in-text citations.
   const references=used.map(item=>{
     const matched=known.find(k=>k.source===item)?.entry||"";
-    let canonical=item.formatted||`[${item.title}](${item.uri||"https://doi.org/"+item.doi})`;
+    const identityUrl=publicUrl(item.uri)||(item.doi?publicUrl("https://doi.org/"+item.doi):null);
+    let canonical=item.formatted||(identityUrl?`[${item.title}](${identityUrl})`:item.title);
+    if(item.workType==="book"||item.workType==="chapter")canonical+=item.printedPages?.length?` · Halaman cetak sumber terambil: ${item.printedPages.join(", ")}.`:" · Halaman cetak belum tersedia; bukan kutipan buku dengan locator terverifikasi.";
     const readUrl=publicUrl(item.readSource?.uri);
     if(readUrl){
       const format=item.readSource!.format==="full-text-pdf"?"PDF":item.readSource!.format==="full-text-xml"?"XML":"HTML";
@@ -109,7 +111,9 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
     const label=/^(?:\[\d+\]|\d+[.)])\s*/.exec(matched)?.[0]||"";
     return numeric&&!unknown.length?label+canonical.replace(/^(?:\[\d+\]|\d+[.)])\s*/,""):canonical;
   });
-  return {text:before+(references.length?`\n\n*${style==="mla"?"Works Cited":"References"}:*\n`+references.join("\n\n"):"\n\nTidak ada referensi formal yang cocok dengan sumber hasil penelusuran."),warnings:unknown.length?["Entri referensi yang tidak cocok dengan inventaris sumber telah dihapus; dukungan klaim tetap perlu diperiksa."]:[],blocked:false};
+  const warnings=unknown.length?["Entri referensi yang tidak cocok dengan inventaris sumber telah dihapus; dukungan klaim tetap perlu diperiksa."]:[];
+  if(used.some(item=>(item.workType==="book"||item.workType==="chapter")&&!item.printedPages?.length))warnings.push("Ada buku tanpa halaman cetak terverifikasi; nomor PDF tidak digunakan sebagai pengganti.");
+  return {text:before+(references.length?`\n\n*${style==="mla"?"Works Cited":"References"}:*\n`+references.join("\n\n"):"\n\nTidak ada referensi formal yang cocok dengan sumber hasil penelusuran."),warnings,blocked:false};
 }
 
 export function evidenceRules(hasFullText:boolean){return "\n\nBATAS BUKTI WAJIB: pengetahuan internal AI bukan karya bibliografis dan tidak boleh dibuat menjadi referensi. Tidak boleh ada ‘Pustaka Internal Farmasi’, sumber anonim rekaan, DOI atau judul dari ingatan. Hanya karya dalam inventaris sumber boleh masuk References. Setiap karya yang disebut dengan sitasi, termasuk saran bacaan dan bagian keterbatasan, harus memiliki entri References; jangan hanya mendaftarkan sumber formula utama. Identitas judul/DOI yang cocok bukan validasi ilmiah, klinis, mutu jurnal, atau peringkat indeks. Jangan mengulang label ‘jurnal/literatur tervalidasi’ dari pertanyaan tanpa bukti jenis validasi itu. Sebut formula sebagai formula penelitian, bukan resep penggunaan atau produk klinis tervalidasi. Bila user meminta resep formulasi dari jurnal, angka bahan harus terlihat dalam full text/tabel yang tersedia. Untuk tablet konvensional/lepas segera, jangan menghitung formulasi sustained/controlled release, floating/gastro-retentive, atau matriks lepas lambat sebagai model yang memenuhi permintaan; bila disebut, tempatkan sebagai studi berbeda di luar cakupan, bukan Model 2 pengganti. Dua varian formula satu paper harus disebut sebagai dua varian satu paper, bukan dua publikasi independen. Pada kokristal, bedakan massa kokristal dari massa API murni secara eksplisit; jangan mengarang ekuivalen API bila sumber tidak menyatakannya. "+(hasFullText?"Full text yang benar-benar dibaca ditandai EVIDENCE; sitasikan judul/DOI yang cocok dan link sumber publik tersebut. Utamakan temuan pada EVIDENCE. Bila mengutip temuan dari abstrak katalog, tulis eksplisit ‘berdasarkan abstrak’, bukan seolah seluruh paper telah dibaca. Metadata tanpa abstrak hanya boleh menjadi saran bacaan, bukan bukti temuan.":"Belum ada full text jurnal publik yang berhasil dibaca; jangan menyebut komposisi mg sebagai resep jurnal. Jelaskan kekurangan bukti. Bila abstrak tersedia, labeli temuan sebagai berdasarkan abstrak, bukan pembacaan full text.");}

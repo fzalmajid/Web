@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ReferenceMetadata } from "./referenceMetadata";
+import { monographAliases } from "./documentPolicy";
 
 export type KnowledgeSource = {
   id: string;
@@ -771,7 +772,8 @@ export function prioritizeQuestionRelevantSources(
   const needsBpom =
     /\b(bpom|badan\s+pengawas\s+obat(?:\s+dan)?\s+makanan)\b/i.test(question);
 
-  if (!needsExcipients && !needsAnalyticalTheory && !needsDissolution && !needsBpom) return rows;
+  const aliases=monographAliases(question).map(term=>term.toLowerCase());
+  if (!needsExcipients && !needsAnalyticalTheory && !needsDissolution && !needsBpom&&!aliases.length) return rows;
 
   const excipientEvidence =
     /\b(excipients?|pengisi|pengikat|penghancur|pelicin|diluent|binder|disintegrant|lubricant|glidant|filler|microcrystalline cellulose|lactose|povidone|starch|magnesium stearate|croscarmellose|crospovidone)\b/i;
@@ -789,6 +791,7 @@ export function prioritizeQuestionRelevantSources(
     const title = String(row.title || "").toLowerCase();
     const raw = String(row.raw_content || row.content || "");
     let relevance = Number(row.score) || 0;
+    if(aliases.length&&aliases.some(term=>raw.toLowerCase().includes(term)))relevance+=80000;
 
     if (needsExcipients) {
       const excipientBook =
@@ -909,7 +912,7 @@ function rawRelevantExcerpt(raw: string, question: string, maxChars = 1900) {
   ]);
   const seeds = (question.toLowerCase().match(/[a-z0-9À-ÿ]{3,}/gi) || [])
     .filter((term) => !ignored.has(term));
-  const terms = [...new Set(seeds.flatMap((term) => [term, ...(synonyms[term] || [])]))];
+  const terms = [...new Set([...monographAliases(question).map(term=>term.toLowerCase()),...seeds.flatMap((term) => [term, ...(synonyms[term] || [])])])];
   const normalized = raw.toLowerCase();
   let bestAt = -1;
   let bestScore = -1;

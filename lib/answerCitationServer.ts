@@ -4,6 +4,8 @@ import type { CitationIdentity } from "./answerEvidence";
 import { formatVerifiedReference, referenceToCsl } from "./citationFormatterServer";
 import { citationMetadataReady, REFERENCE_ENGINE_VERSION, type ReferenceMetadata } from "./referenceMetadata";
 import type { ScholarlyEvidence } from "./scholarlyFullText";
+import { isFormalPublication } from "./documentPolicy";
+import { detectPrintedPageRange } from "./knowledge";
 
 /** Reuse verified CSL name parsing (including surname-first initials/suffixes). */
 export function citationAuthorYearKeys(metadata:ReferenceMetadata){
@@ -18,7 +20,18 @@ export function citationAuthorYearKeys(metadata:ReferenceMetadata){
 
 export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:CitationStyle,evidence:ScholarlyEvidence[]=[]):CitationIdentity[]{
   const result:CitationIdentity[]=[];
-  for(const row of rows){const metadata:ReferenceMetadata=row.bibliographic_metadata||{};if(!citationMetadataReady(metadata))continue;result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,authorYearKeys:citationAuthorYearKeys(metadata),formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined});}
+  const libraryByWork=new Map<string,CitationIdentity>();
+  for(const row of rows){
+    const metadata:ReferenceMetadata=row.bibliographic_metadata||{};
+    if(!isFormalPublication(metadata.type)||!citationMetadataReady(metadata))continue;
+    const printed=row.printed_page_start?{start:String(row.printed_page_start),end:String(row.printed_page_end||row.printed_page_start)}:detectPrintedPageRange(String(row.raw_content||row.content||""));
+    const pages=printed.start?[printed.end&&printed.end!==printed.start?`${printed.start}–${printed.end}`:String(printed.start)]:[];
+    const workKey=String(row.bibliographic_work_id||row.source_file_id||metadata.isbn||`${metadata.title}|${metadata.edition||""}|${metadata.year||""}`);
+    const existing=libraryByWork.get(workKey);
+    if(existing){existing.printedPages=[...new Set([...(existing.printedPages||[]),...pages])];continue;}
+    result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,workType:metadata.type||undefined,year:metadata.year,printedPages:pages,authorYearKeys:citationAuthorYearKeys(metadata),formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined});
+    libraryByWork.set(workKey,result[result.length-1]);
+  }
   for(const hit of hits){
     // A catalog identity cannot promote a known unresolved edition/year to a
     // formal reference. Preserve it in the source panel as a research lead.
@@ -30,7 +43,7 @@ export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:Cit
     const read=evidence.find(item=>hit.doi&&item.source.doi?hit.doi.toLowerCase()===item.source.doi.toLowerCase():hit.title===item.source.title);
     const pmcid=/^PMC\d+$/i.test(hit.pmcid||"")?hit.pmcid!.toUpperCase():null;
     const repositoryLinks=pmcid?[{label:"Artikel di PMC",uri:`https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`},{label:"Artikel di Europe PMC",uri:`https://europepmc.org/articles/${pmcid}`}]:[];
-    result.push({title:hit.title,doi:hit.doi,uri:hit.uri,authorYearKeys:citationAuthorYearKeys(metadata),formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined,catalogOnly:!read,readSource:read?{uri:read.uri,format:read.kind,pages:read.pages}:undefined,repositoryLinks});
+    result.push({title:hit.title,doi:hit.doi,uri:hit.uri,workType:hit.workType||"journal_article",year:hit.year,authorYearKeys:citationAuthorYearKeys(metadata),formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined,catalogOnly:!read,readSource:read?{uri:read.uri,format:read.kind,pages:read.pages}:undefined,repositoryLinks});
   }
   return result;
 }
