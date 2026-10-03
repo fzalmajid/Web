@@ -344,6 +344,7 @@ export function scholarlyPromptContext(hits: ScholarlyHit[]) {
     hit.pmid ? "pmid=" + hit.pmid : "",
     "provider=" + hit.provider,
     hit.indexedIn?.length ? "index_record=" + hit.indexedIn.join(",") + " (not claim validation or automatic full-text access)" : "",
+    hit.metadataNotice ? "metadata_notice=" + cleanText(hit.metadataNotice, 600) : "",
     "url=" + hit.uri,
     hit.openAccess ? "open_access=yes" : "open_access=unknown/no",
     hit.abstract ? "abstract=" + cleanText(hit.abstract, 2200) : "",
