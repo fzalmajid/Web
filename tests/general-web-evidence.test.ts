@@ -4,7 +4,8 @@ import {parseHtmlArticle,parseJatsArticle,readableMarkup} from "../lib/articleTe
 import {scientificQueryPlan,topicSearchTerms} from "../lib/researchQuery";
 import {guardAnswerBibliography,identityInEntry} from "../lib/answerEvidence";
 import {mapScopusResults,scopusQuery,scholarlyIndexStatus} from "../lib/scholarlyIndexes";
-import {fullTextPromptContext,paperDoiMatches} from "../lib/scholarlyFullText";
+import {fullTextPromptContext,paperDoiMatches,paperPublicationYearMatches} from "../lib/scholarlyFullText";
+import {scholarlyPromptContext} from "../lib/scholarlySources";
 
 const paragraph="Participants practiced retrieval at delayed intervals; the control group reread the material. Outcomes and limitations were recorded separately. ".repeat(9);
 test("general topic search strips answer instructions, with conservative bilingual topics",()=>{
@@ -55,4 +56,18 @@ test("full-text context distinguishes read format and bounded claim support",()=
 test("a PDF's explicit different DOI cannot be attached to the expected work",()=>{
   assert.equal(paperDoiMatches("10.1234/memory","DOI:10.1234/other"),false);
   assert.equal(paperDoiMatches("10.1234/memory","https://doi.org/10.1234/memory."),true);
+});
+
+test("explicit printed journal edition conflicts do not become evidence for a different catalog year",()=>{
+  const first="Researcher A; International Journal of Research, 2013, 1(2), 233-257. Article title and abstract.";
+  assert.equal(paperPublicationYearMatches(2025,first),false);
+  assert.equal(paperPublicationYearMatches(2013,first),true);
+  assert.equal(paperPublicationYearMatches(2024,"37 Journal of Science, 49, 1, 37-50, 2024. Study title"),true);
+  assert.equal(paperPublicationYearMatches(2023,"37 Journal of Science, 49, 1, 37-50, 2024. Study title"),false);
+  assert.equal(paperPublicationYearMatches(2025,"Received 2013; accepted 2014. File created 2013."),true);
+  assert.equal(paperPublicationYearMatches(2025,"Introduction. ".repeat(80)+first),true);
+  const context=fullTextPromptContext([{source:{title:"Real article",doi:"10.1234/work",uri:"https://example.org/article"} as any,uri:"https://example.org/article.pdf",kind:"full-text-pdf",text:"Evidence",pages:[3]}]);
+  assert.match(context,/halaman berkas PDF N/);assert.match(context,/bukan otomatis nomor halaman tercetak/);
+  const catalog=scholarlyPromptContext([{title:"Versioned article",authors:[],uri:"https://example.org/article",provider:"crossref",metadataNotice:"PDF publication edition conflicts with catalog year; body was not used."} as any]);
+  assert.match(catalog,/metadata_notice=PDF publication edition conflicts/);
 });
