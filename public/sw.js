@@ -1,9 +1,8 @@
 self.addEventListener("install", () => self.skipWaiting());
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
-      .then(() => self.clients.claim())
-  );
+  // Legacy registration may still update on older clients. Never erase caches
+  // belonging to the offline shell or local AI models. The current application
+  // replaces this registration with /learning-sw.js at the same root scope.
+  event.waitUntil(self.clients.claim());
 });
