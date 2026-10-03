@@ -15,10 +15,19 @@ export type GeminiUsage = {
   totalTokens: number;
 };
 
+export type GeminiDetailedResult = {
+  text: string;
+  webSources: GeminiWebSource[];
+  usage: GeminiUsage;
+  model: string;
+  finishReason: string;
+  repairedTruncation?: boolean;
+};
+
 export type GeminiTask = "standard" | "web" | "audio";
 
 export const WHATSAPP_FORMAT_INSTRUCTION =
-  "Untuk teks yang akan dibaca user: bold WAJIB memakai *teks*, italic WAJIB memakai _teks_. Setiap penanda * untuk bold harus punya pasangan penutup pada baris yang sama. Untuk daftar/poin WAJIB gunakan '- ' di awal baris, JANGAN gunakan '* ' sebagai bullet. Jangan memakai **teks** atau __teks__. Jangan gunakan markdown heading dengan #. Jangan pernah keluarkan HTML entity mentah seperti &#x20;, &#x68;, &nbsp;, atau escape formatter seperti \\_, \\*, dan \\^. Untuk rumus, JANGAN bungkus dengan $...$, $...$, \\( ... \\), atau \\[ ... \\] karena UI sudah punya formatter sendiri. JANGAN gunakan * sebagai operator perkalian; gunakan simbol ×. Gunakan simbol ilmiah Unicode yang baku bila tersedia: π, σ, λ, α, β, Δ, ε, dan panah →. Untuk simbol ilmiah yang memang harus italic, gunakan format italic aplikasi dengan underscore, misalnya _π_ atau _n_, BUKAN *π* atau *n*. Untuk transisi orbital antibonding tulis _π_ → _π_^{*} atau _n_ → _π_^{*}; tanda bintang orbital hanya SATU dan berada sebagai superscript, jangan tulis ^{**}. Gunakan subscript ilmiah dengan underscore pada variabel tanpa spasi, misalnya D_oral, AUC_iv, C_2, k_e, λ_maks, atau t_{1/2}. JANGAN escape underscore atau caret dengan backslash: tulis C_1 dan t_2, bukan C\\_1 atau t\\_2; tulis e^{...}, bukan e\\^{...}. Gunakan pangkat dengan ^{...} atau ^(...), misalnya r^{2} atau e^{−k_e × Δt}; jangan biarkan tanda ^ berdiri sebagai teks biasa jika maksudnya pangkat.";
+  "Untuk teks yang akan dibaca user: bold WAJIB memakai *teks*, italic WAJIB memakai _teks_. Setiap penanda * untuk bold harus punya pasangan penutup pada baris yang sama. Untuk daftar/poin WAJIB gunakan '- ' di awal baris, JANGAN gunakan '* ' sebagai bullet. Jangan memakai **teks** atau __teks__. Jangan gunakan markdown heading dengan #. Jangan pernah keluarkan HTML entity mentah seperti &#x20;, &#x68;, &nbsp;, atau escape formatter seperti \\_, \\*, dan \\^. Untuk persamaan matematika gunakan LaTeX dengan delimiter $...$ atau $$...$$ agar KaTeX merender subskrip dan operator dengan utuh. Jangan gunakan italic Markdown untuk menyusun persamaan. JANGAN gunakan * sebagai operator perkalian; gunakan simbol × atau perintah LaTeX \\times. Gunakan simbol ilmiah Unicode yang baku bila tersedia: π, σ, λ, α, β, Δ, ε, dan panah →. Untuk simbol ilmiah dalam prosa yang memang harus italic, gunakan format italic aplikasi dengan underscore, misalnya _π_ atau _n_, BUKAN *π* atau *n*. Untuk transisi orbital antibonding tulis _π_ → _π_^{*} atau _n_ → _π_^{*}; tanda bintang orbital hanya SATU dan berada sebagai superscript, jangan tulis ^{**}. Di luar persamaan, gunakan subscript ilmiah dengan underscore pada variabel tanpa spasi, misalnya D_oral, AUC_iv, C_2, k_e, λ_maks, atau t_{1/2}. JANGAN escape underscore atau caret dengan backslash: tulis C_1 dan t_2, bukan C\\_1 atau t\\_2; tulis e^{...}, bukan e\\^{...}. Gunakan pangkat dengan ^{...} atau ^(...), misalnya r^{2} atau e^{−k_e × Δt}; jangan biarkan tanda ^ berdiri sebagai teks biasa jika maksudnya pangkat.";
 
 export class GeminiApiError extends Error {
   code: string;
@@ -258,8 +267,10 @@ export async function geminiGenerateDetailed(
     strictModel?: boolean;
     allowedFallbackModels?: string[];
     maxAttempts?: number;
+    maxThinkingTokens?: number;
+    retryTruncatedDocument?: boolean;
   }
-) {
+): Promise<GeminiDetailedResult> {
   const lengthInstruction = options?.responseLength
     ? responseLengthInstruction(options.responseLength)
     : "";
@@ -312,6 +323,12 @@ export async function geminiGenerateDetailed(
 
   for (let index = 0; index < attemptModels.length; index++) {
     const model = attemptModels[index];
+    const thinkingConfig = thinkingConfigForModel(model, options?.effort || "none");
+    // Gemini 2.5 shares its output ceiling with thoughts. Reserve visible output
+    // for explicitly sized documents; Gemini 3 continues to use thinkingLevel.
+    if (thinkingConfig && "thinkingBudget" in thinkingConfig && typeof thinkingConfig.thinkingBudget === "number" && typeof options?.maxThinkingTokens === "number" && Number.isFinite(options.maxThinkingTokens)) {
+      thinkingConfig.thinkingBudget = Math.min(thinkingConfig.thinkingBudget, Math.max(model.includes("-pro") ? 128 : 512, Math.floor(options.maxThinkingTokens)));
+    }
 
     let response: Response;
     try {
@@ -334,7 +351,7 @@ export async function geminiGenerateDetailed(
                   : 0.2,
               maxOutputTokens: Math.max(minimumOutputBudget, Math.min(boostedOutputBudget, 32768)),
               responseMimeType: options?.responseMimeType,
-              thinkingConfig: thinkingConfigForModel(model, options?.effort || "none"),
+              thinkingConfig,
               audioTranscriptionConfig:
                 model === "gemini-3.5-transcribe"
                   ? { languageCodes: ["id-ID"], mode: "VERBATIM" }
@@ -379,7 +396,7 @@ export async function geminiGenerateDetailed(
         .join("")
         .trim() || "";
 
-    if (!text) {
+    if (!text && !(options?.retryTruncatedDocument && candidate?.finishReason === "MAX_TOKENS")) {
       lastError = new GeminiApiError("Gemini tidak mengembalikan teks.", 502, "GEMINI_EMPTY_RESPONSE");
       if (index < attemptModels.length - 1) continue;
       throw lastError;
@@ -405,7 +422,32 @@ export async function geminiGenerateDetailed(
       webSources.push({ title, uri });
     }
 
-    return { text, webSources, usage, model, finishReason: String(candidate?.finishReason || "") };
+    const result: GeminiDetailedResult = { text, webSources, usage, model, finishReason: String(candidate?.finishReason || "") };
+    if (options?.retryTruncatedDocument && result.finishReason === "MAX_TOKENS") {
+      // One bounded rewrite, not concatenation of a broken table/diagram. The
+      // original evidence and question remain authoritative, not the partial draft.
+      try {
+        const repaired = await geminiGenerateDetailed([...parts, { text: "PERBAIKAN KELENGKAPAN: keluaran percobaan sebelumnya terpotong. Tulis ulang dokumen utuh dari awal dengan semua bagian yang diminta sampai daftar pustaka paling akhir. Prioritaskan ruang untuk jawaban final, tabel lengkap dan diagram tertutup; jangan menghabiskan ruang untuk catatan rencana. Tetap patuhi batas bukti, data usulan, sumber yang dipilih dan batas panjang eksplisit. Jangan menciptakan data atau referensi agar dokumen terlihat lengkap." }], systemInstruction, {
+          ...options, models: [model], strictModel: true, maxAttempts: 1,
+          retryTruncatedDocument: false, effort: "low", maxThinkingTokens: 1024,
+          maxOutputTokens: Math.min(32768, Math.max(requestedOutputBudget, 16384)), outputBudgetMultiplier: 1,
+        });
+        const combinedUsage: GeminiUsage = {
+          inputTokens: usage.inputTokens + repaired.usage.inputTokens,
+          outputTokens: usage.outputTokens + repaired.usage.outputTokens,
+          thoughtsTokens: usage.thoughtsTokens + repaired.usage.thoughtsTokens,
+          totalTokens: usage.totalTokens + repaired.usage.totalTokens,
+        };
+        const sources = Array.from(new Map([...webSources, ...repaired.webSources].map(source => [source.uri, source])).values());
+        if (repaired.finishReason !== "STOP" && repaired.finishReason !== "MAX_TOKENS") return { ...result, usage: combinedUsage };
+        return { ...repaired, usage: combinedUsage, webSources: sources, repairedTruncation: repaired.finishReason === "STOP" };
+      } catch {
+        // Quota/unavailability never hides the initial draft or its warning.
+        if (!text) throw new GeminiApiError("Dokumen belum dapat diselesaikan; provider mencapai batas keluaran.", 502, "GEMINI_EMPTY_RESPONSE");
+        return result;
+      }
+    }
+    return result;
   }
 
   throw lastError || new GeminiUnavailableError();

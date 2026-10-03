@@ -75,7 +75,7 @@ export function planAnswerLength(question: string, effort: AiEffort = "none"): A
   const min = explicit?.maximum ? 1 : Math.max(1, Math.round(target * (explicit ? 0.9 : 0.65)));
   const max = explicit ? target : Math.min(48000, Math.round(target * 1.4));
   // Characters are not tokens. Reserve conservative Indonesian text capacity plus reasoning headroom.
-  const reasoning = /^(?:high|xhigh|max)$/.test(effort) ? 4096 : /^(?:medium|dynamic)$/.test(effort) ? 2048 : 512;
+  const reasoning = /^(?:high|xhigh|max)$/.test(effort) ? (kind === "document" ? 16384 : 4096) : /^(?:medium|dynamic)$/.test(effort) ? (kind === "document" ? 8192 : 2048) : 512;
   return {
     kind, minCharacters: min, targetCharacters: target, maxCharacters: max,
     sections: selectedSections.map(section => section.name), explicit,
