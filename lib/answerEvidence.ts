@@ -2,7 +2,7 @@ import type { CitationStyle } from "./citations";
 import { publicUrl } from "./researchLinks";
 
 export type CitationIdentity={title:string;doi?:string|null;uri?:string;formatted?:string;authorYearKeys?:string[];readSource?:{uri:string;format:string;pages:number[]};catalogOnly?:boolean;repositoryLinks?:Array<{label:string;uri:string}>};
-const heading=/^[\t ]*(?:#{1,6}[\t ]*)?(?:\*{1,2}|_{1,2})?(?:\d{1,3}[.)][\t ]+)?(?:References|Daftar Pustaka|Referensi(?: Ilmiah)?|Bibliography|Works Cited)[\t ]*:?[\t ]*(?:\*{1,2}|_{1,2})?[\t ]*:?[\t ]*$/im;
+const heading=/^[\t ]*(?:#{1,6}[\t ]*)?(?:\*{1,2}|_{1,2})?(?:(?:Slide[\t ]+\d{1,3}[\t ]*[-–—:.][\t ]*)|(?:\d{1,3}[.)][\t ]+))?(?:References|Daftar Pustaka|Referensi(?: Ilmiah)?|Bibliography|Works Cited)[\t ]*:?[\t ]*(?:\*{1,2}|_{1,2})?[\t ]*:?[\t ]*$/im;
 const normalize=(text:string)=>text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
 
 /** Only unambiguous, catalog-backed author/year markers count as omitted references.
