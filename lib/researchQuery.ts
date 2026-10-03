@@ -29,11 +29,11 @@ export function scientificQueryPlan(question: string) {
   if (!formulation) return { query: topicSearchTerms(original), broadQuery: original, requiredTerm: "" };
   const stop = new Set("carikan cari resep formulasi formulation tablet tablets konvensional conventional dari jurnal tervalidasi tervalidai validated baik modifikasi modification maupun bukan minimal model formula bahan aktif active eksipien excipients jumlah disebutkan cocrystal cocrystals kokristal dan atau dengan untuk dalam yang mg obat drug ingredient ingredients dari jurnal journal public access publik terbuka immediate release".split(" "));
   stop.add("juga");stop.add("disebutkan");
-  const words = question.toLowerCase().match(/[a-z][a-z-]{3,}/g) || [];
+  const words = topicSearchTerms(original).toLowerCase().match(/[a-z][a-z-]{3,}/g) || [];
   // Only constrain a single unambiguous chemical/topic supplied by the user.
   const candidates = [...new Set(words.filter(word => !stop.has(word)))];
   const requiredTerm = candidates.length === 1 ? candidates[0] : "";
-  const normalized = original.toLowerCase()
+  const normalized = topicSearchTerms(original).toLowerCase()
     .replace(/\bformulasi\b/g, "formulation").replace(/\b(?:kokristal|cocrystals?)\b/g, "cocrystal")
     .replace(/\bdisolusi\b/g, "dissolution").replace(/\beksipien\b/g, "excipients");
   const query = requiredTerm ? `${requiredTerm} tablet ${/cocrystal|kokristal/i.test(question) ? "cocrystal" : "formulation"}` : normalized;
@@ -50,9 +50,9 @@ export function topicSearchTerms(text:string) {
   const phrases:Array<[RegExp,string]>=[[/\benergi surya\b/gi,"solar energy"],[/\bpanel surya\b/gi,"solar panels"],[/\bperubahan iklim\b/gi,"climate change"],[/\bkecerdasan buatan\b/gi,"artificial intelligence"],[/\bpembelajaran mesin\b/gi,"machine learning"]];
   let result=text;
   for(const [pattern,replacement] of phrases)result=result.replace(pattern,replacement);
-  const translations:Record<string,string>={pendidikan:"education",pembelajaran:"learning",memori:"memory",kesehatan:"health",lingkungan:"environment",efisiensi:"efficiency",efektivitas:"effectiveness",kalibrasi:"calibration",disolusi:"dissolution",formulasi:"formulation",absorpsi:"absorption",stabilitas:"stability",ekonomi:"economics"};
+  const translations:Record<string,string>={pendidikan:"education",pembelajaran:"learning",memori:"memory",kesehatan:"health",lingkungan:"environment",efisiensi:"efficiency",efektivitas:"effectiveness",kalibrasi:"calibration",disolusi:"dissolution",formulasi:"formulation",absorpsi:"absorption",stabilitas:"stability",ekonomi:"economics",dipiridamol:"dipyridamole",kokristal:"cocrystal"};
   result=result.replace(/\b[a-z]+\b/gi,word=>translations[word.toLowerCase()]||word);
-  return result.replace(/\b(?:jelaskan|ringkas(?:an)?|apa(?:kah)?|bagaimana|mengapa|pengaruh|hubungan|perbedaan|bandingkan|bukti|ilmiah|tervalidasi|tervalida[i]?|valid|berdasarkan|adalah|terhadap|dengan|dan|atau|yang|dari|pada|dalam|sebagai|saya|ingin|beserta|link|tautan|publik|public|access|akses|terbuka|minimal|maksimal|lebih|tentang|mengenai|terbaru|show|explain|summari[sz]e|evidence|of|the|and|for|on|in|to)\b/gi," ").replace(/\s+/g," ").trim().slice(0,240)||text.slice(0,240);
+  return result.replace(/\b(?:jelaskan|singkat|itu|ringkas(?:an)?|apa(?:kah)?|bagaimana|mengapa|pengaruh|hubungan|perbedaan|bandingkan|bukti|ilmiah|tervalidasi|tervalida[i]?|valid|berdasarkan|adalah|terhadap|dengan|dan|atau|yang|dari|pada|dalam|sebagai|saya|ingin|beserta|link|tautan|publik|public|access|akses|terbuka|minimal|maksimal|lebih|tentang|mengenai|terbaru|show|explain|summari[sz]e|evidence|of|the|and|for|on|in|to)\b/gi," ").replace(/\s+/g," ").trim().slice(0,240)||text.slice(0,240);
 }
 
 export function indexedAbstract(value: unknown) {

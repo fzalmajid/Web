@@ -1344,7 +1344,7 @@ export async function POST(req: NextRequest) {
       const guarded=guardAnswerBibliography(readableEvidenceLabels(text,paperEvidence.length),[...citations,...providerIdentities],citationStyle,quantitativePaper&&!suppliedFormula,blockedCitations);
       const skipFormatWarnings=/\btanpa (?:referensi|sitasi|daftar pustaka)\b|\bno (?:references|citations)\b/i.test(question);
       const recovered=!guarded.blocked&&!skipFormatWarnings&&citationStyle!=="none"&&/\b(?:daftar pustaka|references|bibliography|monografi|monographs?)\b/i.test(question)
-        ? recoverDocumentBibliography(guarded.text,citations,blockedCitations)
+        ? recoverDocumentBibliography(guarded.text,citations,blockedCitations,question)
         : {text:guarded.text,warnings:[] as string[]};
       return {answer:suppliedFormula&&!guarded.blocked?userFormulaNotice+"\n\n"+recovered.text:recovered.text,citationWarnings:[...guarded.warnings,...recovered.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(recovered.text,citationStyle,citationOutputs))]};
     };
