@@ -9,7 +9,7 @@ import AnswerProse from "@/components/AnswerProse";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import katex from "katex";
 import "katex/contrib/mhchem";
-import { scientificRichPattern } from "@/lib/scientificNotation";
+import { scientificRichPattern, scientificScriptPattern } from "@/lib/scientificNotation";
 import { createPortal } from "react-dom";
 import type { ClipboardEvent as ReactClipboardEvent, FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Session, User } from "@supabase/supabase-js";
@@ -8434,7 +8434,7 @@ function renderScientificSubscript(value: string, key: string) {
 
 function renderScientificInline(value: string, keyPrefix: string) {
   const parts: any[] = [];
-  const pattern = /(\^\{[^{}\n]+\}|\^\([^()\n]+\)|\^[*+\-0-9A-Za-z]+|_\{[^{}\n]+\}|_(?:[0-9]+(?:\/[0-9]+)?|[A-Za-z][A-Za-z0-9]*)(?!_))/g;
+  const pattern = scientificScriptPattern();
   let last = 0;
   let match: RegExpExecArray | null;
   let index = 0;
