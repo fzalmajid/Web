@@ -43,7 +43,7 @@ export function identityInEntry(entry:string,item:CitationIdentity){
   return title.length>=16 && line.includes(title);
 }
 
-export function guardAnswerBibliography(answer:string,inventory:CitationIdentity[],style:CitationStyle,strict=false){
+export function guardAnswerBibliography(answer:string,inventory:CitationIdentity[],style:CitationStyle,strict=false,blocked:CitationIdentity[]=[]){
   const match=heading.exec(answer);
   const fabricated=/pustaka internal farmasi|referensi internal (?:ai|model)|internal (?:ai|model) knowledge library/i.test(answer);
   if(fabricated)return {text:"Jawaban ditahan karena memuat sumber yang tidak dapat dibuktikan. Tidak ada referensi bernama ‘Pustaka Internal Farmasi’ dalam hasil penelusuran. Diperlukan sumber nyata sebelum komposisi atau sitasi tersebut dapat digunakan.",warnings:["Referensi rekaan diblokir; jawaban tidak boleh dipakai sebagai resep dari jurnal."],blocked:true};
@@ -54,12 +54,13 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
   const before=answer.slice(0,match.index).trim();
   const tail=answer.slice(match.index+match[0].length).trim();
   const entries=tail.split(/\n(?=\s*(?:\[\d+\]|\d+[.)]|[-*] |[\p{Lu}]))/u).map(e=>e.trim()).filter(Boolean);
-  const known=entries.map(entry=>({entry,source:inventory.find(item=>identityInEntry(entry,item))}));
+  const known=entries.map(entry=>({entry,source:blocked.some(item=>identityInEntry(entry,item))?undefined:inventory.find(item=>identityInEntry(entry,item))}));
   const unknown=known.filter(item=>!item.source);
   if(strict&&unknown.length)return {text:"Jawaban belum dapat ditampilkan sebagai formula dari jurnal karena referensi yang dihasilkan tidak cocok dengan sumber yang berhasil ditemukan. Saya tidak akan mengisi komposisi atau daftar pustaka dengan tebakan. Periksa PDF sumber yang tersedia di bawah atau lampirkan paper tambahan.",warnings:["Jawaban dengan identitas referensi yang tidak cocok diblokir."],blocked:true};
   const used=[...new Set(known.flatMap(item=>item.source?[item.source]:[]))];
   const numeric=style==="ieee"||style==="vancouver";
-  const omitted=!numeric&&style!=="none"?omittedAuthorYearReferences(before,inventory,used):[];
+  const eligible=inventory.filter(item=>!blocked.some(conflict=>identityInEntry(`${item.title} ${item.uri||""} ${item.doi||""}`,conflict)));
+  const omitted=!numeric&&style!=="none"?omittedAuthorYearReferences(before,eligible,used):[];
   used.push(...omitted);
   if(!numeric)used.sort((a,b)=>(a.formatted||a.title).localeCompare(b.formatted||b.title,"en"));
   // Preserve numeric identities only when all entries matched; don't silently renumber in-text citations.

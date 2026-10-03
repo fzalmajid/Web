@@ -5,6 +5,7 @@ import {scientificQueryPlan,matchesRequiredTopic} from "../lib/researchQuery";
 import {guardAnswerBibliography,requiresQuantitativePaperEvidence,publicEvidenceFallbackNotice} from "../lib/answerEvidence";
 import {publisherPdfLinks,paperTitleMatches,selectEvidencePages,publisherArticleMetadata} from "../lib/scholarlyFullText";
 import {answerCitationInventory} from "../lib/answerCitationServer";
+import {scholarlyPromptContext,scholarlyWebSources} from "../lib/scholarlySources";
 
 test("Indonesian recipe search retains the exact drug, not a sentence or DAP ambiguity",()=>{
   const question="carikan resep formulasi tablet konvensional dipyridamole dari jurnal tervalidai, baik modifikasi cocrystal maupun bukan, minimal 2 model resep formula, dari bahan aktif, eksipien, jumlah(mg) juga disebutkan";
@@ -96,4 +97,22 @@ test("plain-provider fallback retains the actual full-text evidence state in its
   assert.match(fallback,/evidenceRules\(Boolean\(paperEvidence\.length\|\|databaseFormulaEvidence\)\)/);
   assert.doesNotMatch(fallback,/evidenceRules\(false\)/);
   assert.match(fallback,/publicEvidenceFallbackNotice/);
+});
+
+test("known unresolved publication editions remain research links, not formal citations",()=>{
+  const hit:any={title:"Versioned public article",provider:"crossref",authors:["Author A"],year:2025,doi:"10.1000/versioned",uri:"https://example.org/article",publicationVersionConflict:true,metadataNotice:"Printed edition differs from catalog year."};
+  assert.deepEqual(answerCitationInventory([hit],[],"apa"),[]);
+  assert.equal(scholarlyWebSources([hit])[0].uri,hit.uri);
+  const prompt=scholarlyPromptContext([hit]);
+  assert.match(prompt,/catalog_year_disputed=2025/);assert.match(prompt,/formal_citation=blocked/);assert.doesNotMatch(prompt,/(?:^|\| )year=2025/);
+});
+
+test("provider URL identities cannot bypass a known publication edition conflict",()=>{
+  const conflict={title:"Versioned public research article",doi:"10.1000/version",uri:"https://example.org/versioned"};
+  const provider={title:conflict.title,uri:conflict.uri,formatted:"[Versioned public research article](https://example.org/versioned)",authorYearKeys:["Author 2025"]};
+  const result=guardAnswerBibliography("25 mg (Author, 2025).\nReferences:\nVersioned public research article. https://example.org/versioned",[provider],"apa",true,[conflict]);
+  assert.equal(result.blocked,true);assert.doesNotMatch(result.text,/25 mg/);
+  const main={title:"Matched main research article",formatted:"Main (2024). Matched main research article."};
+  const repaired=guardAnswerBibliography("Main result; Author (2025).\nReferences:\nMatched main research article.",[main,provider],"apa",false,[conflict]);
+  assert.doesNotMatch(repaired.text,/https:\/\/example.org\/versioned/);
 });
