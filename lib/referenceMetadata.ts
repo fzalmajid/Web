@@ -276,8 +276,24 @@ export function inferReferenceMetadata(input: {
   const pmid = normalizePmid(/\bPMID\s*:?\s*(\d{1,9})\b/i.exec(front.slice(0, 5000))?.[1] ||
     /pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i.exec(input.sourceUrl || "")?.[1]);
   if (pmid) setCandidate(meta, "pmid", pmid, "document", 0.99, "PMID explicite.");
-  const edition = /\b(?:edition|edisi)\s*:?\s*(\d{1,2})\b/i.exec(front)?.[1] || /\b(\d{1,2})(?:st|nd|rd|th)\s+edition\b/i.exec(front)?.[1];
+  const edition = /\b(?:edition|edisi)\s*:?\s*(\d{1,2}|VIII|VII|VI|IV|III|II|IX|V|X|I)\b/i.exec(front)?.[1] || /\b(\d{1,2})(?:st|nd|rd|th)\s+edition\b/i.exec(front)?.[1];
   if (edition) setCandidate(meta, "edition", edition, "document", 0.97);
+
+  // Official pharmacopeia title pages have a distinctive identity sequence.
+  // Require a valid ISBN and the actual cover text, never filename/slide guesses.
+  // OCR may split a printed cover year ("20 20"); only normalize this sequence.
+  const cover=first800.replace(/^\s*\[Halaman\s*1\]\s*/i,"");
+  const officialCover=/^(Farmakope\s+(?:Herbal\s+)?Indonesia)\s+Edisi\s+(VIII|VII|VI|IV|III|II|IX|V|X|I|\d{1,2})\s+((?:19|20)(?:\s+\d{2}|\d{2}))\s+(Kementerian\s+Kesehatan\s+(?:Republik\s+Indonesia|RI))\b/i.exec(cover);
+  if(officialCover&&isbn&&!isSlides){
+    const coverTitle=officialCover[1].toLowerCase().replace(/\b[a-z]/g,letter=>letter.toUpperCase());
+    const coverAuthor=officialCover[4].toLowerCase().replace(/\b[a-z]/g,letter=>letter.toUpperCase()).replace(/\bRi\b/,"RI");
+    setCandidate(meta,"title",coverTitle,"document",.98,"Judul terpisah dari edisi, tahun dan lembaga pada halaman judul resmi ber-ISBN.");
+    setCandidate(meta,"corporate_author",coverAuthor,"document",.98,"Lembaga tercetak dalam identitas halaman judul farmakope, bukan disebut di isi/daftar pustaka.");
+    setCandidate(meta,"institution",coverAuthor,"document",.98);
+    setCandidate(meta,"year",Number(officialCover[3].replace(/\s/g,"")),"document",.97,"Tahun tercetak dalam identitas edisi pada halaman judul ber-ISBN.");
+    setCandidate(meta,"edition",officialCover[2].toUpperCase(),"document",.98);
+    setCandidate(meta,"type","book","document",.98);
+  }
 
   if (!meta.type) {
     if (isbn) {
