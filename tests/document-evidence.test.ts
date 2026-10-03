@@ -3,8 +3,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { guardAnswerBibliography } from "../lib/answerEvidence";
 import { recoverDocumentBibliography, monographInstruction } from "../lib/documentEvidence";
+import { scientificQueryPlan } from "../lib/researchQuery";
 
 const article={title:"Actual retrieved pharmaceutical publication",doi:"10.1234/real",uri:"https://doi.org/10.1234/real",formatted:"Author (2024). Actual retrieved pharmaceutical publication. https://doi.org/10.1234/real",catalogOnly:true};
+test("live generic Indonesian request does not recover unrelated DOI works",()=>{
+  const question="Jelaskan singkat apa itu kokristal dipiridamol dan sertakan daftar pustaka publikasi nyata dengan DOI atau tautan penerbit.";
+  const plan=scientificQueryPlan(question);
+  assert.equal(plan.requiredTerm,"dipyridamole");
+  assert.doesNotMatch(plan.query,/jelaskan|singkat|apa|itu/);
+  const real={...article,title:"Dipyridamole cocrystal tablets with enhanced dissolution",formatted:"Author (2024). Dipyridamole cocrystal tablets with enhanced dissolution."};
+  const irrelevant={...article,title:"Apa itu internet? Ilmuwan komputer menjawabnya",doi:"10.1234/unrelated"};
+  const result=recoverDocumentBibliography("Body.",[real,irrelevant],[],question);
+  assert.match(result.text,/Dipyridamole/);assert.doesNotMatch(result.text,/internet|unrelated/);
+});
 test("missing model references recover real catalog identities with explicit claim limitations",()=>{
   const guarded=guardAnswerBibliography("Usulan user.\nReferences:\nInvented reference.",[article],"apa");
   const result=recoverDocumentBibliography(guarded.text,[article,article]);

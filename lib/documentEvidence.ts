@@ -1,10 +1,14 @@
 import type { CitationIdentity } from "./answerEvidence";
 import { identityInEntry } from "./answerEvidence";
 import { publicUrl } from "./researchLinks";
+import { scientificQueryPlan, rankResearchHits, matchesRequiredTopic } from "./researchQuery";
 
 /** Recovery is a reading list, never retroactive support for unlinked claims. */
-export function recoverDocumentBibliography(text:string, inventory:CitationIdentity[], blocked:CitationIdentity[]=[]){
-  const candidates=inventory.filter(item=>{
+export function recoverDocumentBibliography(text:string, inventory:CitationIdentity[], blocked:CitationIdentity[]=[], question=""){
+  const plan=question?scientificQueryPlan(question):null;
+  const relevant=plan?rankResearchHits(inventory,plan.query).filter(item=>matchesRequiredTopic(item.title,plan.requiredTerm)):inventory;
+  const monographBooks=/\b(?:monografi|monographs?)\b/i.test(question)?inventory.filter(item=>/farmakope indonesia|farmakope herbal indonesia|handbook of pharmaceutical excipients/i.test(item.title)):[];
+  const candidates=[...relevant,...monographBooks].filter(item=>{
     const doi=/^10\.\d{4,9}\/\S+$/i.test(item.doi||"");
     // formatted references come from the metadata pipeline; arbitrary provider
     // pages/grounding titles are not promoted into publications or books.
