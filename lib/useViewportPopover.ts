@@ -24,7 +24,7 @@ export function useViewportPopover(open: boolean, anchor: RefObject<HTMLElement 
         "--rb-popover-left": `${position.left}px`,
         "--rb-popover-width": `${position.width}px`,
         "--rb-popover-top": position.top === undefined ? "auto" : `${position.top}px`,
-        "--rb-popover-bottom": position.bottom === undefined ? "auto" : `${position.bottom + window.innerHeight - (viewport?.height ?? window.innerHeight)}px`,
+        "--rb-popover-bottom": position.bottom === undefined ? "auto" : `${position.bottom + window.innerHeight - (viewport?.height ?? window.innerHeight) - (viewport?.offsetTop ?? 0)}px`,
         "--rb-popover-height": `${position.maxHeight}px`,
       } as CSSProperties);
     };
