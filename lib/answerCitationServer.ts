@@ -1,13 +1,24 @@
 import type { ScholarlyHit } from "./scholarlySources";
 import type { CitationStyle } from "./citations";
 import type { CitationIdentity } from "./answerEvidence";
-import { formatVerifiedReference } from "./citationFormatterServer";
+import { formatVerifiedReference, referenceToCsl } from "./citationFormatterServer";
 import { citationMetadataReady, REFERENCE_ENGINE_VERSION, type ReferenceMetadata } from "./referenceMetadata";
 import type { ScholarlyEvidence } from "./scholarlyFullText";
 
+/** Reuse verified CSL name parsing (including surname-first initials/suffixes). */
+export function citationAuthorYearKeys(metadata:ReferenceMetadata){
+  const csl=referenceToCsl(metadata);
+  const year=csl.issued?.["date-parts"]?.[0]?.[0];
+  const authors=(csl.author||[]).map(name=>String(name?.family||name?.literal||"").trim()).filter(Boolean);
+  if(!year||!authors.length)return [];
+  if(authors.length===1)return [`${authors[0]} ${year}`];
+  if(authors.length===2)return ["&","and","dan"].map(joiner=>`${authors[0]} ${joiner} ${authors[1]} ${year}`);
+  return [`${authors[0]} et al ${year}`,`${authors[0]} dkk ${year}`];
+}
+
 export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:CitationStyle,evidence:ScholarlyEvidence[]=[]):CitationIdentity[]{
   const result:CitationIdentity[]=[];
-  for(const row of rows){const metadata:ReferenceMetadata=row.bibliographic_metadata||{};if(!citationMetadataReady(metadata))continue;result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined});}
+  for(const row of rows){const metadata:ReferenceMetadata=row.bibliographic_metadata||{};if(!citationMetadataReady(metadata))continue;result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,authorYearKeys:citationAuthorYearKeys(metadata),formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined});}
   for(const hit of hits){
     const source=hit.metadataBasis==="publisher"||hit.provider==="semanticscholar"||hit.provider==="scopus"?"official":hit.provider;
     const metadata:ReferenceMetadata={title:hit.title,authors:hit.authors,year:hit.year,type:hit.workType||"journal_article",container_title:hit.journal,doi:hit.doi,url:hit.uri,volume:hit.volume,issue:hit.issue,pages:hit.pages,
@@ -16,7 +27,7 @@ export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:Cit
     const read=evidence.find(item=>hit.doi&&item.source.doi?hit.doi.toLowerCase()===item.source.doi.toLowerCase():hit.title===item.source.title);
     const pmcid=/^PMC\d+$/i.test(hit.pmcid||"")?hit.pmcid!.toUpperCase():null;
     const repositoryLinks=pmcid?[{label:"Artikel di PMC",uri:`https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`},{label:"Artikel di Europe PMC",uri:`https://europepmc.org/articles/${pmcid}`}]:[];
-    result.push({title:hit.title,doi:hit.doi,uri:hit.uri,formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined,catalogOnly:!read,readSource:read?{uri:read.uri,format:read.kind,pages:read.pages}:undefined,repositoryLinks});
+    result.push({title:hit.title,doi:hit.doi,uri:hit.uri,authorYearKeys:citationAuthorYearKeys(metadata),formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined,catalogOnly:!read,readSource:read?{uri:read.uri,format:read.kind,pages:read.pages}:undefined,repositoryLinks});
   }
   return result;
 }

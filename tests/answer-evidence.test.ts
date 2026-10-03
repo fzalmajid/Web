@@ -53,3 +53,28 @@ test("repository alternatives require a real catalog PMCID and never become read
   assert.match(result.text,/Artikel di PMC/);assert.match(result.text,/teks lengkap belum dibaca/);assert.doesNotMatch(result.text,/PDF dibaca|open.access=yes/);
   assert.deepEqual(answerCitationInventory([{...hit,pmcid:"PMC4808484/../../wrong"}],[],"none")[0].repositoryLinks,[]);
 });
+
+test("cited catalog works in limitations are included without adding unused or ambiguous works",()=>{
+  const main={title:"Public tablet research article",doi:"10.1000/formula",formatted:"First (2024). Public tablet research article.",authorYearKeys:["First 2024"]};
+  const additional={title:"Other matrix research article",doi:"10.1000/matrix",formatted:"Other (2023). Other matrix research article. https://doi.org/10.1000/matrix",authorYearKeys:["Other et al 2023"],catalogOnly:true};
+  const unused={title:"Uncited research article",doi:"10.1000/unused",authorYearKeys:["Unused 2022"]};
+  const result=guardAnswerBibliography("Formula (First, 2024). Metadata only for Other et al. (2023).\nReferences:\nPublic tablet research article.",[main,additional,unused],"apa",true);
+  assert.equal(result.blocked,false);assert.match(result.text,/https:\/\/doi.org\/10.1000\/matrix/);assert.match(result.text,/metadata\/abstrak; teks lengkap belum dibaca/);assert.doesNotMatch(result.text,/Uncited research/);
+  assert.ok(result.text.indexOf("First (2024)")<result.text.indexOf("Other (2023)"));
+  const ambiguous=guardAnswerBibliography("Other et al. (2023).\nReferences:\nPublic tablet research article.",[main,additional,{...additional,title:"Different work with same author and year",doi:"10.1000/ambiguous"}],"apa");
+  assert.doesNotMatch(ambiguous.text,/10.1000\/matrix|10.1000\/ambiguous/);
+  const numeric=guardAnswerBibliography("Other et al. (2023). Main [1].\nReferences:\n[1] Public tablet research article.",[main,additional],"ieee");
+  assert.doesNotMatch(numeric.text,/10.1000\/matrix/);assert.match(numeric.text,/\[1\] First/);
+});
+
+test("author-year matching uses verified CSL names and the exact year, never surname mentions alone",()=>{
+  const hit:any={title:"Public two author study",provider:"europepmc",doi:"10.1000/study",authors:["Wikarsa S","Mauilida L"],year:2011,uri:"https://doi.org/10.1000/study"};
+  const item=answerCitationInventory([hit],[],"apa")[0];
+  assert.ok(item.authorYearKeys?.includes("Wikarsa dan Mauilida 2011"));
+  const main={title:"Main publication title",formatted:"Main bibliography."};
+  const positive=guardAnswerBibliography("Wikarsa dan Mauilida (2011).\nReferences:\nMain publication title.",[main,item],"apa");
+  assert.match(positive.text,/10.1000\/study/);
+  for(const text of ["Wikarsa dan Mauilida (2010)","Wikarsa discussed this in 2011", "NotWikarsa dan Mauilida (2011)"]){
+    assert.doesNotMatch(guardAnswerBibliography(text+"\nReferences:\nMain publication title.",[main,item],"apa").text,/10.1000\/study/);
+  }
+});
