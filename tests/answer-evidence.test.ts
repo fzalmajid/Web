@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {scientificQueryPlan,matchesRequiredTopic} from "../lib/researchQuery";
-import {guardAnswerBibliography,requiresQuantitativePaperEvidence,publicEvidenceFallbackNotice} from "../lib/answerEvidence";
+import {guardAnswerBibliography,requiresQuantitativePaperEvidence,publicEvidenceFallbackNotice,readableEvidenceLabels} from "../lib/answerEvidence";
 import {publisherPdfLinks,paperTitleMatches,selectEvidencePages,publisherArticleMetadata} from "../lib/scholarlyFullText";
 import {answerCitationInventory} from "../lib/answerCitationServer";
 import {scholarlyPromptContext,scholarlyWebSources} from "../lib/scholarlySources";
@@ -115,4 +115,19 @@ test("provider URL identities cannot bypass a known publication edition conflict
   const main={title:"Matched main research article",formatted:"Main (2024). Matched main research article."};
   const repaired=guardAnswerBibliography("Main result; Author (2025).\nReferences:\nMatched main research article.",[main,provider],"apa",false,[conflict]);
   assert.doesNotMatch(repaired.text,/https:\/\/example.org\/versioned/);
+});
+
+test("internal excerpt labels become readable prose only when that excerpt was actually read",()=>{
+  const answer="Berdasarkan bukti dalam **EVIDENCE 1**, total 200 mg (Author, 2024). EVIDENCE 2 belum dibaca.\nReferences:\nAuthor (2024). EVIDENCE 1: Actual article title.";
+  const readable=readableEvidenceLabels(answer,1);
+  assert.match(readable,/dalam \*\*sumber publik yang dibaca\*\*, total 200 mg \(Author, 2024\)/);
+  assert.match(readable,/EVIDENCE 2 belum dibaca/);assert.match(readable,/References:\nAuthor \(2024\). EVIDENCE 1: Actual article title/);
+  assert.equal(readableEvidenceLabels(answer,0),answer);
+  const route=readFileSync("app/api/ask/route.ts","utf8");
+  assert.match(route,/guardAnswerBibliography\(readableEvidenceLabels\(text,paperEvidence\.length\)/);
+});
+
+test("readable excerpt labels leave literal code and external link identities unchanged",()=>{
+  const literals='`EVIDENCE 1`\n```text\nEVIDENCE 1\n```\n~~~text\nEVIDENCE 1\n~~~\n[EVIDENCE 1](https://example.org/EVIDENCE%201)\nhttps://example.org/EVIDENCE1';
+  assert.equal(readableEvidenceLabels(literals,1),literals);
 });

@@ -35,6 +35,15 @@ export function publicEvidenceFallbackNotice(state:{fullTextRead:boolean;pagesRe
   return "Belum ada halaman Web atau teks penuh publik yang berhasil dibaca. Pengetahuan internal AI bukan publikasi terverifikasi.";
 }
 
+/** Prompt excerpt IDs are internal, not citations. Only rename IDs backed by
+ * this request's read excerpts; preserve code, links and bibliography titles. */
+export function readableEvidenceLabels(answer:string,readExcerptCount:number){
+  if(!Number.isSafeInteger(readExcerptCount)||readExcerptCount<1)return answer;
+  const boundary=heading.exec(answer)?.index??answer.length;
+  const body=answer.slice(0,boundary).replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`|!?\[[^\]\n]*\]\([^\)\n]*\)|https?:\/\/[^\s<>"\]]+|\bEVIDENCE[\t ]+([1-9]\d*)\b/g,(token,id:string|undefined)=>id&&Number(id)<=readExcerptCount?"sumber publik yang dibaca":token);
+  return body+answer.slice(boundary);
+}
+
 /** Match a bibliography identity against actual retrieval, not the model's assertion that it exists. */
 export function identityInEntry(entry:string,item:CitationIdentity){
   if(item.doi){const dois=entry.match(/\b10\.\d{4,9}\/[^\s<>"\]]+/gi)||[];if(dois.some(doi=>doi.replace(/[.,;)]+$/g,"").toLowerCase()===item.doi!.toLowerCase()))return true;}
