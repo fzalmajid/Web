@@ -1733,7 +1733,7 @@ export async function POST(req: NextRequest) {
         webFallback: false,
         model: council ? "AI Council · " + result.model : result.model,
         orchestration: council
-          ? { mode: aiMode, stages: council.stages, helpers: council.helpers, description: "Planner → research → agents → verifier → critic → synthesizer" }
+          ? { mode: aiMode, stages: council.stages, helpers: council.helpers, routes:council.routes, description: "Planner → research → agents → verifier → critic → synthesizer" }
           : { mode: aiMode, stages: [], description: "Direct provider response" },
         aiUsage,
         provider: selectedUsageProvider(),
@@ -1875,7 +1875,7 @@ export async function POST(req: NextRequest) {
           answerLengthStatus(lengthPlan,fallbackResult.text,fallbackResult.finishReason).truncated ? "Jawaban mencapai batas keluaran dan mungkin belum lengkap. Minta lanjutkan bagian yang belum selesai." : "",
           fallbackCouncil?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · "),
         model: fallbackResult.model,
-        orchestration: fallbackCouncil ? {mode:aiMode,stages:fallbackCouncil.stages,helpers:fallbackCouncil.helpers} : {mode:aiMode,stages:[]},
+        orchestration: fallbackCouncil ? {mode:aiMode,stages:fallbackCouncil.stages,helpers:fallbackCouncil.helpers,routes:fallbackCouncil.routes} : {mode:aiMode,stages:[]},
         aiUsage,
         provider: selectedUsageProvider(),
         artifactFormat,
