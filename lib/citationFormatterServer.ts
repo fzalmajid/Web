@@ -12,16 +12,24 @@ const styleTemplates: Record<ProcessorStyle, string> = {
 };
 for (const [name, xml] of Object.entries(cslStyles)) plugins.config.get("@csl").styles.add(name, xml);
 
-function splitPerson(value: string) {
-  const name = String(value || "").trim();
+function splitPerson(value: string): NonNullable<ReferenceMetadata["author_details"]>[number] | null {
+  let name = String(value || "").trim();
   if (!name) return null;
+  // Generational suffixes are CSL name parts, never the family name.
+  const suffix = /[\s,]+(Jr\.?|Sr\.?|II|III|IV|VI|VII|VIII|IX)\s*$/.exec(name)?.[1];
+  if (suffix) name = name.slice(0, name.length - suffix.length).replace(/[\s,]+$/, "");
   if (name.includes(",")) {
     const [family, ...given] = name.split(",").map((part) => part.trim());
-    return { family, given: given.join(" ") || undefined };
+    return { family, given: given.join(" ") || undefined, ...(suffix ? { suffix } : {}) };
   }
   const parts = name.split(/\s+/);
   if (parts.length === 1) return { literal: name };
-  return { family: parts.pop(), given: parts.join(" ") };
+  // PubMed/Europe PMC often return "Surname AB", unlike full-name catalogs.
+  const last = parts[parts.length - 1];
+  if (/^(?:[A-Z]{1,5}|(?:[A-Z]\.){1,5})$/.test(last) && /[a-z]/.test(parts.slice(0, -1).join(" "))) {
+    return { family: parts.slice(0, -1).join(" "), given: last.replace(/\./g, "").split("").join(" "), ...(suffix ? { suffix } : {}) };
+  }
+  return { family: parts.pop(), given: parts.join(" "), ...(suffix ? { suffix } : {}) };
 }
 
 function cslType(type: ReferenceMetadata["type"]) {

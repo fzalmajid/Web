@@ -3,8 +3,9 @@ import type { CitationStyle } from "./citations";
 import type { CitationIdentity } from "./answerEvidence";
 import { formatVerifiedReference } from "./citationFormatterServer";
 import { citationMetadataReady, REFERENCE_ENGINE_VERSION, type ReferenceMetadata } from "./referenceMetadata";
+import type { ScholarlyEvidence } from "./scholarlyFullText";
 
-export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:CitationStyle):CitationIdentity[]{
+export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:CitationStyle,evidence:ScholarlyEvidence[]=[]):CitationIdentity[]{
   const result:CitationIdentity[]=[];
   for(const row of rows){const metadata:ReferenceMetadata=row.bibliographic_metadata||{};if(!citationMetadataReady(metadata))continue;result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined});}
   for(const hit of hits){
@@ -12,7 +13,8 @@ export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:Cit
     const metadata:ReferenceMetadata={title:hit.title,authors:hit.authors,year:hit.year,type:hit.workType||"journal_article",container_title:hit.journal,doi:hit.doi,url:hit.uri,volume:hit.volume,issue:hit.issue,pages:hit.pages,
       audit:{engineVersion:REFERENCE_ENGINE_VERSION,checkedAt:new Date().toISOString(),status:"verified",basis:hit.metadataBasis==="publisher"?"document":"catalog",matches:[{source:hit.metadataBasis||hit.provider,similarity:1,method:hit.metadataBasis==="publisher"?"publisher identity matched":"retrieved catalog record"}],issues:[],missing:[],history:[]},provenance:{}};
     for(const key of Object.keys(metadata))if(key!=="audit"&&key!=="provenance")metadata.provenance![key]={source,confidence:0.95,note:"Retrieved public catalog metadata; does not verify claims in the paper."};
-    result.push({title:hit.title,doi:hit.doi,uri:hit.uri,formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined});
+    const read=evidence.find(item=>hit.doi&&item.source.doi?hit.doi.toLowerCase()===item.source.doi.toLowerCase():hit.title===item.source.title);
+    result.push({title:hit.title,doi:hit.doi,uri:hit.uri,formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined,catalogOnly:!read,readSource:read?{uri:read.uri,format:read.kind,pages:read.pages}:undefined});
   }
   return result;
 }

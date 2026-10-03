@@ -29,7 +29,7 @@ export type ReferenceAudit = {
 export type ReferenceMetadata = {
   title?: string | null;
   authors?: string[];
-  author_details?: Array<{ family?: string; given?: string; literal?: string }>;
+  author_details?: Array<{ family?: string; given?: string; literal?: string; suffix?: string }>;
   corporate_author?: string | null;
   year?: number | null;
   publisher?: string | null;
