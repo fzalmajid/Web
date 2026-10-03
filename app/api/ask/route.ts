@@ -40,7 +40,7 @@ import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } 
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
 import { fetchScholarlyEvidence, fullTextPromptContext } from "@/lib/scholarlyFullText";
 import { answerCitationInventory, publicCitationPrompt } from "@/lib/answerCitationServer";
-import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules } from "@/lib/answerEvidence";
+import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice } from "@/lib/answerEvidence";
 import { citationMetadataReady } from "@/lib/referenceMetadata";
 import { mergeWebSources, scholarlyPromptContext, searchScholarlySources } from "@/lib/scholarlySources";
 import { rerankKnowledge } from "@/lib/documentEnhancements";
@@ -1817,7 +1817,7 @@ export async function POST(req: NextRequest) {
         citationStyle,
         citationOutputs,
         artifactFormat,
-      }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction + evidenceRules(false)+publicCitationPrompt(citations);
+      }) + citationMetadataInventory + deterministicCitationInventory + visualLearningInstruction + evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+publicCitationPrompt(citations);
 
       const fallbackPreflight=sharedGemini?await checkAiCredits(supabase,"ask",aiMode):null;
       if(fallbackPreflight&&!fallbackPreflight.allowed)return NextResponse.json(aiQuotaError(fallbackPreflight),{status:429});
@@ -1847,9 +1847,7 @@ export async function POST(req: NextRequest) {
         publicWeb: hasPublicEvidence,
         selectedSources: hasPublicEvidence ? selectedSources : fallbackSources,
         webFallback: true,
-        warning: [hasPublicEvidence
-          ? "Grounding langsung sementara tidak tersedia. Jawaban memakai sumber publik yang sudah ditemukan; metadata/abstrak tidak sama dengan membaca full text."
-          : "Pencarian Web sementara tidak tersedia. Jawaban memakai sumber non-Web; referensi dari pengetahuan internal belum diverifikasi secara langsung.",
+        warning: [publicEvidenceFallbackNotice({fullTextRead:paperEvidence.length>0,pagesRead:webResearchResult.hits.some(hit=>hit.contentKind==="page"),metadataAvailable:hasPublicEvidence}),
           fallbackCouncil?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · "),
         model: fallbackResult.model,
         orchestration: fallbackCouncil ? {mode:aiMode,stages:fallbackCouncil.stages,helpers:fallbackCouncil.helpers} : {mode:aiMode,stages:[]},
