@@ -14,7 +14,9 @@ export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:Cit
       audit:{engineVersion:REFERENCE_ENGINE_VERSION,checkedAt:new Date().toISOString(),status:"verified",basis:hit.metadataBasis==="publisher"?"document":"catalog",matches:[{source:hit.metadataBasis||hit.provider,similarity:1,method:hit.metadataBasis==="publisher"?"publisher identity matched":"retrieved catalog record"}],issues:[],missing:[],history:[]},provenance:{}};
     for(const key of Object.keys(metadata))if(key!=="audit"&&key!=="provenance")metadata.provenance![key]={source,confidence:0.95,note:"Retrieved public catalog metadata; does not verify claims in the paper."};
     const read=evidence.find(item=>hit.doi&&item.source.doi?hit.doi.toLowerCase()===item.source.doi.toLowerCase():hit.title===item.source.title);
-    result.push({title:hit.title,doi:hit.doi,uri:hit.uri,formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined,catalogOnly:!read,readSource:read?{uri:read.uri,format:read.kind,pages:read.pages}:undefined});
+    const pmcid=/^PMC\d+$/i.test(hit.pmcid||"")?hit.pmcid!.toUpperCase():null;
+    const repositoryLinks=pmcid?[{label:"Artikel di PMC",uri:`https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`},{label:"Artikel di Europe PMC",uri:`https://europepmc.org/articles/${pmcid}`}]:[];
+    result.push({title:hit.title,doi:hit.doi,uri:hit.uri,formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined,catalogOnly:!read,readSource:read?{uri:read.uri,format:read.kind,pages:read.pages}:undefined,repositoryLinks});
   }
   return result;
 }
