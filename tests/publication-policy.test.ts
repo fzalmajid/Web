@@ -36,21 +36,21 @@ function metadata(type="book"){return {title:"Actual retrieved official book",ty
 test("book inventory aggregates printed pages, never substitutes PDF offsets, excludes slides",()=>{
   const rows=[{bibliographic_work_id:"book",bibliographic_metadata:metadata(),printed_page_start:"145",source_page_start:164},{bibliographic_work_id:"book",bibliographic_metadata:metadata(),printed_page_start:"146",source_page_start:165},{bibliographic_metadata:metadata("lecture_slides")}];
   const items=answerCitationInventory([],rows,"apa");assert.equal(items.length,1);assert.deepEqual(items[0].printedPages,["145","146"]);
-  const result=guardAnswerBibliography("Content.\nReferences:\nActual retrieved official book.",items,"apa");
+  const result=guardAnswerBibliography("Content (Example, 2020).\nReferences:\nActual retrieved official book.",items,"apa");
   assert.match(result.text,/Halaman cetak.*145, 146/);assert.doesNotMatch(result.text,/164|165|doi.org\/undefined/);
   const missing=answerCitationInventory([],[{bibliographic_metadata:metadata(),source_page_start:164}],"apa");
   assert.deepEqual(missing[0].printedPages,[]);
-  assert.match(guardAnswerBibliography("Content.\nReferences:\nActual retrieved official book.",missing,"apa").warnings.join(" "),/nomor PDF tidak/);
+  assert.match(guardAnswerBibliography("Content (Example, 2020).\nReferences:\nActual retrieved official book.",missing,"apa").warnings.join(" "),/nomor PDF tidak/);
 });
 test("real Library books without public URLs can still be listed without fabricated DOI",()=>{
   const items=answerCitationInventory([],[{bibliographic_metadata:metadata()}],"apa");
-  const result=recoverDocumentBibliography("No cited works.",items);
+  const result=recoverDocumentBibliography("Fact (Example, 2020).",items);
   assert.match(result.text,/Official Publisher/);assert.doesNotMatch(result.text,/doi.org\/undefined/);
-  assert.match(result.text,/tautan publik belum tersedia/);
+  assert.doesNotMatch(result.text,/https?:\/\//);assert.equal(recoverDocumentBibliography("No cited works.",items).text,"No cited works.");
 });
 test("existing cited bibliography does not get filled with unused DOI neighbors",()=>{
   const text="Claim.\n*References:*\nA genuine cited work.";
-  assert.equal(recoverDocumentBibliography(text,[{title:"Unused related publication",doi:"10.1234/unrelated"}]).text,text);
+  assert.doesNotMatch(recoverDocumentBibliography(text,[{title:"Unused related publication",doi:"10.1234/unrelated"}]).text,/genuine cited work|Unused related publication/);
 });
 test("MCC aliases rank matching monograph contents above unrelated book pages",()=>{
   assert.ok(monographAliases("Monografi selulosa mikrokristal MCC").includes("microcrystalline cellulose"));

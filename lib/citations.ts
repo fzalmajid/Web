@@ -144,8 +144,9 @@ export function citationInstruction(
     ],
   };
 
-  const wantsInText = citationOutputs.includes("in-text");
-  const wantsBibliography = citationOutputs.includes("bibliography");
+  // Formal answer citations and their reference list are an inseparable pair.
+  const wantsInText = citationOutputs.length > 0;
+  const wantsBibliography = citationOutputs.length > 0;
   const style = citationStyle as Exclude<CitationStyle, "none">;
   const heading = bibliographyHeading(style);
   const guide = CITATION_STYLE_GUIDES[style];
@@ -180,7 +181,7 @@ export function citationInstruction(
     "- Untuk file Database lokal yang hanya memiliki title dan page metadata, identifikasi dengan title yang tersedia dan locator halaman bila relevan; jangan membuat DOI/URL/publisher.",
     "- BUKU: setiap kutipan/parafrasa wajib memakai HALAMAN CETAK yang terbukti dari sumber. HALAMAN PDF hanya untuk navigasi, tidak boleh menjadi locator sitasi buku atau dihitung offset-nya. Jika halaman cetak tidak terbaca, nyatakan belum tersedia; jangan mengarang. Buku yang benar-benar dipakai tetap masuk daftar pustaka dengan edisi yang benar.",
     "- Satu klaim boleh memakai beberapa citation bila beberapa sumber benar-benar mendukungnya. Jangan mencantumkan sumber yang tidak mendukung klaim hanya untuk memperbanyak referensi.",
-    "- Citation dan reference list harus konsisten satu-ke-satu: setiap marker harus dapat dipetakan ke entri/identitas sumber yang sama, dan nomor numeric tidak boleh berubah di tengah jawaban.",
+    "- WAJIB COCOK DUA ARAH: References/Daftar Pustaka HANYA berisi karya yang benar-benar disitasi dalam teks (kurung penulis-tahun, sitasi naratif yang sah, atau marker gaya numeric). Setiap sitasi wajib memiliki tepat satu entri identitas karya yang sama. Hapus entri yang tidak disitasi; pulihkan entri yang hilang hanya dari metadata sumber nyata. Jangan menambahkan sitasi palsu untuk membenarkan daftar bacaan. Hasil pencarian, sumber terambil RAG, atau saran bacaan tanpa sitasi bukan daftar pustaka. Nomor numeric tidak boleh berubah di tengah jawaban.",
     "- IDENTITAS KARYA: bila beberapa SOURCE_ID atau file/halaman memiliki WORK_ID/KARYA BIBLIOGRAFIS yang sama, itu SATU karya terbitan dan tepat SATU baris di References/Daftar Pustaka/Works Cited. Jangan membuat Farmakope A, Farmakope B, atau referensi baru akibat nomor halaman berbeda, file PDF terpecah, upload ulang, atau bab berbeda. Locator halaman hanya muncul pada in-text bila style dan konteks mendukung.",
     "- EDISI BERBEDA ADALAH KARYA BERBEDA: Handbook of Pharmaceutical Excipients edisi kelima dan keenam wajib memiliki entri terpisah meski nama file hasil upload identik. Jangan menyatukan karya tanpa metadata edisi/ISBN/identitas yang memadai. Kunci WORK_ID harus konsisten untuk sitasi numeric sehingga nomor sumber sama dipakai ulang.",
     "- Bila berbeda volume atau file bagian tetapi merupakan satu publikasi multi-volume yang menurut gaya diperlakukan satu karya, tulis satu referensi karya multi-volume dan letakkan volume serta halaman pada locator bila terbukti. Bila publikasi tiap volume punya metadata/edisi tersendiri, pisahkan sesuai aturan style.",
@@ -191,7 +192,7 @@ export function citationInstruction(
     "- Gunakan hanya satu varian style yang dipilih user. Jangan mencampur APA/Harvard/Chicago, urutan alfabetis versus urutan sitasi, tanda kurung versus kurung siku, atau aturan dan jumlah penulis.",
     "- Jika file lokal tidak memiliki pengarang/tahun yang dapat diverifikasi, identifikasi dengan judul yang benar-benar terlihat, gunakan aturan no-author/no-date style terkait bila sah, dan beri catatan bahwa metadata tidak lengkap; JANGAN menjadikan tanggal upload sebagai tahun terbit.",
     "- Sebelum menampilkan jawaban, periksa secara eksplisit: (1) setiap klaim berbasis referensi berasal dari sumber yang benar-benar dibaca, (2) locator merujuk halaman asli yang terverifikasi, (3) setiap sitasi cocok ke satu entri, (4) setiap entri benar-benar dipakai, (5) format sesuai style terpilih.",
-    "- Jika user hanya memilih sitasi dalam teks tanpa daftar pustaka, jangan menghasilkan daftar pustaka; jika hanya daftar pustaka, jangan menyisipkan sitasi dalam teks. Metadata yang tidak lengkap harus dilaporkan, bukan dipalsukan.",
+    "- Sitasi formal selalu disertai daftar pustaka yang cocok, bukan daftar bacaan. Bila identitas sitasi belum dapat dipasangkan, laporkan sitasi yang belum terselesaikan; jangan mengarang penulis, tahun, buku atau DOI untuk mengisi entri.",
   ].join("\n");
 }
 
