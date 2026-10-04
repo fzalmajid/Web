@@ -5,7 +5,7 @@ import {scientificQueryPlan,matchesRequiredTopic,withinResearchScope} from "../l
 import {guardAnswerBibliography,requiresQuantitativePaperEvidence,explicitScholarlySearchIntent,publicEvidenceFallbackNotice,readableEvidenceLabels} from "../lib/answerEvidence";
 import {publisherPdfLinks,paperTitleMatches,selectEvidencePages,publisherArticleMetadata} from "../lib/scholarlyFullText";
 import {answerCitationInventory} from "../lib/answerCitationServer";
-import {scholarlyPromptContext,scholarlyWebSources} from "../lib/scholarlySources";
+import {scholarlyPromptContext,scholarlyWebSources,openAlexOpenLocationUrls} from "../lib/scholarlySources";
 
 test("Indonesian recipe search retains the exact drug, not a sentence or DAP ambiguity",()=>{
   const question="carikan resep formulasi tablet konvensional dipyridamole dari jurnal tervalidai, baik modifikasi cocrystal maupun bukan, minimal 2 model resep formula, dari bahan aktif, eksipien, jumlah(mg) juga disebutkan";
@@ -169,4 +169,23 @@ test("explicit journal search auto-enables public scholarly retrieval even when 
   const route=readFileSync("app/api/ask/route.ts","utf8");
   assert.match(route,/const autoScholarlyWeb\s*=\s*[\s\S]*explicitScholarlySearchIntent\(question\)[\s\S]*requiresQuantitativePaperEvidence\(question\)/);
   assert.match(route,/const useWeb = selectedSources\.includes\("web"\) \|\| autoScholarlyWeb/);
+});
+
+
+test("OpenAlex repository locations preserve OA PDF and landing-page alternatives for exact DOI hydration",()=>{
+  const work={
+    best_oa_location:{is_oa:true,landing_page_url:"https://publisher.example/article",pdf_url:null},
+    locations:[
+      {is_oa:false,landing_page_url:"https://doi.org/10.1000/example",pdf_url:null},
+      {is_oa:true,landing_page_url:"https://par.nsf.gov/biblio/10489247",pdf_url:"https://par.nsf.gov/servlets/purl/10489247"},
+    ],
+  };
+  assert.deepEqual(openAlexOpenLocationUrls(work),[
+    "https://publisher.example/article",
+    "https://par.nsf.gov/servlets/purl/10489247",
+    "https://par.nsf.gov/biblio/10489247",
+  ]);
+  const fullText=readFileSync("lib/scholarlyFullText.ts","utf8");
+  assert.match(fullText,/openAlexOpenLocationsForDoi\(hit\.doi\)/);
+  assert.match(fullText,/\.\.\.exactOaLocations/);
 });
