@@ -48,7 +48,7 @@ test("actual legacy FI cover metadata yields a clean book and institution citati
 test("unsafe read target falls back to the real DOI, without executing or nesting Markdown links",()=>{
   const item={title:"Actual linked study",formatted:"[Actual linked study](https://example.org/paper)",doi:"10.1234/safe",authorYearKeys:["Author 2024"],readSource:{uri:"javascript:alert(1)",format:"full-text-pdf",pages:[1]}};
   const result=guardAnswerBibliography("Claim (Author, 2024).",[item],"apa6");
-  assert.match(result.text,/\[Actual linked study\]\(https:\/\/doi.org\/10.1234\/safe\)/);
+  assert.match(result.text,/\[Actual linked study https:\/\/doi.org\/10.1234\/safe\]\(https:\/\/doi.org\/10.1234\/safe\)/);
   assert.doesNotMatch(result.text,/javascript:|\[\[/);
 });
 test("saved bibliography status links become whole-entry links without changing the original answer or code",()=>{

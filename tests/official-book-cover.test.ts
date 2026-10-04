@@ -13,7 +13,7 @@ test("live FI cover separates actual title, corporate author, roman edition and 
   assert.equal(metadata.audit.basis,"document");assert.equal(citationMetadataReady(metadata),true);assert.deepEqual(referenceToCsl(metadata).issued,{"date-parts":[[2020]]});
   const item=answerCitationInventory([],[{bibliographic_metadata:metadata,printed_page_start:"145"}],"apa6")[0];
   const answer=guardAnswerBibliography("Fact (Kemenkes RI, 2020, hlm. 145).",[item],"apa6");
-  assert.match(answer.text,/References/);assert.match(answer.text,/Farmakope Indonesia/);assert.match(answer.text,/Halaman cetak.*145/);assert.doesNotMatch(answer.text,/615\.1/);
+  assert.match(answer.text,/References/);assert.match(answer.text,/Farmakope Indonesia/);assert.match(answer.text,/hlm\. 145/);assert.doesNotMatch(answer.text,/615\.1|Halaman cetak sumber terambil/);
 });
 test("filename, slide mentions, invalid ISBN and distant institution do not establish cover identity",()=>{
   for(const input of [

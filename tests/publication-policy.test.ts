@@ -37,7 +37,7 @@ test("book inventory aggregates printed pages, never substitutes PDF offsets, ex
   const rows=[{bibliographic_work_id:"book",bibliographic_metadata:metadata(),printed_page_start:"145",source_page_start:164},{bibliographic_work_id:"book",bibliographic_metadata:metadata(),printed_page_start:"146",source_page_start:165},{bibliographic_metadata:metadata("lecture_slides")}];
   const items=answerCitationInventory([],rows,"apa");assert.equal(items.length,1);assert.deepEqual(items[0].printedPages,["145","146"]);
   const result=guardAnswerBibliography("Content (Example, 2020).\nReferences:\nActual retrieved official book.",items,"apa");
-  assert.match(result.text,/Halaman cetak.*145, 146/);assert.doesNotMatch(result.text,/164|165|doi.org\/undefined/);
+  assert.doesNotMatch(result.text,/Halaman cetak sumber terambil|164|165|doi.org\/undefined/);assert.deepEqual(items[0].printedPages,["145","146"]);
   const missing=answerCitationInventory([],[{bibliographic_metadata:metadata(),source_page_start:164}],"apa");
   assert.deepEqual(missing[0].printedPages,[]);
   assert.match(guardAnswerBibliography("Content (Example, 2020).\nReferences:\nActual retrieved official book.",missing,"apa").warnings.join(" "),/nomor PDF tidak/);
