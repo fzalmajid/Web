@@ -79,11 +79,12 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
     const title = cleanText(work?.display_name || work?.title, 1000);
     if (!title) return null;
     const doi = cleanDoi(work?.doi);
-    const best = work?.best_oa_location || work?.primary_location || {};
+    const bestOa = work?.best_oa_location || null;
+    const best = bestOa || work?.primary_location || {};
     const locations = Array.isArray(work?.locations) ? work.locations : [];
     const openLocationUrls = [...new Set([
-      best?.pdf_url,
-      best?.landing_page_url,
+      bestOa?.pdf_url,
+      bestOa?.landing_page_url,
       ...locations
         .filter((location: any) => Boolean(location?.is_oa || location?.pdf_url))
         .flatMap((location: any) => [location?.pdf_url, location?.landing_page_url]),
@@ -103,7 +104,7 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
       pmcid: null,
       journal: cleanText(best?.source?.display_name || work?.primary_location?.source?.display_name, 500) || null,
       uri,
-      openAccess: Boolean(work?.open_access?.is_oa || best?.is_oa || openLocationUrls.length),
+      openAccess: Boolean(work?.open_access?.is_oa || bestOa?.is_oa || locations.some((location: any) => Boolean(location?.is_oa))),
       abstract: indexedAbstract(work?.abstract_inverted_index),
       workType: work?.type === "article" ? "journal_article" : work?.type === "book" ? "book" : work?.type === "book-chapter" ? "chapter" : work?.type === "dissertation" ? "thesis" : "other",
       fullTextUrls: openLocationUrls,
