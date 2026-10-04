@@ -2,22 +2,60 @@
 export function researchQuery(question: string) {
   const clean = question.trim().replace(/\s+/g, " ");
   if (/https?:\/\/|\b10\.\d{4,9}\//i.test(clean)) return clean.slice(0, 1200);
+  const quoted = Array.from(clean.matchAll(/["“]([^"”]{8,})["”]/g), match => match[1]).sort((a,b)=>b.length-a.length)[0];
   const topic = /\b(?:tentang|mengenai|about)\s+(.+?)(?=[.!?]|$)/i.exec(clean)?.[1];
-  const candidate = (topic || clean).split(/\b(?:buat(?:kan)?|tampilkan|sertakan|verifikasi|jangan|format|berikan|include|return|formatting|doi|tautan penerbit|\d{1,2}\s*(?:tahun|years?)\s*(?:terakhir|last|recent))\b/i)[0]
+  let subject = topic || quoted || clean;
+  // Practical-report titles can name the course before the actual experiment.
+  if (/\b(?:laporan|praktikum|report)\b/i.test(subject) && subject.includes(":")) subject = subject.slice(subject.indexOf(":")+1);
+  subject = subject.replace(/^(?:(?:tolong|please|buat(?:kan)?|susun(?:kan)?|tulis(?:kan)?|berikan|write|create|prepare)\s+)+/i, "")
+    .replace(/\b(?:dasar teori|landasan teori|laporan praktikum|laporan|praktikum|literature review|theoretical background|presentation|presentasi|ppt)\b/gi," ");
+  const candidate = subject.split(/\b(?:buat(?:kan)?|tampilkan|sertakan|verifikasi|jangan|format|berikan|include|return|formatting|doi|tautan penerbit|(?:dengan|beserta)\s+referensi|referensi\s+lengkap|\d{1,2}\s*(?:jurnal|artikel|papers?|tahun|years?)\s*(?:terbaik|terakhir|last|recent)?)\b/i)[0]
     .replace(/\b(?:cari(?:kan)?|temukan|tolong|sumber|primer|referensi|paper|jurnal|artikel|studi|penelitian|terbaru|untuk|belajar|find|sources?|primary|references?|papers?|please|about)\b/gi, " ")
-    .replace(/[/:;,]+/g, " ").replace(/\s+/g, " ").trim();
+    .replace(/["“”/:;,]+/g, " ").replace(/[.!?]+$/g, "").replace(/\s+/g, " ").trim();
   return candidate.length >= 3 ? candidate.slice(0, 240) : clean.slice(0, 240);
 }
 
 export function rankResearchHits<T extends {title:string;abstract?:string|null}>(hits:T[],query:string) {
-  const terms=Array.from(new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[]));
+  const terms=researchTerms(query);
   if(!terms.length)return hits;
   return hits.map(hit=>{
-    const title=hit.title.toLowerCase(),body=(hit.abstract||"").toLowerCase();
-    const titleMatches=terms.filter(term=>title.includes(term)).length;
-    const bodyMatches=terms.filter(term=>body.includes(term)).length;
-    return {hit,score:titleMatches*6+bodyMatches,keep:titleMatches>0||bodyMatches>=Math.ceil(terms.length*.8)};
+    const title=new Set(researchTerms(hit.title)),body=new Set(researchTerms(hit.abstract||""));
+    const titleMatches=terms.filter(term=>title.has(term)).length;
+    const bodyMatches=terms.filter(term=>body.has(term)).length;
+    const coverage=terms.filter(term=>title.has(term)||body.has(term)).length;
+    const entity=researchEntity(query);
+    const methods=terms.filter(term=>["drying","purification","formulation","dissolution","calibration"].includes(term));
+    const methodMatch=!methods.length||methods.some(term=>title.has(term)||body.has(term));
+    return {hit,score:titleMatches*6+bodyMatches,keep:methodMatch&&(titleMatches>0||bodyMatches>=Math.ceil(terms.length*.8))&&coverage>=Math.min(terms.length,Math.max(2,Math.ceil(terms.length*.3)))&&(!entity||entity.test(hit.title+" "+(hit.abstract||"")))};
   }).filter(item=>item.keep).sort((a,b)=>b.score-a.score).map(item=>item.hit);
+}
+
+/** Canonical bilingual concepts, not substring matches or generated identities. */
+export function researchTerms(text:string) {
+  const normalized=topicSearchTerms(text).toLowerCase()
+    .replace(/\b(?:pengeringan|kering|dried|dry|dehydration)\b/g,"drying")
+    .replace(/\b(?:simplisia|medicinal plant|herbal material)\b/g,"botanical")
+    .replace(/\b(?:penyiapan|preparasi|preparing)\b/g,"preparation")
+    .replace(/\b(?:sampel|samples)\b/g,"sample")
+    .replace(/\b(?:cabai keriting|curly chili|red chili|chili pepper)\b/g,"capsicum annuum")
+    .replace(/\b(?:bahan alam|natural products?)\b/g,"botanical")
+    .replace(/\b(?:pemurnian|purifying)\b/g,"purification");
+  const ignored=new Set("buatkan buat dasar teori laporan praktikum report background theory terbaik best lengkap complete referensi references jurnal journal journals paper papers bahan material materials senyawa compound compounds untuk preparation sample".split(" "));
+  return [...new Set((normalized.match(/[\p{L}]{3,}/gu)||[]).filter(term=>!ignored.has(term)))];
+}
+
+function researchEntity(query:string):RegExp|null {
+  // A known common/scientific-name equivalence, never a generated cultivar name.
+  if (/\b(?:cabai keriting|Capsicum annuum)\b/i.test(query)) return /\b(?:cabai keriting|Capsicum annuum|curly chili|red chili)\b/i;
+  return null;
+}
+
+/** Automatic topic-context gate; selected documents are not excluded by this. */
+export function relevantResearchContext(body:string,question:string) {
+  const terms=researchTerms(researchQuery(question));
+  if(terms.length<2)return true;
+  const actual=new Set(researchTerms(body));
+  return terms.filter(term=>actual.has(term)).length>=Math.min(terms.length,Math.max(2,Math.ceil(terms.length*.3)));
 }
 
 /** Small deterministic search plan, not a model-generated drug/DOI guess. */
@@ -26,7 +64,12 @@ export function scientificQueryPlan(question: string) {
   if(doi)return {query:doi,broadQuery:doi,requiredTerm:""};
   const original = researchQuery(question);
   const formulation = /\b(?:formulasi|formulation|resep|eksipien|excipients?|cocrystals?|kokristal)\b/i.test(question);
-  if (!formulation) return { query: topicSearchTerms(original), broadQuery: original, requiredTerm: "" };
+  if (!formulation) {
+    const translated=topicSearchTerms(original);
+    const botanicalPreparation=/\b(?:simplisia|penyiapan sampel|pengeringan|sample preparation|drying)\b/i.test(original);
+    if (botanicalPreparation && /\bCapsicum annuum\b/i.test(translated)) return {query:"Capsicum annuum drying sample preparation",broadQuery:"Capsicum annuum drying",requiredTerm:""};
+    return { query: translated, broadQuery: original, requiredTerm: "" };
+  }
   const stop = new Set("carikan cari resep formulasi formulation tablet tablets konvensional conventional dari jurnal tervalidasi tervalidai validated baik modifikasi modification maupun bukan minimal model formula bahan aktif active eksipien excipients jumlah disebutkan cocrystal cocrystals kokristal dan atau dengan untuk dalam yang mg obat drug ingredient ingredients dari jurnal journal public access publik terbuka immediate release".split(" "));
   for(const term of "juga disebutkan relevan relevant konteks context paragraf paragraph singkat short".split(" "))stop.add(term);
   const core=topicSearchTerms(original).split(/\b(?:dasar teori|usulan|perhitungan|monografi bahan|alat (?:dan )?bahan|cara kerja|daftar pustaka)\b/i)[0];
@@ -50,6 +93,8 @@ export function matchesRequiredTopic(title: string, requiredTerm: string) {
 export function withinResearchScope(hit:{title:string;abstract?:string|null;year?:number|null;workType?:string},question:string,nowYear=new Date().getFullYear()){
   const plan=scientificQueryPlan(question);
   if(!matchesRequiredTopic(hit.title,plan.requiredTerm))return false;
+  const journalOnly=/\b\d+\s*(?:jurnal|journal articles?|papers?)\b/i.test(question)&&! /\b(?:buku|books?|thesis|tesis|prosiding)\b/i.test(question);
+  if(journalOnly&&hit.workType&&hit.workType!=="journal_article")return false;
   const conventional=/\b(?:konvensional|conventional|lepas segera|immediate.release)\b/i.test(question);
   if(conventional&&/sustained.release|controlled.release|extended.release|floating|gastro.retenti|mucoadhesive/i.test(hit.title))return false;
   const years=/\b(\d{1,2})\s*(?:tahun|years?)\s*(?:terakhir|last|recent)\b/i.exec(question)?.[1];
@@ -67,6 +112,17 @@ export function topicSearchTerms(text:string) {
   if (/https?:\/\/|\b10\.\d{4,9}\//i.test(text)) return text.slice(0,1200);
   const phrases:Array<[RegExp,string]>=[[/\benergi surya\b/gi,"solar energy"],[/\bpanel surya\b/gi,"solar panels"],[/\bperubahan iklim\b/gi,"climate change"],[/\bkecerdasan buatan\b/gi,"artificial intelligence"],[/\bpembelajaran mesin\b/gi,"machine learning"]];
   let result=text;
+  const preparationPhrases:Array<[RegExp,string]>=[
+    [/\bcabai keriting\b/gi,"Capsicum annuum"],
+    [/\bpenyiapan sampel\b/gi,"sample preparation"],
+    [/\bbahan alam\b/gi,"natural products"],
+    [/\bsimplisia\b/gi,"dried medicinal plant"],
+    [/\bpengeringan\b/gi,"drying"],
+    [/\bpemurnian\b/gi,"purification"],
+    [/\bsortasi\b/gi,"sorting"],
+    [/\bpenyimpanan\b/gi,"storage"],
+  ];
+  for(const [pattern,replacement] of preparationPhrases)result=result.replace(pattern,replacement);
   for(const [pattern,replacement] of phrases)result=result.replace(pattern,replacement);
   const translations:Record<string,string>={pendidikan:"education",pembelajaran:"learning",memori:"memory",kesehatan:"health",lingkungan:"environment",efisiensi:"efficiency",efektivitas:"effectiveness",kalibrasi:"calibration",disolusi:"dissolution",formulasi:"formulation",absorpsi:"absorption",stabilitas:"stability",ekonomi:"economics",dipiridamol:"dipyridamole",kokristal:"cocrystal"};
   result=result.replace(/\b[a-z]+\b/gi,word=>translations[word.toLowerCase()]||word);

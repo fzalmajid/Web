@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { visualLearningRequest } from "@/lib/visualIntent";
 import { calibrationEvidence } from "@/lib/calibrationEvidence";
-import { researchQuery } from "@/lib/researchQuery";
+import { researchQuery, relevantResearchContext } from "@/lib/researchQuery";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   geminiGenerateDetailed,
@@ -1022,7 +1022,8 @@ export async function POST(req: NextRequest) {
 
     // Cheap database retrieval runs BEFORE the LLM. Search broadly across the selected
     // folder and every descendant, then send only the strongest content/page chunks.
-    const databaseSearchQuery = expandPharmacyQuery(question.trim());
+    const researchWritingIntent = /\b(dasar teori|landasan teori|laporan praktikum|literature review|theoretical background)\b/i.test(question);
+    const databaseSearchQuery = expandPharmacyQuery(researchWritingIntent ? researchQuery(question) : question.trim());
     const searchLimit = 80; // Gather a broad candidate pool before source-level reranking.
     const contextSourceLimit = aiMode === "high" ? 48 : aiMode === "medium" ? 40 : 32;
     const fallbackLimit = aiMode === "high" ? 80 : aiMode === "medium" ? 60 : 40;
@@ -1197,6 +1198,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Automatic writing retrieval must support the topic, not merely output words
+    // such as "bahan", "dasar", "laporan". Explicit file lookup stays untouched.
+    if (researchWritingIntent && !hasExplicitDatabaseSources) {
+      data = data.filter((row:any)=>relevantResearchContext(String(row.raw_content||row.content||""),question));
+    }
+
     // Semantic E5 is a ranking enhancement, not a correctness gate. Do not
     // alarm the user when indexed lexical/RAW retrieval already found grounded evidence.
     // Keep semanticStatus/semanticModel in the response for diagnostics.
@@ -1282,7 +1289,7 @@ export async function POST(req: NextRequest) {
       : [];
 
     let rawBinaryBudget = 18 * 1024 * 1024;
-    const rawAssets: RawAsset[] = [];
+    let rawAssets: RawAsset[] = [];
     for (const asset of [...currentRawAssets, ...databaseRawAssets]) {
       if (rawAssets.length >= 5) break;
       if (asset.data) {
@@ -1294,6 +1301,9 @@ export async function POST(req: NextRequest) {
         rawBinaryBudget -= approximateBytes;
       }
       rawAssets.push(asset);
+    }
+    if (researchWritingIntent && !hasExplicitDatabaseSources) {
+      rawAssets = rawAssets.filter(asset=>!String(asset.origin||"").startsWith("database") || (Boolean(asset.rawText)&&relevantResearchContext(String(asset.rawText),question)));
     }
     const directRawText = rawAssetText(rawAssets);
 
@@ -1439,7 +1449,9 @@ export async function POST(req: NextRequest) {
         ? '\n\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:"cose"|"breadthfirst"|"circle"|"grid"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok.'
         : "\n\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
       : "";
-    const documentEvidencePrompt=documentWritingPolicy()+monographInstruction(question);
+    const documentEvidencePrompt=documentWritingPolicy()+monographInstruction(question)+(researchWritingIntent
+      ? "\n\nPENULISAN BERBASIS TOPIK: Topik inti pencarian: "+researchQuery(question)+". Petakan sumber ke subbahasan yang didukung teksnya; jangan menjadikan fakta sampingan sebagai inti teori. Validasi dokumen Database oleh pengguna bukan bukti relevansi setiap halaman. Bila Web aktif, kurangnya sumber lokal tidak berarti penelusuran jurnal publik sudah berhenti. Jangan sebut atau sitasikan jurnal tidak relevan sekadar menjelaskan kekurangan inventaris, dan jangan menambah artikel hanya untuk memenuhi jumlah. Sebutan ‘terbaik’ harus disertai kriteria relevansi, bukti yang tersedia, dan jenis penelitian, bukan klaim ranking tanpa data. Metadata tanpa abstrak/teks hanya petunjuk pencarian, bukan dukungan teori. Bila sumber relevan kurang dari jumlah diminta, nyatakan jumlah nyata dan keterbatasannya secara singkat."
+      : "");
     const prompt = adaptiveLengthPrompt+"\n\n"+evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+documentEvidencePrompt+visualLearningInstruction+publicCitationPrompt(citations)+citationMetadataInventory+deterministicCitationInventory+fullTextContext+buildPrompt({
       question,
       historyText,
