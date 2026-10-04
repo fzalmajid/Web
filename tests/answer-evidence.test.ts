@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {scientificQueryPlan,matchesRequiredTopic} from "../lib/researchQuery";
+import {scientificQueryPlan,matchesRequiredTopic,withinResearchScope} from "../lib/researchQuery";
 import {guardAnswerBibliography,requiresQuantitativePaperEvidence,publicEvidenceFallbackNotice,readableEvidenceLabels} from "../lib/answerEvidence";
 import {publisherPdfLinks,paperTitleMatches,selectEvidencePages,publisherArticleMetadata} from "../lib/scholarlyFullText";
 import {answerCitationInventory} from "../lib/answerCitationServer";
@@ -131,4 +131,16 @@ test("internal excerpt labels become readable prose only when that excerpt was a
 test("readable excerpt labels leave literal code and external link identities unchanged",()=>{
   const literals='`EVIDENCE 1`\n```text\nEVIDENCE 1\n```\n~~~text\nEVIDENCE 1\n~~~\n[EVIDENCE 1](https://example.org/EVIDENCE%201)\nhttps://example.org/EVIDENCE1';
   assert.equal(readableEvidenceLabels(literals,1),literals);
+});
+
+
+test("acetazolamide conventional immediate-release formula search keeps the drug target despite Indonesian phrasing and typo",()=>{
+  const question="carikan jurnal yang membahas acetazolamide tablet konvensional/immidiate release, yang membahas formula dari zat aktif, eksipien hingga massa nya";
+  const plan=scientificQueryPlan(question);
+  assert.equal(plan.requiredTerm,"acetazolamide");
+  assert.equal(plan.query,"acetazolamide tablet immediate release formulation");
+  assert.equal(plan.broadQuery,"acetazolamide tablet formulation");
+  assert.equal(requiresQuantitativePaperEvidence(question),true);
+  assert.equal(withinResearchScope({title:"Development of direct compression Acetazolamide tablet with improved bioavailability",abstract:"A direct compression tablet formulation with rapid drug release."},question),true);
+  assert.equal(withinResearchScope({title:"Development and Optimization of a Biphasic-Release Acetazolamide Tablet-in-Tablet Formulation",abstract:"Immediate outer layer plus extended-release core."},question),false);
 });
