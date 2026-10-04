@@ -76,3 +76,14 @@ test("verified narrative names retain lowercase surname particles",async()=>{
   const result=await completeAnswerCitations({answer:"Menurut de Vries (2020), hasil ini diamati.",inventory:[item],style:"apa6"});
   assert.equal(result.blocked,false);
 });
+test("nonpublication titles and nonnumeric page markers cannot masquerade as formal citations",async()=>{
+  const result=await completeAnswerCitations({answer:"Proses ini wajib dilakukan (Minggu ke-2, hlm. Minggu ke-2).",inventory:[],style:"apa6",requireFormalReferences:true,repair:async()=>"Catatan menyebut proses ini wajib. Tidak ada referensi formal."});
+  assert.equal(result.blocked,true);assert.match(result.text,/Bahan catatan/);assert.doesNotMatch(result.text,/proses ini wajib/i);
+  assert.ok(citationPairingIssues("Claim (Worksheet, hlm. six).",[],"apa6").length>0);
+});
+test("an explicit bibliography requirement cannot be satisfied by deleting all citation markers",async()=>{
+  const result=await completeAnswerCitations({answer:"Claim (Missing, 2020).",inventory:[book],style:"apa6",requireFormalReferences:true,repair:async()=>"This is a claim with no citation."});
+  assert.equal(result.blocked,true);
+  const valid=await completeAnswerCitations({answer:"Claim (Ministry, 2017, hlm. 7).",inventory:[book],style:"apa6",requireFormalReferences:true});
+  assert.equal(valid.blocked,false);assert.match(valid.text,/References/);
+});

@@ -93,6 +93,11 @@ export function citationPairingIssues(answer:string,inventory:CitationIdentity[]
   const body=answer.slice(0,boundary?.index??answer.length);
   const issues=authorDateStyle(style)?unresolvedCitationWarnings(body,inventory):[];
   if(authorDateStyle(style)){
+    for(const group of citationBody(body).matchAll(/\(([^()\n]{1,240})\)/g)){
+      const locator=group[1].match(/(?:hlm\.?|halaman|pp?\.)\s*(.+)$/i)?.[1];
+      if(locator&&(!/^\d+(?:\s*[–-]\s*\d+)?(?:\s*,\s*\d+(?:\s*[–-]\s*\d+)?)*\s*$/.test(locator)||!/(?:18|19|20|21)\d{2}/.test(group[1])))
+        issues.push("Penanda halaman bukan sitasi formal yang lengkap: "+group[1]+". Catatan nonpublikasi tidak boleh menjadi sitasi buku/jurnal.");
+    }
     const signatures=new Map<string,Set<CitationIdentity>>();
     for(const item of inventory)for(const raw of item.authorYearKeys||[]){
       const key=normalize(raw),works=signatures.get(key)||new Set<CitationIdentity>();
@@ -125,6 +130,18 @@ export function citationPairingIssues(answer:string,inventory:CitationIdentity[]
     }
   }
   return [...new Set(issues)];
+}
+
+export function hasFormalBodyCitation(answer:string,inventory:CitationIdentity[],style:CitationStyle){
+  const body=answer.slice(0,heading.exec(answer)?.index??answer.length);
+  const formal=inventory.filter(item=>item.workType==="book"||item.workType==="chapter"||item.workType==="journal_article"||Boolean(item.doi&&item.authorYearKeys?.length));
+  if(authorDateStyle(style))return omittedAuthorYearReferences(body,formal,[]).length>0;
+  if(style==="mla")return mlaReferences(body,formal).length>0;
+  if(style==="ieee"||style==="vancouver"){
+    const tail=heading.exec(answer);
+    return Boolean(tail&&numericMarkers(body).size&&formal.some(item=>identityInEntry(answer.slice(tail.index),item)));
+  }
+  return style==="none";
 }
 
 export function requiresQuantitativePaperEvidence(question:string){
