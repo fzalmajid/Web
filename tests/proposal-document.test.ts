@@ -48,7 +48,7 @@ test("all final-generation paths share proposal scope without bypassing the old 
   const route = readFileSync("app/api/ask/route.ts", "utf8");
   assert.match(route, /suppliedFormula=quantitativePaper&&userFormulaProposal\(question\)/);
   assert.match(route, /if\(quantitativePaper&&!suppliedFormula&&!paperEvidence/);
-  assert.match(route, /citationStyle,quantitativePaper&&!suppliedFormula,blockedCitations/);
+  assert.match(route, /strict:quantitativePaper&&!suppliedFormula,blocked:blockedCitations/);
   assert.match(route, /userFormulaNotice\+"\\n\\n"\+recovered.text/);
   assert.equal((route.match(/\+proposalPrompt\+/g) || []).length, 2);
   assert.match(route, /Jangan gunakan garis bawah Markdown/);

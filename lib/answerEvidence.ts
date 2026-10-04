@@ -71,7 +71,7 @@ export function omittedAuthorYearReferences(body:string,inventory:CitationIdenti
 }
 
 /** Flag unresolved parenthetical author-year markers; never synthesize metadata. */
-function unresolvedCitationWarnings(body:string,inventory:CitationIdentity[]){
+export function unresolvedCitationWarnings(body:string,inventory:CitationIdentity[]){
   const unresolved:string[]=[];
   const signatures=new Map<string,Set<CitationIdentity>>();
   for(const item of inventory)for(const raw of item.authorYearKeys||[]){
@@ -85,6 +85,46 @@ function unresolvedCitationWarnings(body:string,inventory:CitationIdentity[]){
     if(matches.size!==1)unresolved.push(part.trim());
   }
   return unresolved.length?["Sitasi dalam teks belum dapat dipasangkan secara unik dengan inventaris sumber: "+[...new Set(unresolved)].slice(0,8).join("; ")+". Identitas/edisi perlu diperiksa; entri tidak dikarang."]:[];
+}
+
+/** Completeness is a structural check, never a claim-support/fact validator. */
+export function citationPairingIssues(answer:string,inventory:CitationIdentity[],style:CitationStyle){
+  const boundary=heading.exec(answer);
+  const body=answer.slice(0,boundary?.index??answer.length);
+  const issues=authorDateStyle(style)?unresolvedCitationWarnings(body,inventory):[];
+  if(authorDateStyle(style)){
+    const signatures=new Map<string,Set<CitationIdentity>>();
+    for(const item of inventory)for(const raw of item.authorYearKeys||[]){
+      const key=normalize(raw),works=signatures.get(key)||new Set<CitationIdentity>();
+      works.add(item);signatures.set(key,works);
+    }
+    for(const group of citationBody(body).matchAll(/\((\s*(?:18|19|20|21)\d{2}[a-z]?)(?:\s*,[^()]*)?\)/g)){
+      const prefix=citationBody(body).slice(Math.max(0,group.index!-180),group.index);
+      const author=prefix.match(/([\p{Lu}][\p{L}'’.-]*(?:\s+(?:[\p{Lu}][\p{L}'’.-]*|dan|and|&|et|al\.?|dkk\.?|de|van))*)\s*$/u)?.[1];
+      if(!author)continue;
+      const marker=normalize(prefix+" "+group[1]),works=new Set<CitationIdentity>();
+      for(const [key,items] of signatures)if((" "+marker).endsWith(" "+key))for(const item of items)works.add(item);
+      if(works.size!==1)issues.push("Sitasi naratif belum memiliki identitas sumber unik: "+author+" "+group[1].trim()+".");
+    }
+    const cited=omittedAuthorYearReferences(body,inventory,[]);
+    const tail=boundary?answer.slice(boundary.index+boundary[0].length):"";
+    for(const item of cited)if(!identityInEntry(tail,item))issues.push("Entri daftar pustaka belum tersedia untuk sumber yang disitasi: "+item.title+".");
+  }
+  if(style==="ieee"||style==="vancouver"){
+    const tail=boundary?answer.slice(boundary.index+boundary[0].length):"";
+    for(const n of numericMarkers(body)){
+      const entry=tail.split(/\n(?=\s*(?:\[\d+\]|\d+[.)]))/).find(line=>Number(/^(?:\[(\d+)\]|(\d+)[.)])\s*/.exec(line.trim())?.slice(1).find(Boolean))===n);
+      if(!entry||!inventory.some(item=>identityInEntry(entry,item)))issues.push("Sitasi numerik "+n+" belum memiliki entri sumber yang cocok.");
+    }
+  }
+  if(style==="mla"){
+    const tail=boundary?answer.slice(boundary.index+boundary[0].length):"";
+    for(const item of mlaReferences(body,inventory))if(!identityInEntry(tail,item))issues.push("Entri Works Cited belum tersedia untuk sumber yang disitasi: "+item.title+".");
+    for(const group of citationBody(body).matchAll(/\(([\p{Lu}][\p{L}'’.-]+(?:\s+(?:[\p{Lu}][\p{L}'’.-]+|and|dan|&|et|al\.?))*)\s+(\d+(?:\s*[–-]\s*\d+)?)\)/gu)){
+      if(mlaReferences(group[0],inventory).length!==1)issues.push("Sitasi MLA belum memiliki sumber unik: "+group[1]+".");
+    }
+  }
+  return [...new Set(issues)];
 }
 
 export function requiresQuantitativePaperEvidence(question:string){
@@ -137,6 +177,8 @@ export function readableEvidenceLabels(answer:string,readExcerptCount:number){
 
 /** Match a bibliography identity against actual retrieval, not the model's assertion that it exists. */
 export function identityInEntry(entry:string,item:CitationIdentity){
+  const formatted=item.formatted?normalize(item.formatted):"";
+  if(formatted.length>=16&&normalize(entry).includes(formatted))return true;
   if(item.doi){const dois=entry.match(/\b10\.\d{4,9}\/[^\s<>"\]]+/gi)||[];if(dois.some(doi=>doi.replace(/[.,;)]+$/g,"").toLowerCase()===item.doi!.toLowerCase()))return true;}
   if(item.uri){try{const target=new URL(item.uri).href.replace(/\/$/,"");if((entry.match(/https?:\/\/[^\s<>"\]]+/gi)||[]).some(raw=>{try{return new URL(raw.replace(/[.,;)]+$/g,"")).href.replace(/\/$/,"")===target;}catch{return false;}}))return true;}catch{}}
   const title=normalize(item.title),line=normalize(entry);

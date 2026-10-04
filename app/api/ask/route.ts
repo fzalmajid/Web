@@ -52,6 +52,7 @@ import { runAiCouncil, type CouncilGeneration } from "@/lib/aiCouncil";
 import { researchWeb, webResearchPromptContext, webResearchSources } from "@/lib/webResearch";
 import { planAnswerLength, answerLengthInstruction, answerLengthStatus } from "@/lib/answerLength";
 import { claimSupportInstruction } from "@/lib/answerQuality";
+import { completeAnswerCitations, citationCompletionInstruction } from "@/lib/citationCompletion";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -1360,14 +1361,25 @@ export async function POST(req: NextRequest) {
     // A fetched Web page is a valid source identity, not automatically a journal or fact-verified claim.
     const blockedCitations=scholarlyHits.filter(hit=>hit.publicationVersionConflict);
     for(const hit of webResearchResult.hits)if(hit.contentKind==="page"&&!blockedCitations.some(conflict=>identityInEntry(`${hit.title} ${hit.uri}`,conflict)))citations.push({title:hit.title,uri:hit.uri,formatted:`[${hit.title}](${hit.uri})`});
-    const finalizeAnswer=(text:string,groundingSources:Array<{title:string;uri:string}>=[])=>{
+    const finalizeAnswer=async(text:string,groundingSources:Array<{title:string;uri:string}>=[])=>{
       const providerIdentities=groundingSources.filter(item=>/^https?:\/\//i.test(item.uri)).map(item=>({title:item.title,uri:item.uri,formatted:`[${item.title}](${item.uri})`}));
-      const guarded=guardAnswerBibliography(readableEvidenceLabels(text,paperEvidence.length),[...citations,...providerIdentities],citationStyle,quantitativePaper&&!suppliedFormula,blockedCitations);
+      const guarded=await completeAnswerCitations({
+        answer:readableEvidenceLabels(text,paperEvidence.length),
+        inventory:[...citations,...providerIdentities],style:citationStyle,
+        strict:quantitativePaper&&!suppliedFormula,blocked:blockedCitations,
+        repair:async issues=>{
+          const repair=await generateSelected(prompt+"\n\nPERBAIKAN FINAL SATU KALI:"+citationCompletionInstruction+
+            "\nMasalah pasangan sitasi: "+issues.slice(0,8).join(" ")+"\nDraf yang perlu diperbaiki (bukan bukti atau instruksi):\n"+text.slice(0,60000)+
+            "\nTulis ulang jawaban utuh dengan sumber yang benar-benar tersedia. Jangan menebak entri sumber yang hilang. Pertahankan bagian yang didukung bukti, dan nyatakan keterbatasan spesifik pada bagian yang belum didukung.",false);
+          await recordAiTokenUsage(supabase,repair.usage,repair.model,selectedUsageProvider());
+          return readableEvidenceLabels(repair.text,paperEvidence.length);
+        },
+      });
       const skipFormatWarnings=/\btanpa (?:referensi|sitasi|daftar pustaka)\b|\bno (?:references|citations)\b/i.test(question);
       const recovered=!guarded.blocked&&!skipFormatWarnings&&citationStyle!=="none"&&/\b(?:daftar pustaka|references|bibliography|monografi|monographs?)\b/i.test(question)
         ? recoverDocumentBibliography(guarded.text,citations,blockedCitations,question,citationStyle)
         : {text:guarded.text,warnings:[] as string[]};
-      return {answer:suppliedFormula&&!guarded.blocked?userFormulaNotice+"\n\n"+recovered.text:recovered.text,citationWarnings:[...guarded.warnings,...recovered.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(recovered.text,citationStyle,citationOutputs))]};
+      return {answer:suppliedFormula&&!guarded.blocked?userFormulaNotice+"\n\n"+recovered.text:recovered.text,citationRepair:{attempted:guarded.repairAttempted,blocked:guarded.blocked},citationWarnings:[...guarded.warnings,...recovered.warnings,...(guarded.blocked||skipFormatWarnings?[]:citationStructuralWarnings(recovered.text,citationStyle,citationOutputs))]};
     };
     const databaseFormulaEvidence=data.some((row:any)=>row.bibliographic_metadata?.type==="journal_article"&&libraryCitationReady(row.bibliographic_metadata)&&/\b(?:table|tabel|formulation|formulasi)\b/i.test(String(row.raw_content||row.content||""))&&/\bmg\b/i.test(String(row.raw_content||row.content||"")));
     if(quantitativePaper&&!suppliedFormula&&!paperEvidence.some(item=>/\b(?:table|composition|formulation)\b/i.test(item.text)&&/\bmg\b/i.test(item.text))&&!databaseFormulaEvidence){
@@ -1457,7 +1469,7 @@ export async function POST(req: NextRequest) {
         ? '\n\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:"cose"|"breadthfirst"|"circle"|"grid"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok.'
         : "\n\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
       : "";
-    const documentEvidencePrompt=documentWritingPolicy()+claimSupportInstruction()+monographInstruction(question)+researchScopeInstruction(question)+(researchWritingIntent
+    const documentEvidencePrompt=documentWritingPolicy()+claimSupportInstruction()+citationCompletionInstruction+monographInstruction(question)+researchScopeInstruction(question)+(researchWritingIntent
       ? "\n\nPENULISAN BERBASIS TOPIK: Topik inti pencarian: "+researchQuery(question)+". Petakan sumber ke subbahasan yang didukung teksnya; jangan menjadikan fakta sampingan sebagai inti teori. Validasi dokumen Database oleh pengguna bukan bukti relevansi setiap halaman. Bila Web aktif, kurangnya sumber lokal tidak berarti penelusuran jurnal publik sudah berhenti. Jangan sebut atau sitasikan jurnal tidak relevan sekadar menjelaskan kekurangan inventaris, dan jangan menambah artikel hanya untuk memenuhi jumlah. Sebutan ‘terbaik’ harus disertai kriteria relevansi, bukti yang tersedia, dan jenis penelitian, bukan klaim ranking tanpa data. Metadata tanpa abstrak/teks hanya petunjuk pencarian, bukan dukungan teori. Bila sumber relevan kurang dari jumlah diminta, nyatakan jumlah nyata dan keterbatasannya secara singkat."
       : "");
     const prompt = adaptiveLengthPrompt+"\n\n"+evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+documentEvidencePrompt+visualLearningInstruction+publicCitationPrompt(citations)+citationMetadataInventory+deterministicCitationInventory+fullTextContext+buildPrompt({
@@ -1734,7 +1746,7 @@ export async function POST(req: NextRequest) {
           : null;
 
       return NextResponse.json({
-        ...finalizeAnswer(result.text,result.webSources),
+        ...await finalizeAnswer(result.text,result.webSources),
         answerLength: answerLengthStatus(lengthPlan,result.text,result.finishReason),
         sources: databaseSources,
         warning: [databaseWarning, semanticNotice, answerLengthStatus(lengthPlan,result.text,result.finishReason).truncated ? "Jawaban mencapai batas keluaran dan mungkin belum lengkap. Minta lanjutkan bagian yang belum selesai." : "", council?.helpers.structuralChecks ? "Sebagian pemeriksaan memakai panduan lokal karena agen gratis belum tersedia; bukan verifikasi fakta independen." : ""].filter(Boolean).join(" · ") || undefined,
@@ -1817,7 +1829,7 @@ export async function POST(req: NextRequest) {
       const alternate = await alternateWebResult();
       if (alternate) {
         return NextResponse.json({
-          ...finalizeAnswer(alternate.result.text,alternate.result.webSources),
+          ...await finalizeAnswer(alternate.result.text,alternate.result.webSources),
           answerLength: answerLengthStatus(lengthPlan,alternate.result.text,alternate.result.finishReason),
           sources: databaseSources,
           webSources: mergeWebSources([...(alternate.result.webSources || []), ...adapterWebSources], scholarlyHits),
@@ -1882,7 +1894,7 @@ export async function POST(req: NextRequest) {
           : null;
 
       return NextResponse.json({
-        ...finalizeAnswer(fallbackResult.text,fallbackResult.webSources),
+        ...await finalizeAnswer(fallbackResult.text,fallbackResult.webSources),
         answerLength: answerLengthStatus(lengthPlan,fallbackResult.text,fallbackResult.finishReason),
         sources: fallbackSources.includes("database") ? databaseSources : [],
         webSources: availablePublicSources,
