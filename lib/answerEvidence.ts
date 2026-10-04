@@ -144,6 +144,8 @@ export function identityInEntry(entry:string,item:CitationIdentity){
 }
 
 export function guardAnswerBibliography(answer:string,inventory:CitationIdentity[],style:CitationStyle,strict=false,blocked:CitationIdentity[]=[]){
+  // This is provenance, not an author/year citation. Preserve code and links.
+  answer=answer.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`|!?\[[^\]\n]*\]\([^\)\n]*\)|\(Bahan Pengguna\)/gi,token=>/^\(Bahan Pengguna\)$/i.test(token)?"— berdasarkan bahan pengguna":token);
   const boundary=heading.exec(answer)?.index??answer.length;
   answer=formatInTextPageLocators(answer.slice(0,boundary),style)+answer.slice(boundary);
   const match=heading.exec(answer);

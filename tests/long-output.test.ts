@@ -27,7 +27,7 @@ test("a truncated document receives one complete rewrite with summed usage and p
     assert.equal(requests.length, 2);
     assert.equal(requests[0].generationConfig.thinkingConfig.thinkingLevel, "high");
     assert.equal(requests[1].generationConfig.thinkingConfig.thinkingLevel, "low");
-    assert.match(requests[1].contents[0].parts.at(-1).text, /Tulis ulang dokumen utuh/);
+    assert.match(requests[1].contents[0].parts.at(-1).text, /Tulis ulang jawaban final utuh/);
     assert.doesNotMatch(result.text, /partial table/);
     assert.equal(result.finishReason, "STOP");
     assert.equal(result.repairedTruncation, true);
@@ -92,7 +92,8 @@ test("empty MAX_TOKENS documents can be repaired, without exposing thoughts as o
 
 test("all ask paths enable bounded document repair, math and ingredient identities have consistent guidance", () => {
   const route = readFileSync("app/api/ask/route.ts", "utf8");
-  assert.match(route, /retryTruncatedDocument: lengthPlan.kind === "document"/);
+  assert.match(route, /retryTruncatedDocument: true/);
+  assert.match(route, /maxThinkingTokens: lengthPlan.kind === "document" \? 8192 : 1024/);
   assert.match(route, /identitas koformer kokristal/);
   assert.match(WHATSAPP_FORMAT_INSTRUCTION, /KaTeX/);
   assert.doesNotMatch(WHATSAPP_FORMAT_INSTRUCTION, /Untuk rumus, JANGAN bungkus/);

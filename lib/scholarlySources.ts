@@ -382,7 +382,7 @@ export async function searchScholarlySources(query: string, limit = 12, expandCo
   }
   const exactDoi=/\b10\.\d{4,9}\/[^\s]+/i.exec(clean)?.[0]?.replace(/[.,;)]+$/g,"").toLowerCase();
   if(exactDoi)return [...merged.values()].filter(hit=>hit.doi?.toLowerCase()===exactDoi).slice(0,1);
-  let ranked=rankResearchHits([...merged.values()].filter(hit=>withinResearchScope(hit,query)),clean);
+  let ranked=rankResearchHits([...merged.values()].filter(hit=>withinResearchScope(hit,query)),clean,query);
   // One public seed, four resolved DOI neighbors at most. A citation edge is
   // discovery only: resolve identity and reapply the original scope afterwards.
   if(expandConnections&&ranked[0]?.doi){
@@ -391,7 +391,7 @@ export async function searchScholarlySources(query: string, limit = 12, expandCo
       const missing=connections.edges.filter(edge=>![...merged.values()].some(hit=>hit.doi?.toLowerCase()===edge.doi.toLowerCase())).slice(0,4);
       const resolved=await Promise.allSettled(missing.map(edge=>searchCrossref(edge.doi,1)));
       for(const result of resolved)if(result.status==="fulfilled")for(const hit of result.value)if(withinResearchScope(hit,query))merged.set(stableKey(hit),hit);
-      ranked=rankResearchHits([...merged.values()].filter(hit=>withinResearchScope(hit,query)),clean);
+      ranked=rankResearchHits([...merged.values()].filter(hit=>withinResearchScope(hit,query)),clean,query);
     }catch{/* Existing providers remain usable when OpenCitations fails. */}
   }
   return ranked.slice(0, Math.max(1, Math.min(20, limit)));
@@ -429,11 +429,22 @@ export function mergeWebSources(
 ) {
   const seen = new Set<string>();
   const result: Array<{ title: string; uri: string }> = [];
+  const titleKey=(title:string)=>title.replace(/\s*[—–]\s*dibaca:.*$/i,"").replace(/<[^>]*>/g,"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
+  const identities=new Map<string,Set<string>>();
+  const uriIdentities=new Map<string,string>();
+  for(const hit of scholarly){
+    const identity=stableKey(hit),key=titleKey(hit.title),matches=identities.get(key)||new Set<string>();
+    matches.add(identity);identities.set(key,matches);
+    for(const uri of [hit.uri,...(hit.fullTextUrls||[])])uriIdentities.set(uri.replace(/\/$/,""),identity);
+  }
   for (const item of [...(providerSources || []), ...scholarlyWebSources(scholarly)]) {
     const uri = cleanText(item?.uri, 1800);
     const title = cleanText(item?.title, 1000);
     if (!uri || !title || !/^https?:\/\//i.test(uri)) continue;
-    const key = uri.toLowerCase().replace(/\/$/, "");
+    const matches=identities.get(titleKey(title));
+    // Exact unique catalog title can link the actual PDF/XML read to its DOI.
+    // Same title with conflicting DOIs stays separate; never invent identity.
+    const key = uriIdentities.get(uri.replace(/\/$/,"")) || (matches?.size===1?[...matches][0]:"uri:"+uri.replace(/\/$/, ""));
     if (seen.has(key)) continue;
     seen.add(key);
     result.push({ title, uri });
