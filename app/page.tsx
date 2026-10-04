@@ -10527,7 +10527,7 @@ function BottomAskBar({
   const [sources, setSources] = useState<Array<{ id: string; title: string; category: string }>>([]);
   const [webSources, setWebSources] = useState<Array<{ title: string; uri: string }>>([]);
   const [warning, setWarning] = useState("");
-  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["ai", "database"]);
+  const [selectedSources, setSelectedSources] = useState<AiSourceKind[]>(["ai", "database", "web"]);
   const [selectedSourceNodeIds, setSelectedSourceNodeIds] = useState<string[]>([]);
   const [selectedSourceFileIds, setSelectedSourceFileIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -10628,7 +10628,7 @@ function BottomAskBar({
       return;
     }
     if (aiExperienceMode === "simple") {
-      setSelectedSources(["ai", "database"]);
+      setSelectedSources(["ai", "database", "web"]);
     }
     setAiSelection(selectionFromExperienceMode(mode, "chat"));
   }
@@ -10869,6 +10869,7 @@ function BottomAskBar({
   function startNewChat() {
     if (busy) return;
     closeChatRoom();
+    setSelectedSources(aiExperienceMode === "simple" ? ["database"] : ["ai", "database", "web"]);
   }
 
   function firstUrl(value: string) {
