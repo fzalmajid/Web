@@ -144,3 +144,17 @@ test("acetazolamide conventional immediate-release formula search keeps the drug
   assert.equal(withinResearchScope({title:"Development of direct compression Acetazolamide tablet with improved bioavailability",abstract:"A direct compression tablet formulation with rapid drug release."},question),true);
   assert.equal(withinResearchScope({title:"Development and Optimization of a Biphasic-Release Acetazolamide Tablet-in-Tablet Formulation",abstract:"Immediate outer layer plus extended-release core."},question),false);
 });
+
+
+test("acetazolamide formula table page is selected for quantitative immediate-release evidence",()=>{
+  const question="carikan jurnal yang membahas acetazolamide tablet konvensional/immidiate release, yang membahas formula dari zat aktif, eksipien hingga massa nya";
+  const pages=[
+    {page:1,text:"Introduction to acetazolamide solid dosage form research and background.".repeat(80)},
+    {page:18,text:"Table 2. Formula composition mg of ACZ-PABA acetazolamide tablet by direct compression. ACZ-PABA cocrystal API 404 mg approximately 250 mg ACZ. Microcrystalline cellulose 297.25 mg. Croscarmellose sodium 37.5 mg. Fumed silica 7.5 mg. Magnesium stearate 3.75 mg. Total 750 mg."},
+  ];
+  const selected=selectEvidencePages(pages,1200,question);
+  assert.equal(selected[0].page,18);
+  assert.match(selected[0].text,/250 mg ACZ/);
+  assert.match(selected[0].text,/297\.25 mg/);
+  assert.match(selected[0].text,/Total 750 mg/);
+});
