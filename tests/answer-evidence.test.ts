@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {scientificQueryPlan,matchesRequiredTopic,withinResearchScope} from "../lib/researchQuery";
-import {guardAnswerBibliography,requiresQuantitativePaperEvidence,publicEvidenceFallbackNotice,readableEvidenceLabels} from "../lib/answerEvidence";
+import {guardAnswerBibliography,requiresQuantitativePaperEvidence,explicitScholarlySearchIntent,publicEvidenceFallbackNotice,readableEvidenceLabels} from "../lib/answerEvidence";
 import {publisherPdfLinks,paperTitleMatches,selectEvidencePages,publisherArticleMetadata} from "../lib/scholarlyFullText";
 import {answerCitationInventory} from "../lib/answerCitationServer";
 import {scholarlyPromptContext,scholarlyWebSources} from "../lib/scholarlySources";
@@ -158,4 +158,15 @@ test("acetazolamide formula table page is selected for quantitative immediate-re
   assert.match(table.text,/250 mg ACZ/);
   assert.match(table.text,/297\.25 mg/);
   assert.match(table.text,/Total 750 mg/);
+});
+
+
+test("explicit journal search auto-enables public scholarly retrieval even when an old chat Web toggle is stale",()=>{
+  const question="carikan jurnal yang membahas acetazolamide tablet konvensional/immidiate release, yang membahas formula dari zat aktif, eksipien hingga massa nya";
+  assert.equal(explicitScholarlySearchIntent(question),true);
+  assert.equal(requiresQuantitativePaperEvidence(question),true);
+  assert.equal(explicitScholarlySearchIntent("apa itu acetazolamide dan bagaimana mekanisme kerjanya?"),false);
+  const route=readFileSync("app/api/ask/route.ts","utf8");
+  assert.match(route,/const autoScholarlyWeb\s*=\s*[\s\S]*explicitScholarlySearchIntent\(question\)[\s\S]*requiresQuantitativePaperEvidence\(question\)/);
+  assert.match(route,/const useWeb = selectedSources\.includes\("web"\) \|\| autoScholarlyWeb/);
 });
