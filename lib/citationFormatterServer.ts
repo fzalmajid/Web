@@ -1,7 +1,7 @@
 import { Cite, plugins } from "@citation-js/core";
 import "@citation-js/plugin-csl";
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
-import { citationMetadataReady, normalizeDoi, normalizeIsbn, isbnIdentity } from "@/lib/referenceMetadata";
+import { citationMetadataReady, normalizeDoi, normalizeIsbn, isbnIdentity, inferReferenceMetadata } from "@/lib/referenceMetadata";
 import type { CitationStyle } from "@/lib/citations";
 import cslStyles from "@/lib/cslStyles.json";
 import cslApa6 from "@/lib/cslApa6.json";
@@ -123,8 +123,19 @@ export function formatVerifiedReferences(
 }
 
 
-function metadataFromKnowledgeSource(source: any): ReferenceMetadata {
-  if (source?.bibliographic_metadata) return source.bibliographic_metadata;
+export function metadataFromKnowledgeSource(source: any): ReferenceMetadata {
+  if (source?.bibliographic_metadata) {
+    const stored:ReferenceMetadata=source.bibliographic_metadata;
+    // Normalize only this exact legacy cover shape, backed by a valid ISBN.
+    // Do not overwrite manual records or infer authors from a filename/notes.
+    if(stored.type==="book"&&stored.audit?.basis!=="manual"&&normalizeIsbn(stored.isbn)&&/^Farmakope\s+(?:Herbal\s+)?Indonesia\s+Edisi\s+/i.test(stored.title||"")){
+      const parsed=inferReferenceMetadata({fileName:"stored-cover.pdf",frontMatter:`${stored.title}\nISBN: ${stored.isbn}`});
+      if(parsed.provenance?.corporate_author?.confidence===.98&&parsed.title){
+        return {...stored,title:parsed.title,corporate_author:stored.corporate_author||parsed.corporate_author,edition:stored.edition||parsed.edition,year:stored.year||parsed.year,institution:stored.institution||parsed.institution};
+      }
+    }
+    return stored;
+  }
   return {
     title: source?.bibliographic_work_title || source?.title || null,
     authors: Array.isArray(source?.bibliographic_authors) ? source.bibliographic_authors : [],

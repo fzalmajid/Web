@@ -1,8 +1,8 @@
 import type { ScholarlyHit } from "./scholarlySources";
 import type { CitationStyle } from "./citations";
 import type { CitationIdentity } from "./answerEvidence";
-import { formatVerifiedReference, referenceToCsl } from "./citationFormatterServer";
-import { REFERENCE_ENGINE_VERSION, type ReferenceMetadata } from "./referenceMetadata";
+import { formatVerifiedReference, referenceToCsl, metadataFromKnowledgeSource } from "./citationFormatterServer";
+import { REFERENCE_ENGINE_VERSION, normalizeDoi, type ReferenceMetadata } from "./referenceMetadata";
 import type { ScholarlyEvidence } from "./scholarlyFullText";
 import { libraryCitationReady } from "./documentPolicy";
 import { detectPrintedPageRange } from "./knowledge";
@@ -40,10 +40,13 @@ export function citationAuthorYearKeys(metadata:ReferenceMetadata,trustedLibrary
     }
     // Older Database titles can include the edition on the actual title itself.
     // Use that explicit label for matching only, never infer a missing edition.
-    const edition=csl.edition||title.match(/\b(?:edisi|edition)\s+([IVXLCDM]+|\d+)\b/i)?.[1];
+    const edition=csl.edition||title.match(/\b(?:edisi|edition|ed\.?)\s+([IVXLCDM]+|\d+)\b/i)?.[1];
+    const roman=["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII"];
+    const number=roman.indexOf(String(edition).toUpperCase())+1;
+    const editions=edition?[...new Set([String(edition),...(number?[String(number)]:[]),...(roman[Number(edition)-1]?[roman[Number(edition)-1]]:[])])]:[];
     for(const alias of aliases.filter(Boolean)){
       keys.push(`${alias} ${year}`);
-      if(edition)keys.push(`${alias} ${edition} ${year}`,`${alias} Edisi ${edition} ${year}`);
+      for(const value of editions)keys.push(`${alias} ${value} ${year}`,`${alias} Edisi ${value} ${year}`);
     }
   }
   return [...new Set(keys)];
@@ -53,14 +56,16 @@ export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:Cit
   const result:CitationIdentity[]=[];
   const libraryByWork=new Map<string,CitationIdentity>();
   for(const row of rows){
-    const metadata:ReferenceMetadata=row.bibliographic_metadata||{};
+    const metadata:ReferenceMetadata=metadataFromKnowledgeSource(row);
     if(!libraryCitationReady(metadata))continue;
     const printed=row.printed_page_start?{start:String(row.printed_page_start),end:String(row.printed_page_end||row.printed_page_start)}:detectPrintedPageRange(String(row.raw_content||row.content||""));
     const pages=printed.start?[printed.end&&printed.end!==printed.start?`${printed.start}–${printed.end}`:String(printed.start)]:[];
     const workKey=String(row.bibliographic_work_id||row.source_file_id||metadata.isbn||`${metadata.title}|${metadata.edition||""}|${metadata.year||""}`);
     const existing=libraryByWork.get(workKey);
     if(existing){existing.printedPages=[...new Set([...(existing.printedPages||[]),...pages])];continue;}
-    result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,workType:metadata.type||undefined,year:metadata.year,printedPages:pages,authorYearKeys:citationAuthorYearKeys(metadata,true),formatted:style!=="none"?formatVerifiedReference(metadata,style,true)||undefined:undefined});
+    const keys=citationAuthorYearKeys(metadata,true);
+    if(row.bibliographic_metadata?.title!==metadata.title&&row.bibliographic_metadata?.title&&metadata.year)keys.push(`${row.bibliographic_metadata.title} ${metadata.year}`);
+    result.push({title:metadata.title!,doi:metadata.doi,uri:metadata.url||undefined,workType:metadata.type||undefined,year:metadata.year,printedPages:pages,authorYearKeys:keys,formatted:style!=="none"?formatVerifiedReference(metadata,style,true)||undefined:undefined});
     libraryByWork.set(workKey,result[result.length-1]);
   }
   for(const hit of hits){
@@ -76,7 +81,24 @@ export function answerCitationInventory(hits:ScholarlyHit[],rows:any[],style:Cit
     const repositoryLinks=pmcid?[{label:"Artikel di PMC",uri:`https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`},{label:"Artikel di Europe PMC",uri:`https://europepmc.org/articles/${pmcid}`}]:[];
     result.push({title:hit.title,doi:hit.doi,uri:hit.uri,workType:hit.workType||"journal_article",year:hit.year,authorYearKeys:citationAuthorYearKeys(metadata),formatted:style!=="none"?formatVerifiedReference(metadata,style)||undefined:undefined,catalogOnly:!read,readSource:read?{uri:read.uri,format:read.kind,pages:read.pages}:undefined,repositoryLinks});
   }
-  return result;
+  // The same DOI can arrive from a private upload AND public retrieval.
+  // Repeated records are one work, not an author/year ambiguity. Different
+  // years/editions remain distinct; never merge by surname or title alone.
+  const identities=new Map<string,CitationIdentity>();
+  const deduplicated:CitationIdentity[]=[];
+  for(const item of result){
+    const doi=normalizeDoi(item.doi);
+    const key=doi?`doi:${doi.toLowerCase()}|${item.year||""}`:"";
+    const existing=key?identities.get(key):undefined;
+    if(existing){
+      existing.authorYearKeys=[...new Set([...(existing.authorYearKeys||[]),...(item.authorYearKeys||[])])];
+      existing.printedPages=[...new Set([...(existing.printedPages||[]),...(item.printedPages||[])])];
+      if(item.readSource)existing.readSource=item.readSource;
+      existing.catalogOnly=Boolean(existing.catalogOnly&&item.catalogOnly);
+      existing.uri||=item.uri;
+    }else{deduplicated.push(item);if(key)identities.set(key,item);}
+  }
+  return deduplicated;
 }
 
 export function publicCitationPrompt(inventory:CitationIdentity[]){return inventory.length?"\n\nIDENTITAS REFERENSI YANG TERSEDIA (bukan bukti bahwa setiap karya mendukung klaim; pilih hanya yang digunakan):\n"+inventory.map((item,i)=>`${i+1}. title=${item.title} | doi=${item.doi||"not available"} | url=${item.uri||"uploaded Database work"}\nCSL_EXACT=${item.formatted||"metadata only"}`).join("\n"):"\n\nINVENTARIS REFERENSI KOSONG. Jangan membuat daftar pustaka dari pengetahuan internal AI.";}
