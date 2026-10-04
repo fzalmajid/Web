@@ -11,7 +11,8 @@ function oneEdit(a:string,b:string){
 export function researchScope(text:string){
   const common=commonGenera.find(([pattern])=>pattern.test(text))?.[1]||commonGenera.find(([,genus])=>new RegExp("\\b"+genus+"\\b","i").test(text))?.[1];
   const genusOnly=/\b([A-Za-z][a-z]{2,})\s+(spp?)(?:\.|\b)/.exec(text);
-  const named=Array.from(text.matchAll(/\b([A-Z][a-z]{2,})\s+([a-z][a-z-]{2,})\b/g)).find(match=>!nonGenera.has(match[1].toLowerCase())&&!nonGenera.has(match[2].toLowerCase()));
+  const biologicalCue=Boolean(common)||/\b(?:simplisia|tanaman|spesies|species|genus|botanical|nama ilmiah|scientific name|bakteri|bacteria|fungi)\b/i.test(text);
+  const named=biologicalCue?Array.from(text.matchAll(/\b([A-Z][a-z]{2,})\s+([a-z][a-z-]{2,})\b/g)).find(match=>!nonGenera.has(match[1].toLowerCase())&&!nonGenera.has(match[2].toLowerCase())):undefined;
   const lowerNamed=common?new RegExp(`\\b(${common})\\s+([a-z][a-z-]{2,})\\b`,"i").exec(text):null;
   const match=genusOnly||(!named||nonGenera.has(named[1].toLowerCase())?lowerNamed:named);
   if(match&&!nonGenera.has(match[1].toLowerCase())&&!nonGenera.has(match[2].toLowerCase())){

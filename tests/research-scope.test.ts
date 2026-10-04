@@ -18,7 +18,7 @@ test("changing species or genus changes the plan rather than reusing the last ca
     assert.ok(plan.query.includes(name));
     assert.ok(plan.broadQuery.includes(name));
     assert.doesNotMatch(plan.query,/annuum/);
-    assert.equal(researchScope("Buatkan dasar teori tentang "+name)?.label,name);
+    assert.equal(researchScope("Buatkan dasar teori tentang tanaman "+name)?.label,name);
   }
 });
 test("genus search admits different species but species search rejects a different species",()=>{
@@ -28,6 +28,8 @@ test("genus search admits different species but species search rejects a differe
 });
 test("nonbiological topics retain their concepts and do not become taxonomy",()=>{
   assert.equal(researchScope("solar energy efficiency"),null);
+  assert.equal(researchScope("Photovoltaic efficiency"),null);
+  assert.equal(researchScope("Image retrieval network"),null);
   assert.equal(researchScope("Buatkan dasar teori energi surya"),null);
   assert.doesNotMatch(scientificQueryPlan("jelaskan machine learning").query,/Capsicum/);
   assert.match(researchScopeInstruction("Capsicum sp"),/Spesies belum ditentukan/);
