@@ -41,7 +41,7 @@ import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } 
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
 import { fetchScholarlyEvidence, fullTextPromptContext } from "@/lib/scholarlyFullText";
 import { answerCitationInventory, publicCitationPrompt } from "@/lib/answerCitationServer";
-import { guardAnswerBibliography, requiresQuantitativePaperEvidence, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice, identityInEntry, readableEvidenceLabels, userFormulaProposal, userFormulaPrompt, userFormulaNotice } from "@/lib/answerEvidence";
+import { guardAnswerBibliography, requiresQuantitativePaperEvidence, explicitScholarlySearchIntent, missingFormulaEvidence, evidenceRules, publicEvidenceFallbackNotice, identityInEntry, readableEvidenceLabels, userFormulaProposal, userFormulaPrompt, userFormulaNotice } from "@/lib/answerEvidence";
 import { recoverDocumentBibliography, monographInstruction } from "@/lib/documentEvidence";
 import { documentWritingPolicy, isFormalPublication, monographAliases } from "@/lib/documentPolicy";
 import { libraryCitationReady } from "@/lib/documentPolicy";
@@ -979,7 +979,13 @@ export async function POST(req: NextRequest) {
 
     const useAi = selectedSources.includes("ai");
     const useDatabase = selectedSources.includes("database");
-    const useWeb = selectedSources.includes("web");
+    // A literal "find journals/papers" request is an explicit Web instruction in natural
+    // language. Old chat sessions may still carry Web=false from persisted UI state; do
+    // not let that stale toggle short-circuit scholarly/full-text retrieval.
+    const autoScholarlyWeb =
+      explicitScholarlySearchIntent(question) ||
+      requiresQuantitativePaperEvidence(question);
+    const useWeb = selectedSources.includes("web") || autoScholarlyWeb;
 
     if (selectedProvider === "local" && (useAi || useWeb)) {
       return NextResponse.json(
