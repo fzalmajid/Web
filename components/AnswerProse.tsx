@@ -6,7 +6,7 @@ export default function AnswerProse({ blocks, anchors, renderText }: {
   blocks: AnswerProseBlock[]; anchors: Map<string, string>; renderText: (text: string) => ReactNode;
 }) {
   function inline(text: string) {
-    const result: ReactNode[] = [], pattern = /(`[^`\n]+`)|\[([^\]\n]+)\]\(([^\s)]+)\)|(https?:\/\/[^\s<>]+)/g;
+    const result: ReactNode[] = [], pattern = /(`[^`\n]+`)|\[((?:\\.|[^\]\\\n])+)\]\(([^\s)]+)\)|(https?:\/\/[^\s<>]+)/g;
     let last = 0, match: RegExpExecArray | null;
     while ((match = pattern.exec(text))) {
       if (match.index > last) result.push(<span key={"t" + last}>{renderText(text.slice(last, match.index))}</span>);
@@ -15,7 +15,7 @@ export default function AnswerProse({ blocks, anchors, renderText }: {
         const token = match[4] || match[3];
         let uri = token.replace(/[.,;:!?]+$/, "");
         if (uri.endsWith(")") && (uri.match(/\)/g)?.length || 0) > (uri.match(/\(/g)?.length || 0)) uri = uri.slice(0, -1);
-        const href = safeAnswerLink(uri, anchors), label = match[2] || uri;
+        const href = safeAnswerLink(uri, anchors), label = match[2]?.replace(/\\([\\\[\]])/g,"$1") || uri;
         result.push(href ? <a key={match.index} href={href} {...(href.startsWith("#") ? {} : { target: "_blank", rel: "noopener noreferrer" })}>{match[2] ? renderText(label) : label}</a> : <span key={match.index}>{renderText(match[2] || uri)}</span>);
         if (uri.length < token.length) result.push(token.slice(uri.length));
       }

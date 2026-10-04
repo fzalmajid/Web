@@ -45,7 +45,7 @@ test("journal age constraints leave older books eligible but retain explicit boo
 test("blocked identities and numeric styles do not acquire invented or renumbered references",()=>{
   const fi=book();
   const blocked=guardAnswerBibliography("Fact (FI, 2020).",[fi],"apa",false,[fi]);assert.doesNotMatch(blocked.text,/Official Publisher/);
-  const numeric=guardAnswerBibliography("Fact (FI, 2020). Paper [1].\nReferences:\n[1] Actual recent research article.",[fi,paper],"ieee");assert.doesNotMatch(numeric.text,/Farmakope Indonesia/);assert.match(numeric.text,/\[1\] Researcher/);
+  const numeric=guardAnswerBibliography("Fact (FI, 2020). Paper [1].\nReferences:\n[1] Actual recent research article.",[fi,paper],"ieee");assert.doesNotMatch(numeric.text,/Farmakope Indonesia/);assert.match(numeric.text,/\[1\] \[Researcher/);
 });
 test("APA 6 is an explicit local CSL choice, different from APA 7 for eight authors",()=>{
   const metadata:any={title:"Actual author formatting fixture",authors:Array.from({length:8},(_,i)=>`Surname${i}, Person`),year:2020,type:"journal_article",container_title:"Actual Journal",audit:{engineVersion:"public-library-v1",status:"manual",basis:"manual"}};

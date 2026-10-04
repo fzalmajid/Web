@@ -21,7 +21,7 @@ test("missing model references restore only catalog identities cited in text",()
   const result=recoverDocumentBibliography(guarded.text,[article,article]);
   assert.match(result.text,/References/);assert.doesNotMatch(result.text,/bacaan pendukung/);
   assert.match(result.text,/10.1234\/real/);
-  assert.match(result.text,/metadata\/abstrak/);
+  assert.doesNotMatch(result.text,/metadata\/abstrak/);
   assert.doesNotMatch(result.text,/Invented|Tidak ada referensi formal/);
   assert.equal(result.text.split("Author (2024)").length,2);
 });

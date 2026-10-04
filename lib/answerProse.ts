@@ -9,9 +9,30 @@ export function answerHeadingSlug(text: string) {
   return text.normalize("NFKC").toLowerCase().replace(/[*_`]/g, "").replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-") || "bagian";
 }
 
+/** Presentation-only migration for saved answers. Keep the original link target
+ * and bibliographic facts; do not rewrite history or invent omitted references. */
+export function cleanLegacyReferenceLinks(text:string){
+  let references=false,fence="";
+  return text.split("\n").map(line=>{
+    const marker=/^\s*(`{3,}|~{3,})/.exec(line);
+    if(marker){fence=fence?"":marker[1][0];return line;}
+    if(fence)return line;
+    if(/^(?:\s*#{1,6}\s*)?\s*[*_]*(?:References|Daftar Pustaka|Bibliography|Works Cited)\s*:?[*_]*\s*$/i.test(line)){references=true;return line;}
+    if(/^\s*#{1,6}\s/.test(line))references=false;
+    if(!references)return line;
+    const read=/^(.*?)\s*·\s*\[Teks lengkap publik — (?:PDF|XML|HTML) dibaca[^\]\n]*\]\((https:\/\/[^\s)]+)\)(.*)$/.exec(line);
+    if(!read||!safeAnswerLink(read[2],new Map()))return line;
+    const prefix=/^(?:\[\d+\]|\d+[.)])\s*/.exec(read[1])?.[0]||"";
+    const entry=read[1].slice(prefix.length).trim();
+    if(!entry||entry.includes("]("))return line;
+    const label=entry.replace(/\s+https?:\/\/[^\s<>]+\s*$/i,"").replace(/\\/g,"\\\\").replace(/\[/g,"\\[").replace(/\]/g,"\\]");
+    return `${prefix}[${label}](${read[2]})${read[3]}`;
+  }).join("\n");
+}
+
 /** Small presentation-only parser. No raw HTML, remote assets or executable markup. */
 export function answerProse(text: string): AnswerProseBlock[] {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n"), result: AnswerProseBlock[] = [];
+  const lines = cleanLegacyReferenceLinks(text.replace(/\r\n?/g, "\n")).split("\n"), result: AnswerProseBlock[] = [];
   let paragraph: string[] = [], mathFence = "";
   const flush = () => { if (paragraph.length) result.push({ kind: "paragraph", text: paragraph.join("\n") }); paragraph = []; };
   for (let i = 0; i < lines.length; i++) {

@@ -156,22 +156,17 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
   const references=used.map(item=>{
     const matched=known.find(k=>k.source===item&&(!numeric||numbers.has(labelNumber(k.entry))))?.entry||"";
     const identityUrl=publicUrl(item.uri)||(item.doi?publicUrl("https://doi.org/"+item.doi):null);
-    let canonical=item.formatted||(identityUrl?`[${item.title}](${identityUrl})`:item.title);
-    if(item.workType==="book"||item.workType==="chapter")canonical+=item.printedPages?.length?` · Halaman cetak sumber terambil: ${item.printedPages.join(", ")}.`:" · Halaman cetak belum tersedia; bukan kutipan buku dengan locator terverifikasi.";
+    // One link for the complete CSL entry. Prefer the document actually read,
+    // not a separate status label or a DOI that sends readers elsewhere.
     const readUrl=publicUrl(item.readSource?.uri);
-    if(readUrl){
-      const format=item.readSource!.format==="full-text-pdf"?"PDF":item.readSource!.format==="full-text-xml"?"XML":"HTML";
-      const locators=item.readSource!.pages.length?`; halaman PDF ${item.readSource!.pages.join(", ")}`:"; cuplikan bagian/tabel";
-      canonical+=` · [Teks lengkap publik — ${format} dibaca${locators}](${readUrl.replace(/\(/g,"%28").replace(/\)/g,"%29")})`;
-    }else if(item.catalogOnly){canonical+=" · Bukti tersedia: metadata/abstrak; teks lengkap belum dibaca.";}
-    // Catalog-returned PMCID links give human-readable alternatives to a
-    // publisher PDF that may fail on cookies. They do not assert an OA license
-    // or that this alternate version was read by the server.
-    const linked=new Set([readUrl]);
-    for(const alternative of (item.repositoryLinks||[]).slice(0,2)){
-      const uri=publicUrl(alternative.uri);if(!uri||linked.has(uri))continue;linked.add(uri);
-      canonical+=` · [${alternative.label.replace(/[\[\]\n]/g,"")}](${uri.replace(/\(/g,"%28").replace(/\)/g,"%29")})`;
-    }
+    const target=readUrl||identityUrl;
+    const plain=(item.formatted||item.title)
+      .replace(numeric?/^(?:\[\d+\]|\d+[.)])\s*/:/^$/,"")
+      .replace(/\[([^\]\n]+)\]\([^\)\n]*\)/g,"$1")
+      .replace(/\s+https?:\/\/[^\s<>]+\s*$/i,"").trim();
+    const labelText=plain.replace(/\\/g,"\\\\").replace(/\[/g,"\\[").replace(/\]/g,"\\]");
+    let canonical=target?`[${labelText}](${target.replace(/\(/g,"%28").replace(/\)/g,"%29")})`:plain;
+    if(item.workType==="book"||item.workType==="chapter")canonical+=item.printedPages?.length?` · Halaman cetak sumber terambil: ${item.printedPages.join(", ")}.`:" · Halaman cetak belum tersedia; bukan kutipan buku dengan locator terverifikasi.";
     const label=/^(?:\[\d+\]|\d+[.)])\s*/.exec(matched)?.[0]||"";
     return numeric?label+canonical.replace(/^(?:\[\d+\]|\d+[.)])\s*/,""):canonical;
   });

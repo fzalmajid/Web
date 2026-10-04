@@ -43,7 +43,8 @@ test("public full-text links are attached only to matched references actually re
   const inventory=[{title:"Actual article about learning",doi:"10.1000/read",formatted:"Author (2024). Actual article about learning. https://doi.org/10.1000/read",authorYearKeys:["Author 2024"],readSource:{uri:"https://example.org/article.pdf",format:"full-text-pdf",pages:[3,5]}},{title:"Other article metadata only",doi:"10.1000/catalog",formatted:"Other (2020). Other article metadata only.",authorYearKeys:["Other 2020"],catalogOnly:true}];
   const answer="Summary (Author, 2024; Other, 2020).\nReferences:\nActual article about learning. https://doi.org/10.1000/read\nOther article metadata only. https://doi.org/10.1000/catalog";
   const result=guardAnswerBibliography(answer,inventory,"apa");
-  assert.equal(result.blocked,false);assert.match(result.text,/Teks lengkap publik — PDF dibaca; halaman PDF 3, 5/);assert.match(result.text,/https:\/\/example.org\/article.pdf/);assert.match(result.text,/metadata\/abstrak; teks lengkap belum dibaca/);
+  assert.equal(result.blocked,false);assert.match(result.text,/\[Author \(2024\)\. Actual article about learning\.\]\(https:\/\/example.org\/article.pdf\)/);assert.doesNotMatch(result.text,/Teks lengkap publik|halaman PDF|metadata\/abstrak/);
+  assert.equal(guardAnswerBibliography(result.text,inventory,"apa").text,result.text);
   const unused=guardAnswerBibliography("References:\nOther article metadata only.",inventory,"apa");assert.doesNotMatch(unused.text,/article.pdf/);
   const unsafe=guardAnswerBibliography("References:\nActual article about learning.",[{...inventory[0],readSource:{uri:"javascript:alert(1)",format:"full-text-pdf",pages:[3]}}],"apa");assert.doesNotMatch(unsafe.text,/javascript:|Teks lengkap publik/);
 });
@@ -52,7 +53,7 @@ test("repository alternatives require a real catalog PMCID and never become read
   const inventory=answerCitationInventory([hit],[],"none");
   assert.deepEqual(inventory[0].repositoryLinks?.map(item=>item.uri),["https://pmc.ncbi.nlm.nih.gov/articles/PMC4808484/","https://europepmc.org/articles/PMC4808484"]);
   const result=guardAnswerBibliography("Summary (Example, 2024).\nReferences:\nActual public repository article.",inventory,"apa");
-  assert.match(result.text,/Artikel di PMC/);assert.match(result.text,/teks lengkap belum dibaca/);assert.doesNotMatch(result.text,/PDF dibaca|open.access=yes/);
+  assert.match(result.text,/\[Actual public repository article\]\(https:\/\/doi.org\/10.1000\/article\)/);assert.doesNotMatch(result.text,/Artikel di PMC|PDF dibaca|open.access=yes|teks lengkap belum dibaca/);
   assert.deepEqual(answerCitationInventory([{...hit,pmcid:"PMC4808484/../../wrong"}],[],"none")[0].repositoryLinks,[]);
 });
 
@@ -61,12 +62,12 @@ test("cited catalog works in limitations are included without adding unused or a
   const additional={title:"Other matrix research article",doi:"10.1000/matrix",formatted:"Other (2023). Other matrix research article. https://doi.org/10.1000/matrix",authorYearKeys:["Other et al 2023"],catalogOnly:true};
   const unused={title:"Uncited research article",doi:"10.1000/unused",authorYearKeys:["Unused 2022"]};
   const result=guardAnswerBibliography("Formula (First, 2024). Metadata only for Other et al. (2023).\nReferences:\nPublic tablet research article.",[main,additional,unused],"apa",true);
-  assert.equal(result.blocked,false);assert.match(result.text,/https:\/\/doi.org\/10.1000\/matrix/);assert.match(result.text,/metadata\/abstrak; teks lengkap belum dibaca/);assert.doesNotMatch(result.text,/Uncited research/);
+  assert.equal(result.blocked,false);assert.match(result.text,/https:\/\/doi.org\/10.1000\/matrix/);assert.doesNotMatch(result.text,/metadata\/abstrak|Uncited research/);
   assert.ok(result.text.indexOf("First (2024)")<result.text.indexOf("Other (2023)"));
   const ambiguous=guardAnswerBibliography("Other et al. (2023).\nReferences:\nPublic tablet research article.",[main,additional,{...additional,title:"Different work with same author and year",doi:"10.1000/ambiguous"}],"apa");
   assert.doesNotMatch(ambiguous.text,/10.1000\/matrix|10.1000\/ambiguous/);
   const numeric=guardAnswerBibliography("Other et al. (2023). Main [1].\nReferences:\n[1] Public tablet research article.",[main,additional],"ieee");
-  assert.doesNotMatch(numeric.text,/10.1000\/matrix/);assert.match(numeric.text,/\[1\] First/);
+  assert.doesNotMatch(numeric.text,/10.1000\/matrix/);assert.match(numeric.text,/\[1\] \[First/);
 });
 
 test("author-year matching uses verified CSL names and the exact year, never surname mentions alone",()=>{

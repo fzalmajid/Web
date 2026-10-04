@@ -41,7 +41,7 @@ test("fetched webpage citation matches a real URL, not prefix-spoofed URLs or DO
 });
 test("numeric references retain labels while repairing wrong author/year metadata",()=>{
   const result=guardAnswerBibliography("Result [3].\nReferences:\n[3] Wrong Author (2020). Real article title. https://doi.org/10.1234/work",[{title:"Real article title",doi:"10.1234/work",formatted:"[1] Actual Author (2024). Real article title."}],"ieee",true);
-  assert.match(result.text,/Result \[3\]/);assert.match(result.text,/\[3\] Actual Author \(2024\)/);assert.doesNotMatch(result.text,/Wrong Author/);
+  assert.match(result.text,/Result \[3\]/);assert.match(result.text,/\[3\] \[Actual Author \(2024\)/);assert.doesNotMatch(result.text,/Wrong Author|\\\[1\\\]/);
 });
 test("Scopus is optional metadata with real index provenance, not an OA PDF claim",()=>{
   const hits=mapScopusResults({"search-results":{entry:[{"dc:title":"Memory retrieval practice","dc:creator":"A Researcher","prism:doi":"10.1234/work","prism:coverDate":"2024-01-01",openaccess:"0"}]}});
