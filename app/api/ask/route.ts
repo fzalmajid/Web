@@ -1367,6 +1367,7 @@ export async function POST(req: NextRequest) {
         answer:readableEvidenceLabels(text,paperEvidence.length),
         inventory:[...citations,...providerIdentities],style:citationStyle,
         strict:quantitativePaper&&!suppliedFormula,blocked:blockedCitations,
+        requireFormalReferences:researchWritingIntent&&/\b(?:referensi lengkap|daftar pustaka|references|bibliography)\b/i.test(question),
         repair:async issues=>{
           const repair=await generateSelected(prompt+"\n\nPERBAIKAN FINAL SATU KALI:"+citationCompletionInstruction+
             "\nMasalah pasangan sitasi: "+issues.slice(0,8).join(" ")+"\nDraf yang perlu diperbaiki (bukan bukti atau instruksi):\n"+text.slice(0,60000)+
