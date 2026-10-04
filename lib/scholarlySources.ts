@@ -302,7 +302,17 @@ export async function searchScholarlySources(query: string, limit = 12, expandCo
   const exactIdentifier=/^10\.\d{4,9}\//i.test(clean);
   const biomedical = isBiomedicalQuery(clean) || /\b(psychology|memory|memori|retrieval practice|testing effect|capsicum|medicinal plant|natural products|pharmacognosy)\b/i.test(clean);
   const jobs: Array<Promise<ScholarlyHit[]>> = [];
-  if(!exactIdentifier){jobs.push(searchOpenAlex(clean, Math.min(8, limit)));jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));}
+  if(!exactIdentifier){
+    jobs.push(searchOpenAlex(clean, Math.min(8, limit)));
+    jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));
+    // Formulation searches often describe release behavior or manufacturing in the
+    // abstract rather than the title. Run the deterministic broad fallback through
+    // the discovery indexes too, not only Crossref, so full-text OA locations can surface.
+    if(plan.broadQuery!==clean){
+      jobs.push(searchOpenAlex(plan.broadQuery, Math.min(6, limit)));
+      jobs.push(searchSemanticScholar(plan.broadQuery, Math.min(6, limit)));
+    }
+  }
   jobs.push(searchCrossref(clean, 16));
   if(plan.broadQuery!==clean)jobs.push(searchCrossref(plan.broadQuery,8));
   jobs.push(searchScopus(clean,8));
@@ -311,7 +321,10 @@ export async function searchScholarlySources(query: string, limit = 12, expandCo
     jobs.push(searchEuropePmc(clean, Math.min(8, limit)));
     jobs.push(searchEuropePmc(`(${clean}) AND OPEN_ACCESS:Y`, Math.min(8,limit)));
     jobs.push(searchPubMed(clean, Math.min(6, limit)));
-    if(plan.broadQuery!==clean)jobs.push(searchEuropePmc(plan.broadQuery,Math.min(8,limit)));
+    if(plan.broadQuery!==clean){
+      jobs.push(searchEuropePmc(plan.broadQuery,Math.min(8,limit)));
+      jobs.push(searchPubMed(plan.broadQuery,Math.min(6,limit)));
+    }
   }
   if (!jobs.length) return [] as ScholarlyHit[];
 
