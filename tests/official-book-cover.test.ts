@@ -29,3 +29,24 @@ test("filename, slide mentions, invalid ISBN and distant institution do not esta
 test("roman editions are read from document labels, without filename promotion",()=>{
   const parsed=inferReferenceMetadata({fileName:"book.pdf",frontMatter:"Edition: IV\nISBN: 9786233010177"});assert.equal(parsed.edition,"IV");assert.equal(parsed.provenance?.edition?.source,"document");
 });
+
+test("reader wrappers never become citation titles and title-page identity does not require ISBN",()=>{
+  const front="[Halaman 1]\n[Teks digital]\nFARMAKOPE\nHERBAL\nINDONESIA EDISI II\n2017 KEMENTERIAN KESEHATAN REPUBLIK INDONESIA 615.1\n\n[Teks dari gambar/OCR]\nFARMAKOPE HERBAL INDONESIA EDISI II 2017 KEMENTERIAN KESEHATAN REPUBLIK INDONESIA";
+  const metadata=inferReferenceMetadata({fileName:"user-upload (2).pdf",frontMatter:front});
+  metadata.audit=auditReferenceMetadata(metadata,{});
+  assert.equal(metadata.title,"Farmakope Herbal Indonesia");
+  assert.equal(metadata.type,"book"); assert.equal(metadata.year,2017); assert.equal(metadata.edition,"II");
+  assert.equal(metadata.corporate_author,"Kementerian Kesehatan Republik Indonesia");
+  assert.equal(metadata.isbn,undefined); assert.equal(citationMetadataReady(metadata),true);
+  const item=answerCitationInventory([],[{bibliographic_metadata:metadata,printed_page_start:"6"}],"apa6")[0];
+  assert.ok(item.formatted); assert.doesNotMatch(item.formatted!,/Teks digital|OCR/);
+  const answer=guardAnswerBibliography("Definisi (Kementerian Kesehatan Republik Indonesia, 2017, hlm. 6).",[item],"apa6");
+  assert.match(answer.text,/References/); assert.match(answer.text,/Farmakope Herbal Indonesia/);
+  assert.doesNotMatch(answer.text,/Teks digital/);
+});
+
+test("wrapper cleanup applies to ordinary titles but never promotes notes to books",()=>{
+  const metadata=inferReferenceMetadata({fileName:"notes.pdf",frontMatter:"[Halaman 1]\n[Teks digital]\nCatatan praktikum mahasiswa\n2017"});
+  assert.doesNotMatch(metadata.title||"",/Teks digital|Halaman/);
+  assert.equal(metadata.type,"other"); assert.equal(metadata.corporate_author,undefined);
+});

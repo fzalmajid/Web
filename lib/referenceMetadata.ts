@@ -222,7 +222,12 @@ export function inferReferenceMetadata(input: {
   frontMatter?: string | null;
 }): ReferenceMetadata {
   // Identifiers in a references section belong to cited works, not this file.
-  const front = String(input.frontMatter || "").split(/\n\s*(?:References|Bibliography|Daftar Pustaka)\s*\n/i)[0].slice(0, 12000);
+  // These exact standalone labels are emitted by our reader, not by the book.
+  // Keep page labels in indexed evidence; remove them only from identity parsing.
+  const identityText = String(input.frontMatter || "").replace(
+    /^\s*\[(?:Halaman\s+\d+|Teks digital|Teks dari gambar\/OCR|tidak ada teks terbaca)\]\s*$/gim, ""
+  );
+  const front = identityText.split(/\n\s*(?:References|Bibliography|Daftar Pustaka)\s*\n/i)[0].slice(0, 12000);
   const first800 = cleanSpaces(front).slice(0, 800);
   const meta: ReferenceMetadata = { provenance: {} };
   const lowerName = input.fileName.toLowerCase();
@@ -280,17 +285,20 @@ export function inferReferenceMetadata(input: {
   if (edition) setCandidate(meta, "edition", edition, "document", 0.97);
 
   // Official pharmacopeia title pages have a distinctive identity sequence.
-  // Require a valid ISBN and the actual cover text, never filename/slide guesses.
+  // Require actual cover text, never filename/slide guesses. ISBN is optional:
+  // some official editions do not print it in the available title pages.
+  // An explicitly present invalid ISBN remains conflicting evidence.
   // OCR may split a printed cover year ("20 20"); only normalize this sequence.
   const cover=first800.replace(/^\s*\[Halaman\s*1\]\s*/i,"");
   const officialCover=/^(Farmakope\s+(?:Herbal\s+)?Indonesia)\s+Edisi\s+(VIII|VII|VI|IV|III|II|IX|V|X|I|\d{1,2})\s+((?:19|20)(?:\s+\d{2}|\d{2}))\s+(Kementerian\s+Kesehatan\s+(?:Republik\s+Indonesia|RI))\b/i.exec(cover);
-  if(officialCover&&isbn&&!isSlides){
+  const hasIsbnLabel = /\bISBN(?:-1[03])?\s*:?/i.test(front);
+  if(officialCover&&(!hasIsbnLabel||isbn)&&!isSlides){
     const coverTitle=officialCover[1].toLowerCase().replace(/\b[a-z]/g,letter=>letter.toUpperCase());
     const coverAuthor=officialCover[4].toLowerCase().replace(/\b[a-z]/g,letter=>letter.toUpperCase()).replace(/\bRi\b/,"RI");
-    setCandidate(meta,"title",coverTitle,"document",.98,"Judul terpisah dari edisi, tahun dan lembaga pada halaman judul resmi ber-ISBN.");
+    setCandidate(meta,"title",coverTitle,"document",.98,"Judul terpisah dari edisi, tahun dan lembaga yang tercetak pada halaman judul.");
     setCandidate(meta,"corporate_author",coverAuthor,"document",.98,"Lembaga tercetak dalam identitas halaman judul farmakope, bukan disebut di isi/daftar pustaka.");
     setCandidate(meta,"institution",coverAuthor,"document",.98);
-    setCandidate(meta,"year",Number(officialCover[3].replace(/\s/g,"")),"document",.97,"Tahun tercetak dalam identitas edisi pada halaman judul ber-ISBN.");
+    setCandidate(meta,"year",Number(officialCover[3].replace(/\s/g,"")),"document",.97,"Tahun tercetak dalam identitas edisi pada halaman judul.");
     setCandidate(meta,"edition",officialCover[2].toUpperCase(),"document",.98);
     setCandidate(meta,"type","book","document",.98);
   }
