@@ -71,3 +71,8 @@ test("MLA missing works are blocked, while matched author-page references pair",
   assert.equal(valid.blocked,false);
   assert.equal((await completeAnswerCitations({answer:"Claim (Missing 12).",inventory:[item],style:"mla"})).blocked,true);
 });
+test("verified narrative names retain lowercase surname particles",async()=>{
+  const item={title:"Actual study with surname particles",formatted:"de Vries, A. (2020). Actual study with surname particles.",authorYearKeys:["de Vries 2020"]};
+  const result=await completeAnswerCitations({answer:"Menurut de Vries (2020), hasil ini diamati.",inventory:[item],style:"apa6"});
+  assert.equal(result.blocked,false);
+});

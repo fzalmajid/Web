@@ -102,7 +102,7 @@ export function citationPairingIssues(answer:string,inventory:CitationIdentity[]
       const prefix=citationBody(body).slice(Math.max(0,group.index!-180),group.index);
       const author=prefix.match(/([\p{Lu}][\p{L}'’.-]*(?:\s+(?:[\p{Lu}][\p{L}'’.-]*|dan|and|&|et|al\.?|dkk\.?|de|van))*)\s*$/u)?.[1];
       if(!author)continue;
-      const marker=normalize(author+" "+group[1]),works=new Set<CitationIdentity>();
+      const marker=normalize(prefix+" "+group[1]),works=new Set<CitationIdentity>();
       for(const [key,items] of signatures)if((" "+marker).endsWith(" "+key))for(const item of items)works.add(item);
       if(works.size!==1)issues.push("Sitasi naratif belum memiliki identitas sumber unik: "+author+" "+group[1].trim()+".");
     }
