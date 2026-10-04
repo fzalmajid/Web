@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {visibleAnswerParts,planningOnlyAnswer,claimSupportInstruction} from "../lib/answerQuality";
+import {visibleAnswerParts,planningOnlyAnswer,claimSupportInstruction,unsupportedAssurance} from "../lib/answerQuality";
 import {geminiGenerateDetailed} from "../lib/gemini";
 import {planAnswerLength} from "../lib/answerLength";
 import {matchesResearchPurpose,rankResearchHits} from "../lib/researchQuery";
@@ -12,6 +12,15 @@ test("thought summaries never become visible answer text",()=>{
   assert.equal(visibleAnswerParts([{text:"notes",thought:true}]),"");
   assert.equal(planningOnlyAnswer('Wijanarko: abstract mentions parameters. Let\'s write based on abstract.'),true);
   assert.equal(planningOnlyAnswer('Dasar teori\nSimplisia adalah bahan alam yang dikeringkan.'),false);
+});
+
+test("risk trigger is not pinned to a species or number and respects negation and examples",()=>{
+  assert.equal(unsupportedAssurance("Kadar air 10–13% terbukti cukup aman untuk mencegah toksin."),true);
+  assert.equal(unsupportedAssurance("Dosis 75 mg dijamin aman."),true);
+  assert.equal(unsupportedAssurance("Penutup wajib digunakan — berdasarkan bahan pengguna."),true);
+  assert.equal(unsupportedAssurance("Dosis 75 mg belum terbukti aman."),false);
+  assert.equal(unsupportedAssurance("`Dosis 75 mg dijamin aman.`"),false);
+  assert.equal(unsupportedAssurance("Dalam studi digunakan suhu 70 °C selama 6 jam; ini bukan standar universal."),false);
 });
 
 test("theory sizing distinguishes definition from preparation without adding report sections",()=>{
@@ -75,5 +84,17 @@ test("repeated planning-only responses fail safely rather than exposing notes",a
     };
     await assert.rejects(geminiGenerateDetailed([{text:"Explain"}],"Tutor",{apiKey:"test-quality-notes",models:["test-quality-model"],strictModel:true,retryTruncatedDocument:true}),/Jawaban final/);
     assert.equal(calls,2);
+  }finally{globalThis.fetch=original;}
+});
+
+test("numeric safety assurances trigger one scoped rewrite instead of silent deletion",async()=>{
+  const original=globalThis.fetch;let calls=0;
+  try{
+    globalThis.fetch=async(url)=>{
+      if(!String(url).includes(":generateContent"))return new Response(JSON.stringify({models:[{name:"models/test-assurance-model",supportedGenerationMethods:["generateContent"]}]}));
+      calls++;return new Response(JSON.stringify({candidates:[{content:{parts:[{text:calls===1?"Kadar 12% terbukti cukup aman.":"Angka penelitian bukan batas aman universal; standar memerlukan sumber yang sesuai."}]},finishReason:"STOP"}]}));
+    };
+    const result=await geminiGenerateDetailed([{text:"Jelaskan teori"}],"Tutor",{apiKey:"test-assurance-quality",models:["test-assurance-model"],strictModel:true,retryTruncatedDocument:true});
+    assert.equal(calls,2);assert.doesNotMatch(result.text,/terbukti cukup aman/);
   }finally{globalThis.fetch=original;}
 });
