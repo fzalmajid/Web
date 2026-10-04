@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { visualLearningRequest } from "@/lib/visualIntent";
 import { calibrationEvidence } from "@/lib/calibrationEvidence";
 import { researchQuery, relevantResearchContext } from "@/lib/researchQuery";
+import { researchScopeInstruction } from "@/lib/researchScope";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   geminiGenerateDetailed,
@@ -1449,7 +1450,7 @@ export async function POST(req: NextRequest) {
         ? '\n\nVISUAL INTERAKTIF: Sertakan satu blok fenced ```cytoscape berisi JSON valid dengan schema {nodes:[{id,label,group?}],edges:[{source,target,label?}],layout?:"cose"|"breadthfirst"|"circle"|"grid"}. Maksimal 50 node. Semua id unik. Jangan sisipkan HTML/JavaScript. Jelaskan inti graph di luar blok.'
         : "\n\nVISUAL: Sertakan satu blok fenced ```mermaid dengan sintaks Mermaid yang valid untuk diagram/peta konsep/alur. Gunakan label singkat, tanpa HTML, tanpa click handler/link javascript. Tetap berikan penjelasan dan sitasi di luar blok diagram."
       : "";
-    const documentEvidencePrompt=documentWritingPolicy()+monographInstruction(question)+(researchWritingIntent
+    const documentEvidencePrompt=documentWritingPolicy()+monographInstruction(question)+researchScopeInstruction(question)+(researchWritingIntent
       ? "\n\nPENULISAN BERBASIS TOPIK: Topik inti pencarian: "+researchQuery(question)+". Petakan sumber ke subbahasan yang didukung teksnya; jangan menjadikan fakta sampingan sebagai inti teori. Validasi dokumen Database oleh pengguna bukan bukti relevansi setiap halaman. Bila Web aktif, kurangnya sumber lokal tidak berarti penelusuran jurnal publik sudah berhenti. Jangan sebut atau sitasikan jurnal tidak relevan sekadar menjelaskan kekurangan inventaris, dan jangan menambah artikel hanya untuk memenuhi jumlah. Sebutan ‘terbaik’ harus disertai kriteria relevansi, bukti yang tersedia, dan jenis penelitian, bukan klaim ranking tanpa data. Metadata tanpa abstrak/teks hanya petunjuk pencarian, bukan dukungan teori. Bila sumber relevan kurang dari jumlah diminta, nyatakan jumlah nyata dan keterbatasannya secara singkat."
       : "");
     const prompt = adaptiveLengthPrompt+"\n\n"+evidenceRules(Boolean(paperEvidence.length||databaseFormulaEvidence))+proposalPrompt+documentEvidencePrompt+visualLearningInstruction+publicCitationPrompt(citations)+citationMetadataInventory+deterministicCitationInventory+fullTextContext+buildPrompt({
