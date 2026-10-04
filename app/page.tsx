@@ -17,6 +17,7 @@ import { supabase } from "@/lib/supabase";
 import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrieval } from "@/lib/hfIndexing";
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
+import { boundedPopoverLeft } from "@/lib/popoverPosition";
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { assertPdfFile } from "@/lib/pdfValidation";
 import ProfileHome, { FriendCenter, ProfileEditorPanel, type UserProfile } from "@/components/ProfileHome";
@@ -10128,6 +10129,36 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [prefs, setPrefs] = useState<CitationPrefs>({ style: "none", outputs: ["in-text"] });
   const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const wrap = wrapRef.current;
+    const panel = wrap?.querySelector<HTMLElement>(".citationPopover");
+    if (!wrap || !panel) return;
+    const reposition = () => {
+      const anchor = wrap.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      const left = boundedPopoverLeft(anchor.left, anchor.right, panel.getBoundingClientRect().width, viewport?.offsetLeft || 0, viewport?.width || document.documentElement.clientWidth);
+      panel.style.setProperty("--citation-viewport-left", `${left}px`);
+    };
+    reposition();
+    const observer = new ResizeObserver(reposition);
+    observer.observe(wrap);
+    observer.observe(panel);
+    const composer = wrap.closest(".gptComposer");
+    if (composer) observer.observe(composer);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    window.visualViewport?.addEventListener("resize", reposition);
+    window.visualViewport?.addEventListener("scroll", reposition);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+      window.visualViewport?.removeEventListener("resize", reposition);
+      window.visualViewport?.removeEventListener("scroll", reposition);
+    };
+  }, [open]);
 
   useEffect(() => {
     setPrefs(readCitationPrefs());
