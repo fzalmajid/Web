@@ -12,6 +12,8 @@ import { packPdfPages } from "@/lib/pdfIndex";
 import { assertPdfHeader } from "@/lib/pdfValidation";
 import { enhancePdfPages } from "@/lib/documentEnhancements";
 import { readOfficeDocument, readPdfNativeBatch, readPdfBatchWithOcr, pdfPageNeedsOcr } from "@/lib/visualOcr";
+import { generateUploadText } from "@/lib/uploadAi";
+import { recognizeRasterLocally } from "@/lib/localOcrServer";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -117,12 +119,10 @@ async function readVisionImages(
   let usage = { inputTokens: 0, outputTokens: 0, thoughtsTokens: 0, totalTokens: 0 };
   let model = "";
   for (const part of parts) {
-    const result = await geminiGenerateDetailed(
+    const result = await generateUploadText(
       [{ text: `${prompt}\n\nSumber: ${part.label}` }, { inlineData: { mimeType: part.mimeType, data: part.data } }],
       "Baca gambar secara teliti. Jangan mengarang teks yang tidak terlihat.",
       {
-        models: modelPlanForSelection(selection.model, aiMode, "standard"),
-        effort: selection.effort,
         apiKey: auth.apiKey,
         accessToken: auth.accessToken,
         projectId: auth.projectId,
@@ -241,7 +241,8 @@ export async function POST(req: NextRequest) {
         !body.pdfAppend &&
         (!segmentedOriginal || pageOffset === 0);
 
-      if (rebuildingFromStart) {
+      const resetPreviousIndex = async () => {
+        if (!rebuildingFromStart) return;
         // A true retry is a clean rebuild. Legacy/partial chunks and their vectors
         // must not survive beside the newly page-mapped document.
         const { error: cleanupError } = await supabase
@@ -263,7 +264,7 @@ export async function POST(req: NextRequest) {
           })
           .eq("id", sourceFileId);
         if (resetError) throw resetError;
-      }
+      };
 
       const batch = await readPdfNativeBatch(buffer!, startPage);
       if (!batch.pages.length || batch.endPage < startPage) {
@@ -299,6 +300,8 @@ export async function POST(req: NextRequest) {
         12000
       );
       if (!chunks.length) throw new Error("Tidak ada teks halaman PDF yang berhasil diproses.");
+      // Preserve the existing readable index until replacement OCR succeeds.
+      await resetPreviousIndex();
 
       const { data: previous, error: existingError } = await supabase
         .from("knowledge_entries")
@@ -423,6 +426,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (!rawText && buffer && mimeType.startsWith("image/")) {
+      const local = await recognizeRasterLocally(buffer, mimeType);
+      if (local.accepted) rawText = local.text;
+    }
+
     if (!rawText) {
       const base64 = buffer!.toString("base64");
       const prompt = isMediaMime(mimeType)
@@ -430,15 +438,14 @@ export async function POST(req: NextRequest) {
         : mimeType === "application/pdf"
           ? "Baca PDF ini sebagai dokumen visual, termasuk halaman yang merupakan hasil scan/foto. OCR seluruh tulisan yang terlihat secara literal dan selengkap mungkin. Pertahankan judul, subjudul, daftar, tabel, angka, istilah, dan urutan halaman. Jangan meringkas, jangan menambahkan pengetahuan luar. Jika bagian tidak terbaca, tandai [tidak terbaca]."
           : "Ekstrak semua informasi tekstual yang dapat dibaca dari file/gambar ini. Jangan menambahkan informasi yang tidak ada pada sumber.";
-      const extractionResult = await geminiGenerateDetailed(
+      const extractionResult = await generateUploadText(
         [
           { text: prompt },
           { inlineData: { mimeType, data: base64 } },
         ],
         undefined,
         {
-          models: modelPlanForSelection(aiSelection.model, aiMode, isMediaMime(mimeType) ? "audio" : "standard"),
-          effort: aiSelection.effort,
+          audio: isMediaMime(mimeType),
           apiKey: geminiAuth.apiKey,
       accessToken: geminiAuth.accessToken,
       projectId: geminiAuth.projectId,
@@ -613,6 +620,10 @@ Aturan:
     });
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
+    const retryable = ["GEMINI_UNAVAILABLE", "GEMINI_NO_AVAILABLE_MODEL", "GEMINI_MODEL_UNAVAILABLE", "GEMINI_QUOTA"].includes(error?.code);
+    const message = retryable
+      ? "File asli tetap tersimpan, tetapi layanan pembacaan file sedang tidak tersedia atau mencapai batas penggunaan. Coba proses ulang nanti; tidak perlu upload ulang."
+      : error?.message || "Gagal memproses file.";
     console.error("[API_IMPORT_FILE_ERROR]", { name: error?.name, code: error?.code, status });
 
     if (sourceFileId) {
@@ -620,13 +631,13 @@ Aturan:
         .from("source_files")
         .update({
           processing_status: "error",
-          error_message: error?.message || "Gagal memproses file.",
+          error_message: message,
         })
         .eq("id", sourceFileId);
     }
 
     return NextResponse.json(
-      { error: error?.message || "Gagal memproses file." },
+      { error: message, code: error?.code || "IMPORT_FAILED", retryable },
       { status: status >= 400 && status < 600 ? status : 500 }
     );
   }

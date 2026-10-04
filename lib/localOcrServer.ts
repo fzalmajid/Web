@@ -1,3 +1,6 @@
+import path from "node:path";
+import { access } from "node:fs/promises";
+
 type LocalOcrResult = {
   text: string;
   confidence: number;
@@ -8,11 +11,26 @@ type LocalOcrResult = {
 let workerPromise: Promise<any> | null = null;
 let queue: Promise<void> = Promise.resolve();
 
+async function bounded<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([work, new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("LOCAL_OCR_TIMEOUT")), ms);
+    })]);
+  } finally { clearTimeout(timer!); }
+}
+
 async function getWorker() {
   if (!workerPromise) {
-    workerPromise = import("tesseract.js")
-      .then(({ createWorker }) => createWorker(["eng", "ind"]))
+    const workerPath = path.join(process.cwd(), "node_modules/tesseract.js/src/worker-script/node/index.js");
+    // Fail before spawning if deployment tracing omitted the worker.
+    let expired = false;
+    const creation = access(workerPath).then(() => import("tesseract.js"))
+      .then(({ createWorker }) => createWorker(["eng", "ind"], 1, { workerPath, cachePath: process.env.VERCEL ? "/tmp" : undefined }))
+      .then(async worker => { if (expired) { await worker.terminate(); throw new Error("LOCAL_OCR_TIMEOUT"); } return worker; });
+    workerPromise = bounded(creation, 20000)
       .catch((error) => {
+        expired = true;
         workerPromise = null;
         throw error;
       });
@@ -55,12 +73,15 @@ export async function recognizeRasterLocally(
 
   try {
     const worker = await getWorker();
-    const result = await worker.recognize(bytes);
+    const result = await bounded<any>(worker.recognize(bytes), 20000);
     const text = String(result?.data?.text || "").trim();
     const confidence = Number(result?.data?.confidence || 0);
     const check = quality(text, confidence);
     return { text, confidence, ...check };
   } catch {
+    const failed = workerPromise;
+    workerPromise = null;
+    if (failed) void failed.then(worker => worker.terminate()).catch(() => undefined);
     // Local OCR is an optimization only. Never let it block the existing
     // multimodal OCR path when the worker/core/language files cannot load.
     return { text: "", confidence: 0, accepted: false, reason: "local-error" };

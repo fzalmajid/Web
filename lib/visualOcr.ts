@@ -1,16 +1,18 @@
 import JSZip from "jszip";
 import { PDFDocument } from "pdf-lib";
 import { geminiGenerateDetailed } from "./gemini";
-import { modelPlanForSelection, selectionFromHeaders } from "./aiModels";
+import { selectionFromHeaders } from "./aiModels";
 import { geminiUserAuthFromHeaders } from "./geminiUserAuth";
 import { normalizeAiMode } from "./aiQuota";
 import { extractPdfPageBatch, type PdfIndexedPage } from "./pdfIndex";
 import { recognizeRasterLocally } from "./localOcrServer";
+import { generateUploadText } from "./uploadAi";
 
 export type VisualOcrOptions = {
   selection: ReturnType<typeof selectionFromHeaders>;
   aiMode: ReturnType<typeof normalizeAiMode>;
   auth: ReturnType<typeof geminiUserAuthFromHeaders>;
+  deadlineAt?: number;
   onUsage?: (
     usage: Awaited<ReturnType<typeof geminiGenerateDetailed>>["usage"],
     model: string
@@ -21,7 +23,7 @@ type VisualImage = { label: string; mimeType: string; data: string; name: string
 
 const MAX_OFFICE_IMAGES = 48;
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
-export const PDF_PAGES_PER_BATCH = 8;
+export const PDF_PAGES_PER_BATCH = 2;
 
 function decodeXml(value: string) {
   return value
@@ -72,7 +74,7 @@ async function recognizeImage(image: VisualImage, options: VisualOcrOptions) {
   const local = await recognizeRasterLocally(Buffer.from(image.data, "base64"), image.mimeType);
   if (local.accepted && local.text) return local.text;
 
-  const result = await geminiGenerateDetailed(
+  const result = await generateUploadText(
     [
       {
         text:
@@ -86,10 +88,7 @@ async function recognizeImage(image: VisualImage, options: VisualOcrOptions) {
     ],
     "Tugas hanya membaca bukti visual secara teliti.",
     {
-      models: modelPlanForSelection(options.selection.model, options.aiMode, "standard"),
-      effort: options.selection.effort,
-      maxOutputTokens: 12288,
-      outputBudgetMultiplier: 1,
+      deadlineAt: options.deadlineAt,
       apiKey: options.auth.apiKey,
       accessToken: options.auth.accessToken,
       projectId: options.auth.projectId,
@@ -115,6 +114,7 @@ export async function readOfficeDocument(
   digitalText: string,
   options: VisualOcrOptions
 ) {
+  options = { ...options, deadlineAt: options.deadlineAt || Date.now() + 210000 };
   const zip = await JSZip.loadAsync(buffer);
   const seen = new Map<string, Promise<string>>();
   const tasks: Array<{ label: string; name: string }> = [];
@@ -255,7 +255,7 @@ export async function readPdfBatchWithOcr(
       if (bytes.length > 18 * 1024 * 1024) {
         throw new Error("Halaman " + page.page + " terlalu besar untuk OCR. Kompres gambar pada PDF.");
       }
-      const result = await geminiGenerateDetailed(
+      const result = await generateUploadText(
         [
           {
             text:
@@ -268,10 +268,7 @@ export async function readPdfBatchWithOcr(
         ],
         "Transkripsi halaman PDF, bukan ringkasan.",
         {
-          models: modelPlanForSelection(options.selection.model, options.aiMode, "standard"),
-          effort: options.selection.effort,
-          maxOutputTokens: 12288,
-          outputBudgetMultiplier: 1,
+          deadlineAt: options.deadlineAt,
           apiKey: options.auth.apiKey,
           accessToken: options.auth.accessToken,
           projectId: options.auth.projectId,

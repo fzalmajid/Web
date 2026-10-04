@@ -6023,7 +6023,7 @@ function DatabaseFileCard({
           >
             ...
           </button>
-          {!compact && file.processing_status === "error" && !isLink && (
+          {file.processing_status === "error" && !isLink && (
             <button className="ghost" type="button" disabled={retryBusy}
               onClick={retryRawExtraction}>
               {retryBusy ? "Memproses ulang..." : "Ulang baca RAW"}
@@ -6060,10 +6060,10 @@ function DatabaseFileCard({
         </div>
       </div>
 
-      {!compact && file.processing_status === "error" && file.error_message && !retryStatus && (
+      {file.processing_status === "error" && file.error_message && !retryStatus && (
         <p className="rawRetryMessage" role="status">Proses sebelumnya gagal: {file.error_message}</p>
       )}
-      {!compact && retryStatus && <p className="rawRetryMessage" role="status">{retryStatus}</p>}
+      {retryStatus && <p className="rawRetryMessage" role="status">{retryStatus}</p>}
       {previewUrl && isImage && (
         <div className="databaseMediaPreview">
           <img src={previewUrl} alt={file.file_name} />
