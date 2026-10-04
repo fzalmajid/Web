@@ -10312,7 +10312,6 @@ function AiExperiencePicker({
   ];
   return (
     <div className="aiExperiencePicker" role="group" aria-label="Mode AI Ruang Belajar">
-      <span className="aiExperienceLabel">AI RUANG BELAJAR</span>
       <div className="aiExperienceChoices">
         {options.filter(option=>allowSimple||option.value!=="simple").map((option) => (
           <button

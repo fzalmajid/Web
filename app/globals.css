@@ -11802,15 +11802,9 @@ body,
 .aiExperiencePicker {
   display: inline-flex;
   align-items: center;
-  gap: 0.42rem;
   min-width: 0;
-}
-.aiExperienceLabel {
-  color: var(--muted, #6f6a64);
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  white-space: nowrap;
+  margin-left: auto;
+  justify-content: flex-end;
 }
 .aiExperienceChoices {
   display: inline-flex;
@@ -11861,13 +11855,21 @@ body,
   top: calc(100% + 0.45rem);
 }
 @media (max-width: 760px) {
-  .aiExperiencePicker {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 0.18rem;
-  }
   .aiExperienceChoices button {
     padding-inline: 0.42rem;
+  }
+}
+
+/* The composer bar exposes its children to the desktop grid. Anchor the
+   depth picker where the former model picker lived, not in an implicit row. */
+.gptComposer .askTopControls .aiExperiencePicker {
+  justify-self: end;
+  align-self: end;
+}
+@media (min-width: 768px) {
+  .gptComposer .askTopControls .aiExperiencePicker {
+    grid-column: 4;
+    grid-row: 2;
   }
 }
 
