@@ -174,14 +174,11 @@ export async function finalizeAiCredits(
 }
 
 export function aiQuotaError(usage: AiUsage) {
-  const active = Number(usage.active_accounts || 1);
   return {
     error:
       "Batas penggunaan AI aplikasi untuk saat ini sudah tercapai pada mode " +
       aiModeLabel(usage.mode) +
-      ". Pembagian sementara menyesuaikan " +
-      active +
-      " akun aktif hari ini. Usage Gemini aktual tetap dihitung terpisah. Reset 00.00 WIB.",
+      ". Pool bersama seluruh akun tidak mencukupi untuk permintaan ini; tidak ada pembagian jatah per akun. Kuota provider AI tetap terpisah. Reset 00.00 WIB.",
     aiUsage: usage,
   };
 }
