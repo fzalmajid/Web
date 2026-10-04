@@ -11871,6 +11871,14 @@ body,
   }
 }
 
+/* Desktop popup collision handling; mobile keeps its viewport-inset sheet. */
+@media (min-width:761px){
+  .gptComposer .citationPopover{
+    left:var(--citation-viewport-left,0px)!important;
+    right:auto!important;
+  }
+}
+
 .aiAnswerTable { overflow-x: auto; margin: 0.8rem 0; white-space: normal; }
 .aiAnswerTable table { border-collapse: collapse; width: 100%; font: inherit; }
 .aiAnswerTable th, .aiAnswerTable td { border: 1px solid #7891ad55; padding: 0.5rem 0.7rem; text-align: left; }
