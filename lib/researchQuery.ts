@@ -17,10 +17,19 @@ export function researchQuery(question: string) {
   return candidate.length >= 3 ? candidate.slice(0, 240) : clean.slice(0, 240);
 }
 
-export function rankResearchHits<T extends {title:string;abstract?:string|null}>(hits:T[],query:string) {
+/** Explanations need subject evidence, not software that merely stores its name.
+ * Do not apply this gate when the user actually asks about the application. */
+export function matchesResearchPurpose(hit:{title:string;abstract?:string|null},question:string) {
+  const software=/\b(?:aplikasi|android|software|sistem informasi|information system|database|perangkat lunak|mobile app|kamus|dictionary)\b/i;
+  const explanatory=/\b(?:dasar teori|landasan teori|apa itu|definisi|definition|theoretical background|explain)\b/i.test(question);
+  const softwareTitle=software.test(hit.title);
+  return !explanatory || software.test(question) || !softwareTitle;
+}
+
+export function rankResearchHits<T extends {title:string;abstract?:string|null}>(hits:T[],query:string,purposeQuestion=query) {
   const terms=researchTerms(query);
   if(!terms.length)return hits;
-  return hits.map(hit=>{
+  return hits.filter(hit=>matchesResearchPurpose(hit,purposeQuestion)).map(hit=>{
     const title=new Set(researchTerms(hit.title)),body=new Set(researchTerms(hit.abstract||""));
     const titleMatches=terms.filter(term=>title.has(term)).length;
     const bodyMatches=terms.filter(term=>body.has(term)).length;

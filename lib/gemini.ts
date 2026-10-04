@@ -1,4 +1,5 @@
 import { GEMINI_MODEL } from "./config";
+import { visibleAnswerParts, planningOnlyAnswer } from "./answerQuality";
 import {
   responseLengthInstruction,
   thinkingConfigForModel,
@@ -328,7 +329,7 @@ export async function geminiGenerateDetailed(
     // Gemini 2.5 shares its output ceiling with thoughts. Reserve visible output
     // for explicitly sized documents; Gemini 3 continues to use thinkingLevel.
     if (thinkingConfig && "thinkingBudget" in thinkingConfig && typeof thinkingConfig.thinkingBudget === "number" && typeof options?.maxThinkingTokens === "number" && Number.isFinite(options.maxThinkingTokens)) {
-      thinkingConfig.thinkingBudget = Math.min(thinkingConfig.thinkingBudget, Math.max(model.includes("-pro") ? 128 : 512, Math.floor(options.maxThinkingTokens)));
+      thinkingConfig.thinkingBudget = Math.min(thinkingConfig.thinkingBudget, Math.max(model.includes("-pro") ? 128 : 512, Math.floor(options.maxThinkingTokens)), Math.max(512, Math.floor(boostedOutputBudget / 3)));
     }
 
     let response: Response;
@@ -393,13 +394,9 @@ export async function geminiGenerateDetailed(
     }
 
     const candidate = data?.candidates?.[0];
-    const text =
-      candidate?.content?.parts
-        ?.map((p: { text?: string }) => p.text || "")
-        .join("")
-        .trim() || "";
+    const text = visibleAnswerParts(candidate?.content?.parts);
 
-    if (!text && !(options?.retryTruncatedDocument && candidate?.finishReason === "MAX_TOKENS")) {
+    if (!text && !options?.retryTruncatedDocument) {
       lastError = new GeminiApiError("Gemini tidak mengembalikan teks.", 502, "GEMINI_EMPTY_RESPONSE");
       if (index < attemptModels.length - 1) continue;
       throw lastError;
@@ -426,11 +423,11 @@ export async function geminiGenerateDetailed(
     }
 
     const result: GeminiDetailedResult = { text, webSources, usage, model, finishReason: String(candidate?.finishReason || "") };
-    if (options?.retryTruncatedDocument && result.finishReason === "MAX_TOKENS") {
+    if (options?.retryTruncatedDocument && (result.finishReason === "MAX_TOKENS" || !text || planningOnlyAnswer(text))) {
       // One bounded rewrite, not concatenation of a broken table/diagram. The
       // original evidence and question remain authoritative, not the partial draft.
       try {
-        const repaired = await geminiGenerateDetailed([...parts, { text: "PERBAIKAN KELENGKAPAN: keluaran percobaan sebelumnya terpotong. Tulis ulang dokumen utuh dari awal dengan semua bagian yang diminta sampai daftar pustaka paling akhir. Prioritaskan ruang untuk jawaban final, tabel lengkap dan diagram tertutup; jangan menghabiskan ruang untuk catatan rencana. Tetap patuhi batas bukti, data usulan, sumber yang dipilih dan batas panjang eksplisit. Jangan menciptakan data atau referensi agar dokumen terlihat lengkap." }], systemInstruction, {
+        const repaired = await geminiGenerateDetailed([...parts, { text: "PERBAIKAN KELENGKAPAN: percobaan sebelumnya terpotong atau tidak menghasilkan jawaban final. Tulis ulang jawaban final utuh dari awal, hanya bagian yang diminta user, dengan referensi untuk karya yang benar-benar disitasi. Jangan menambahkan alat-bahan, prosedur atau bagian laporan jika tidak diminta. Prioritaskan ruang untuk jawaban final; jangan keluarkan catatan rencana. Tetap patuhi batas bukti, data usulan, sumber yang dipilih dan batas panjang eksplisit. Jangan menciptakan data atau referensi agar jawaban terlihat lengkap." }], systemInstruction, {
           ...options, models: [model], strictModel: true, maxAttempts: 1,
           retryTruncatedDocument: false, effort: "low", maxThinkingTokens: 1024,
           maxOutputTokens: Math.min(32768, Math.max(requestedOutputBudget, 16384)), outputBudgetMultiplier: 1,
@@ -442,11 +439,12 @@ export async function geminiGenerateDetailed(
           totalTokens: usage.totalTokens + repaired.usage.totalTokens,
         };
         const sources = Array.from(new Map([...webSources, ...repaired.webSources].map(source => [source.uri, source])).values());
+        if (!repaired.text || planningOnlyAnswer(repaired.text)) throw new GeminiApiError("Jawaban final belum berhasil disusun. Silakan coba kembali.", 502, "GEMINI_EMPTY_RESPONSE");
         if (repaired.finishReason !== "STOP" && repaired.finishReason !== "MAX_TOKENS") return { ...result, usage: combinedUsage };
         return { ...repaired, usage: combinedUsage, webSources: sources, repairedTruncation: repaired.finishReason === "STOP" };
       } catch {
         // Quota/unavailability never hides the initial draft or its warning.
-        if (!text) throw new GeminiApiError("Dokumen belum dapat diselesaikan; provider mencapai batas keluaran.", 502, "GEMINI_EMPTY_RESPONSE");
+        if (!text || planningOnlyAnswer(text)) throw new GeminiApiError("Jawaban final belum berhasil disusun. Silakan coba kembali.", 502, "GEMINI_EMPTY_RESPONSE");
         return result;
       }
     }

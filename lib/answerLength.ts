@@ -57,6 +57,10 @@ export function planAnswerLength(question: string, effort: AiEffort = "none"): A
   let kind: AnswerLengthPlan["kind"] = "explanation";
   let target = 1800;
   let selectedSections = sections;
+  if (writingRequest && sections.some(section => section.name === "Dasar teori")) {
+    target = 2800;
+    if (/\b(?:hingga|sampai|tahapan|penyiapan|proses|stages?|preparation)\b/i.test(text)) target = 4200;
+  }
   if (greeting || (factual && !detailed && !analytical)) { kind = "brief"; target = greeting ? 180 : 550; }
   if (analytical || detailed) { kind = "analysis"; target = detailed ? 5000 : 3500; }
   if (documentRequest || (writingRequest && sections.length >= 4)) {
@@ -96,6 +100,7 @@ export function answerLengthInstruction(plan: AnswerLengthPlan) {
     "Simple/Instant/Medium/High menentukan kedalaman pemeriksaan, bukan panjang wajib. High boleh singkat; Instant boleh panjang bila user meminta dokumen utuh.",
     "Jangan mengarang angka hasil pengamatan, prosedur yang diklaim dilakukan, atau referensi untuk memenuhi panjang. Jika data belum diberikan, tandai belum tersedia; contoh hipotetis harus jelas berlabel dan bukan hasil nyata.",
     "Pertahankan sitasi valid dan bagian referensi bila diperlukan. Jangan mengorbankan keselamatan/ketepatan hanya demi target karakter. Jangan menyebut anggaran token atau detail pengaturan internal kepada user.",
+    "Jangan menambahkan bagian yang tidak diminta. Permintaan dasar teori dijawab dengan paragraf teori; tahapan boleh dijelaskan secara konseptual, bukan otomatis tabel alat-bahan dan SOP praktikum.",
   ].join("\n");
 }
 
