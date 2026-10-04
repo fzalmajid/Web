@@ -97,6 +97,7 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
       uri,
       openAccess: Boolean(work?.open_access?.is_oa || best?.is_oa),
       abstract: indexedAbstract(work?.abstract_inverted_index),
+      workType: work?.type === "article" ? "journal_article" : work?.type === "book" ? "book" : work?.type === "book-chapter" ? "chapter" : work?.type === "dissertation" ? "thesis" : "other",
       fullTextUrls: [best?.pdf_url].filter((value):value is string=>typeof value === "string" && /^https?:\/\//i.test(value)),
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
@@ -194,6 +195,7 @@ async function searchEuropePmc(query: string, limit: number): Promise<ScholarlyH
     if (!/^https?:\/\//i.test(uri)) return null;
     return {
       provider: "europepmc",
+      workType: item?.source === "PPR" ? "other" : "journal_article",
       id: pmcid || pmid || doi || title,
       title,
       authors: cleanText(item?.authorString, 1800)
@@ -261,6 +263,7 @@ async function searchPubMed(query: string, limit: number): Promise<ScholarlyHit[
     const pmcid = cleanText(articleIds.find((x: any) => x?.idtype === "pmc")?.value, 80) || null;
     return {
       provider: "pubmed",
+      workType: "journal_article",
       id,
       title,
       authors: (Array.isArray(item?.authors) ? item.authors : [])
@@ -297,7 +300,7 @@ export async function searchScholarlySources(query: string, limit = 12, expandCo
   const clean = plan.query;
   if (!clean) return [] as ScholarlyHit[];
   const exactIdentifier=/^10\.\d{4,9}\//i.test(clean);
-  const biomedical = isBiomedicalQuery(clean) || /\b(psychology|memory|memori|retrieval practice|testing effect)\b/i.test(clean);
+  const biomedical = isBiomedicalQuery(clean) || /\b(psychology|memory|memori|retrieval practice|testing effect|capsicum|medicinal plant|natural products|pharmacognosy)\b/i.test(clean);
   const jobs: Array<Promise<ScholarlyHit[]>> = [];
   if(!exactIdentifier){jobs.push(searchOpenAlex(clean, Math.min(8, limit)));jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));}
   jobs.push(searchCrossref(clean, 16));
@@ -308,6 +311,7 @@ export async function searchScholarlySources(query: string, limit = 12, expandCo
     jobs.push(searchEuropePmc(clean, Math.min(8, limit)));
     jobs.push(searchEuropePmc(`(${clean}) AND OPEN_ACCESS:Y`, Math.min(8,limit)));
     jobs.push(searchPubMed(clean, Math.min(6, limit)));
+    if(plan.broadQuery!==clean)jobs.push(searchEuropePmc(plan.broadQuery,Math.min(8,limit)));
   }
   if (!jobs.length) return [] as ScholarlyHit[];
 
