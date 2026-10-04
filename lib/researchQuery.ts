@@ -1,7 +1,9 @@
+import { researchScope, scopeSearchText } from "./researchScope";
 /** Remove output-format instructions from search, without asking a paid model or inventing identifiers. */
 export function researchQuery(question: string) {
-  const clean = question.trim().replace(/\s+/g, " ");
+  let clean = question.trim().replace(/\s+/g, " ");
   if (/https?:\/\/|\b10\.\d{4,9}\//i.test(clean)) return clean.slice(0, 1200);
+  clean=clean.replace(/\b(spp?)\.(?=\s|$|["”])/gi,"$1");
   const quoted = Array.from(clean.matchAll(/["“]([^"”]{8,})["”]/g), match => match[1]).sort((a,b)=>b.length-a.length)[0];
   const topic = /\b(?:tentang|mengenai|about)\s+(.+?)(?=[.!?]|$)/i.exec(clean)?.[1];
   let subject = topic || quoted || clean;
@@ -37,7 +39,6 @@ export function researchTerms(text:string) {
     .replace(/\b(?:simplisia|medicinal plant|herbal material)\b/g,"botanical")
     .replace(/\b(?:penyiapan|preparasi|preparing)\b/g,"preparation")
     .replace(/\b(?:sampel|samples)\b/g,"sample")
-    .replace(/\b(?:cabai keriting|curly chili|red chili|chili pepper)\b/g,"capsicum annuum")
     .replace(/\b(?:bahan alam|natural products?)\b/g,"botanical")
     .replace(/\b(?:pemurnian|purifying)\b/g,"purification");
   const ignored=new Set("buatkan buat dasar teori laporan praktikum report background theory terbaik best lengkap complete referensi references jurnal journal journals paper papers bahan material materials senyawa compound compounds untuk preparation sample".split(" "));
@@ -45,9 +46,8 @@ export function researchTerms(text:string) {
 }
 
 function researchEntity(query:string):RegExp|null {
-  // A known common/scientific-name equivalence, never a generated cultivar name.
-  if (/\b(?:cabai keriting|Capsicum annuum)\b/i.test(query)) return /\b(?:cabai keriting|Capsicum annuum|curly chili|red chili)\b/i;
-  return null;
+  const scope=researchScope(query);
+  return scope?new RegExp("\\b"+scope.genus+(scope.species?"\\s+"+scope.species:"")+"\\b","i"):null;
 }
 
 /** Automatic topic-context gate; selected documents are not excluded by this. */
@@ -66,8 +66,12 @@ export function scientificQueryPlan(question: string) {
   const formulation = /\b(?:formulasi|formulation|resep|eksipien|excipients?|cocrystals?|kokristal)\b/i.test(question);
   if (!formulation) {
     const translated=topicSearchTerms(original);
-    const botanicalPreparation=/\b(?:simplisia|penyiapan sampel|pengeringan|sample preparation|drying)\b/i.test(original);
-    if (botanicalPreparation && /\bCapsicum annuum\b/i.test(translated)) return {query:"Capsicum annuum drying sample preparation",broadQuery:"Capsicum annuum drying",requiredTerm:""};
+    const scope=researchScope(translated);
+    if(scope){
+      const methods=researchTerms(translated).filter(term=>["drying","purification","storage","sorting","extraction"].includes(term));
+      const identity=scope.genus+(scope.species?" "+scope.species:"");
+      return {query:translated.replace(/\bspp?\b/g," ").replace(/\s+/g," ").trim(),broadQuery:[identity,...methods].join(" "),requiredTerm:""};
+    }
     return { query: translated, broadQuery: original, requiredTerm: "" };
   }
   const stop = new Set("carikan cari resep formulasi formulation tablet tablets konvensional conventional dari jurnal tervalidasi tervalidai validated baik modifikasi modification maupun bukan minimal model formula bahan aktif active eksipien excipients jumlah disebutkan cocrystal cocrystals kokristal dan atau dengan untuk dalam yang mg obat drug ingredient ingredients dari jurnal journal public access publik terbuka immediate release".split(" "));
@@ -111,9 +115,8 @@ export function withinResearchScope(hit:{title:string;abstract?:string|null;year
 export function topicSearchTerms(text:string) {
   if (/https?:\/\/|\b10\.\d{4,9}\//i.test(text)) return text.slice(0,1200);
   const phrases:Array<[RegExp,string]>=[[/\benergi surya\b/gi,"solar energy"],[/\bpanel surya\b/gi,"solar panels"],[/\bperubahan iklim\b/gi,"climate change"],[/\bkecerdasan buatan\b/gi,"artificial intelligence"],[/\bpembelajaran mesin\b/gi,"machine learning"]];
-  let result=text;
+  let result=scopeSearchText(text);
   const preparationPhrases:Array<[RegExp,string]>=[
-    [/\bcabai keriting\b/gi,"Capsicum annuum"],
     [/\bpenyiapan sampel\b/gi,"sample preparation"],
     [/\bbahan alam\b/gi,"natural products"],
     [/\bsimplisia\b/gi,"dried medicinal plant"],

@@ -8,9 +8,9 @@ test("report instructions and course title do not replace the experiment topic",
   assert.equal(researchQuery(question),"penyiapan sampel simplisia cabai keriting");
   assert.equal(researchQuery(question.replaceAll('"','')),"penyiapan sampel simplisia cabai keriting");
   const plan=scientificQueryPlan(question);
-  assert.match(plan.query,/Capsicum annuum/);
+  assert.match(plan.query,/Capsicum/);
   assert.doesNotMatch(plan.query,/buatkan|laporan|terbaik|referensi|5/);
-  assert.equal(plan.broadQuery,"Capsicum annuum drying");
+  assert.equal(plan.broadQuery,"Capsicum drying");
 });
 test("education keyword collisions are rejected; relevant English drying papers survive",()=>{
   const hits=[
