@@ -80,7 +80,15 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
     if (!title) return null;
     const doi = cleanDoi(work?.doi);
     const best = work?.best_oa_location || work?.primary_location || {};
-    const landing = cleanText(best?.landing_page_url || best?.pdf_url || work?.id, 1500);
+    const locations = Array.isArray(work?.locations) ? work.locations : [];
+    const openLocationUrls = [...new Set([
+      best?.pdf_url,
+      best?.landing_page_url,
+      ...locations
+        .filter((location: any) => Boolean(location?.is_oa || location?.pdf_url))
+        .flatMap((location: any) => [location?.pdf_url, location?.landing_page_url]),
+    ].filter((value): value is string => typeof value === "string" && /^https?:\/\//i.test(value)))].slice(0, 6);
+    const landing = cleanText(best?.landing_page_url || best?.pdf_url || openLocationUrls[0] || work?.id, 1500);
     const uri = landing || (doi ? "https://doi.org/" + doi : cleanText(work?.id, 1500));
     if (!/^https?:\/\//i.test(uri)) return null;
     return {
@@ -95,10 +103,10 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
       pmcid: null,
       journal: cleanText(best?.source?.display_name || work?.primary_location?.source?.display_name, 500) || null,
       uri,
-      openAccess: Boolean(work?.open_access?.is_oa || best?.is_oa),
+      openAccess: Boolean(work?.open_access?.is_oa || best?.is_oa || openLocationUrls.length),
       abstract: indexedAbstract(work?.abstract_inverted_index),
       workType: work?.type === "article" ? "journal_article" : work?.type === "book" ? "book" : work?.type === "book-chapter" ? "chapter" : work?.type === "dissertation" ? "thesis" : "other",
-      fullTextUrls: [best?.pdf_url].filter((value):value is string=>typeof value === "string" && /^https?:\/\//i.test(value)),
+      fullTextUrls: openLocationUrls,
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
