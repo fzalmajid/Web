@@ -4,6 +4,11 @@ const withSerwist=withSerwistInit({swSrc:"app/sw.ts",swDest:"public/learning-sw.
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Keep Node worker paths intact; bundling rewrites __dirname into .next.
+  serverExternalPackages: ["tesseract.js", "tesseract.js-core"],
+  outputFileTracingIncludes: {
+    "/api/import-file": ["./node_modules/tesseract.js/**", "./node_modules/tesseract.js-core/**"],
+  },
   async headers(){return [{source:"/learning-assets/:path*",headers:[{key:"Access-Control-Allow-Origin",value:"*"}]},{source:"/ebook-reader.js",headers:[{key:"Access-Control-Allow-Origin",value:"*"}]}];},
   // Hugging Face Transformers.js runs only inside a browser worker.
   webpack: (config) => {

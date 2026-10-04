@@ -267,6 +267,7 @@ export async function geminiGenerateDetailed(
     strictModel?: boolean;
     allowedFallbackModels?: string[];
     maxAttempts?: number;
+    requestTimeoutMs?: number;
     maxThinkingTokens?: number;
     retryTruncatedDocument?: boolean;
   }
@@ -337,7 +338,9 @@ export async function geminiGenerateDetailed(
         {
           method: "POST",
           headers: geminiAuthHeaders(accessToken, projectId, key),
-          signal: AbortSignal.timeout(requestedOutputBudget > 8192 ? 90000 : options?.googleSearch ? 40000 : 30000),
+          signal: AbortSignal.timeout(options?.requestTimeoutMs
+            ? Math.max(1000, Math.min(90000, options.requestTimeoutMs))
+            : requestedOutputBudget > 8192 ? 90000 : options?.googleSearch ? 40000 : 30000),
           body: JSON.stringify({
             systemInstruction: effectiveSystemInstruction
               ? { parts: [{ text: effectiveSystemInstruction }] }
