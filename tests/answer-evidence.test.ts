@@ -125,7 +125,8 @@ test("internal excerpt labels become readable prose only when that excerpt was a
   assert.match(readable,/EVIDENCE 2 belum dibaca/);assert.match(readable,/References:\nAuthor \(2024\). EVIDENCE 1: Actual article title/);
   assert.equal(readableEvidenceLabels(answer,0),answer);
   const route=readFileSync("app/api/ask/route.ts","utf8");
-  assert.match(route,/guardAnswerBibliography\(readableEvidenceLabels\(text,paperEvidence\.length\)/);
+  assert.match(route,/answer:readableEvidenceLabels\(text,paperEvidence\.length\)/);
+  assert.match(route,/await completeAnswerCitations/);
 });
 
 test("readable excerpt labels leave literal code and external link identities unchanged",()=>{
