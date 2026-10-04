@@ -20,12 +20,13 @@ export function cleanLegacyReferenceLinks(text:string){
     if(/^(?:\s*#{1,6}\s*)?\s*[*_]*(?:References|Daftar Pustaka|Bibliography|Works Cited)\s*:?[*_]*\s*$/i.test(line)){references=true;return line;}
     if(/^\s*#{1,6}\s/.test(line))references=false;
     if(!references)return line;
+    line=line.replace(/\s*·\s*Halaman cetak sumber terambil:\s*[\dIVXLCDMivxlcdm\s,–—-]+\.?\s*$/g,"");
     const read=/^(.*?)\s*·\s*\[Teks lengkap publik — (?:PDF|XML|HTML) dibaca[^\]\n]*\]\((https:\/\/[^\s)]+)\)(.*)$/.exec(line);
     if(!read||!safeAnswerLink(read[2],new Map()))return line;
     const prefix=/^(?:\[\d+\]|\d+[.)])\s*/.exec(read[1])?.[0]||"";
     const entry=read[1].slice(prefix.length).trim();
     if(!entry||entry.includes("]("))return line;
-    const label=entry.replace(/\s+https?:\/\/[^\s<>]+\s*$/i,"").replace(/\\/g,"\\\\").replace(/\[/g,"\\[").replace(/\]/g,"\\]");
+    const label=entry.replace(/\\/g,"\\\\").replace(/\[/g,"\\[").replace(/\]/g,"\\]");
     return `${prefix}[${label}](${read[2]})${read[3]}`;
   }).join("\n");
 }

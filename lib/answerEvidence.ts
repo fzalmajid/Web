@@ -1,10 +1,22 @@
 import type { CitationStyle } from "./citations";
 import { publicUrl } from "./researchLinks";
+import { normalizeDoi } from "./referenceMetadata";
 
 export type CitationIdentity={title:string;doi?:string|null;uri?:string;formatted?:string;authorYearKeys?:string[];workType?:string;year?:number|null;printedPages?:string[];readSource?:{uri:string;format:string;pages:number[]};catalogOnly?:boolean;repositoryLinks?:Array<{label:string;uri:string}>};
 const heading=/^[\t ]*(?:#{1,6}[\t ]*)?(?:\*{1,2}|_{1,2})?(?:(?:Slide[\t ]+\d{1,3}[\t ]*[-–—:.][\t ]*)|(?:\d{1,3}[.)][\t ]+))?(?:References|Daftar Pustaka|Referensi(?: Ilmiah)?|Bibliography|Works Cited)[\t ]*:?[\t ]*(?:\*{1,2}|_{1,2})?[\t ]*:?[\t ]*$/im;
 const normalize=(text:string)=>text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
 const authorDateStyle=(style:CitationStyle)=>["apa","apa6","harvard","chicago"].includes(style);
+/** Format existing explicit locators only. Never append every retrieved page to
+ * a claim or infer a PDF-to-print offset. Code and links remain literal. */
+export function formatInTextPageLocators(text:string,style:CitationStyle){
+  if(!["apa","apa6","harvard","chicago"].includes(style))return text;
+  return text.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`|!?\[[^\]\n]*\]\([^\)\n]*\)|\(([^()\n]*\b(?:18|19|20|21)\d{2}[a-z]?,\s*)(?:hlm\.?|halaman|pp?\.)\s*(\d+(?:\s*[–-]\s*\d+)?(?:\s*,\s*\d+(?:\s*[–-]\s*\d+)?)*)\)/g,(token,prefix:string|undefined,pages:string|undefined)=>{
+    if(!prefix||!pages)return token;
+    const values=pages.trim();
+    const label=style==="chicago"?"":"hlm. ";
+    return `(${prefix}${label}${values})`;
+  });
+}
 function citationBody(body:string){
   return body.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`|!?\[[^\]\n]*\]\([^\)\n]*\)|https?:\/\/[^\s<>"\]]+/g,token=>token.replace(/[^\n]/g," "));
 }
@@ -122,6 +134,8 @@ export function identityInEntry(entry:string,item:CitationIdentity){
 }
 
 export function guardAnswerBibliography(answer:string,inventory:CitationIdentity[],style:CitationStyle,strict=false,blocked:CitationIdentity[]=[]){
+  const boundary=heading.exec(answer)?.index??answer.length;
+  answer=formatInTextPageLocators(answer.slice(0,boundary),style)+answer.slice(boundary);
   const match=heading.exec(answer);
   const fabricated=/pustaka internal farmasi|referensi internal (?:ai|model)|internal (?:ai|model) knowledge library/i.test(answer);
   if(fabricated)return {text:"Jawaban ditahan karena memuat sumber yang tidak dapat dibuktikan. Tidak ada referensi bernama ‘Pustaka Internal Farmasi’ dalam hasil penelusuran. Diperlukan sumber nyata sebelum komposisi atau sitasi tersebut dapat digunakan.",warnings:["Referensi rekaan diblokir; jawaban tidak boleh dipakai sebagai resep dari jurnal."],blocked:true};
@@ -160,13 +174,17 @@ export function guardAnswerBibliography(answer:string,inventory:CitationIdentity
     // not a separate status label or a DOI that sends readers elsewhere.
     const readUrl=publicUrl(item.readSource?.uri);
     const target=readUrl||identityUrl;
-    const plain=(item.formatted||item.title)
+    let plain=(item.formatted||item.title)
       .replace(numeric?/^(?:\[\d+\]|\d+[.)])\s*/:/^$/,"")
       .replace(/\[([^\]\n]+)\]\([^\)\n]*\)/g,"$1")
-      .replace(/\s+https?:\/\/[^\s<>]+\s*$/i,"").trim();
+      .trim();
+    const doi=normalizeDoi(item.doi);
+    if(doi&&!plain.toLowerCase().includes(doi.toLowerCase()))plain+=` https://doi.org/${doi}`;
     const labelText=plain.replace(/\\/g,"\\\\").replace(/\[/g,"\\[").replace(/\]/g,"\\]");
     let canonical=target?`[${labelText}](${target.replace(/\(/g,"%28").replace(/\)/g,"%29")})`:plain;
-    if(item.workType==="book"||item.workType==="chapter")canonical+=item.printedPages?.length?` · Halaman cetak sumber terambil: ${item.printedPages.join(", ")}.`:" · Halaman cetak belum tersedia; bukan kutipan buku dengan locator terverifikasi.";
+    // Excerpt locators belong in the in-text citation, according to the style,
+    // not as an ad-hoc suffix on a whole-book CSL bibliography entry. Chapter
+    // publication page ranges, when supplied, are already formatted by CSL.
     const label=/^(?:\[\d+\]|\d+[.)])\s*/.exec(matched)?.[0]||"";
     return numeric?label+canonical.replace(/^(?:\[\d+\]|\d+[.)])\s*/,""):canonical;
   });

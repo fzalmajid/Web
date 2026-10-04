@@ -14,7 +14,7 @@ const paper={title:"Actual recent research article",doi:"10.1234/actual",formatt
 test("book aliases cited in text restore canonical books beside existing journal references",()=>{
   for(const marker of ["FI, 2020","FI VI, 2020","Kemenkes RI, 2020","Kementerian Kesehatan RI, 2020"]){
     const result=guardAnswerBibliography(`Book fact (${marker}, hlm. 145). Paper (Researcher, 2024).\nReferences:\nActual recent research article.`,[book(),paper],"apa");
-    assert.match(result.text,/Farmakope Indonesia/);assert.match(result.text,/Official Publisher/);assert.match(result.text,/Halaman cetak.*145/);assert.doesNotMatch(result.warnings.join(" "),/belum dapat dipasangkan/);
+    assert.match(result.text,/Farmakope Indonesia/);assert.match(result.text,/Official Publisher/);assert.doesNotMatch(result.text,/Halaman cetak sumber terambil/);assert.doesNotMatch(result.warnings.join(" "),/belum dapat dipasangkan/);
   }
 });
 test("missing bibliography heading is restored only from uniquely cited available works",()=>{
