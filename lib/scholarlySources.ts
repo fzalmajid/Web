@@ -79,8 +79,17 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
     const title = cleanText(work?.display_name || work?.title, 1000);
     if (!title) return null;
     const doi = cleanDoi(work?.doi);
-    const best = work?.best_oa_location || work?.primary_location || {};
-    const landing = cleanText(best?.landing_page_url || best?.pdf_url || work?.id, 1500);
+    const bestOa = work?.best_oa_location || null;
+    const best = bestOa || work?.primary_location || {};
+    const locations = Array.isArray(work?.locations) ? work.locations : [];
+    const openLocationUrls = [...new Set([
+      bestOa?.pdf_url,
+      bestOa?.landing_page_url,
+      ...locations
+        .filter((location: any) => Boolean(location?.is_oa || location?.pdf_url))
+        .flatMap((location: any) => [location?.pdf_url, location?.landing_page_url]),
+    ].filter((value): value is string => typeof value === "string" && /^https?:\/\//i.test(value)))].slice(0, 6);
+    const landing = cleanText(best?.landing_page_url || best?.pdf_url || openLocationUrls[0] || work?.id, 1500);
     const uri = landing || (doi ? "https://doi.org/" + doi : cleanText(work?.id, 1500));
     if (!/^https?:\/\//i.test(uri)) return null;
     return {
@@ -95,10 +104,10 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
       pmcid: null,
       journal: cleanText(best?.source?.display_name || work?.primary_location?.source?.display_name, 500) || null,
       uri,
-      openAccess: Boolean(work?.open_access?.is_oa || best?.is_oa),
+      openAccess: Boolean(work?.open_access?.is_oa || bestOa?.is_oa || locations.some((location: any) => Boolean(location?.is_oa))),
       abstract: indexedAbstract(work?.abstract_inverted_index),
       workType: work?.type === "article" ? "journal_article" : work?.type === "book" ? "book" : work?.type === "book-chapter" ? "chapter" : work?.type === "dissertation" ? "thesis" : "other",
-      fullTextUrls: [best?.pdf_url].filter((value):value is string=>typeof value === "string" && /^https?:\/\//i.test(value)),
+      fullTextUrls: openLocationUrls,
     };
   }).filter((item: ScholarlyHit | null): item is ScholarlyHit => Boolean(item));
 }
@@ -302,7 +311,17 @@ export async function searchScholarlySources(query: string, limit = 12, expandCo
   const exactIdentifier=/^10\.\d{4,9}\//i.test(clean);
   const biomedical = isBiomedicalQuery(clean) || /\b(psychology|memory|memori|retrieval practice|testing effect|capsicum|medicinal plant|natural products|pharmacognosy)\b/i.test(clean);
   const jobs: Array<Promise<ScholarlyHit[]>> = [];
-  if(!exactIdentifier){jobs.push(searchOpenAlex(clean, Math.min(8, limit)));jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));}
+  if(!exactIdentifier){
+    jobs.push(searchOpenAlex(clean, Math.min(8, limit)));
+    jobs.push(searchSemanticScholar(clean, Math.min(8, limit)));
+    // Formulation searches often describe release behavior or manufacturing in the
+    // abstract rather than the title. Run the deterministic broad fallback through
+    // the discovery indexes too, not only Crossref, so full-text OA locations can surface.
+    if(plan.broadQuery!==clean){
+      jobs.push(searchOpenAlex(plan.broadQuery, Math.min(6, limit)));
+      jobs.push(searchSemanticScholar(plan.broadQuery, Math.min(6, limit)));
+    }
+  }
   jobs.push(searchCrossref(clean, 16));
   if(plan.broadQuery!==clean)jobs.push(searchCrossref(plan.broadQuery,8));
   jobs.push(searchScopus(clean,8));
@@ -311,7 +330,10 @@ export async function searchScholarlySources(query: string, limit = 12, expandCo
     jobs.push(searchEuropePmc(clean, Math.min(8, limit)));
     jobs.push(searchEuropePmc(`(${clean}) AND OPEN_ACCESS:Y`, Math.min(8,limit)));
     jobs.push(searchPubMed(clean, Math.min(6, limit)));
-    if(plan.broadQuery!==clean)jobs.push(searchEuropePmc(plan.broadQuery,Math.min(8,limit)));
+    if(plan.broadQuery!==clean){
+      jobs.push(searchEuropePmc(plan.broadQuery,Math.min(8,limit)));
+      jobs.push(searchPubMed(plan.broadQuery,Math.min(6,limit)));
+    }
   }
   if (!jobs.length) return [] as ScholarlyHit[];
 
