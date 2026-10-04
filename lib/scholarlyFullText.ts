@@ -1,6 +1,6 @@
 import { fetchPublicPage } from "./publicPageFetch";
 import { extractPdfPageBatch } from "./pdfIndex";
-import type { ScholarlyHit } from "./scholarlySources";
+import { openAlexOpenLocationsForDoi, type ScholarlyHit } from "./scholarlySources";
 import { parseHtmlArticle, parseJatsArticle } from "./articleText";
 
 export type ScholarlyEvidence = { source: ScholarlyHit; uri: string; kind: "full-text-pdf" | "full-text-html" | "full-text-xml"; text: string; pages: number[] };
@@ -72,7 +72,10 @@ export function selectEvidencePages(pages: Array<{page:number;text:string}>, lim
 async function readPaper(hit: ScholarlyHit,query=""):Promise<ScholarlyEvidence|null>{
   // This is the documented OA API keyed by a PMCID actually returned by the catalog.
   const xmlUrl=hit.openAccess&&/^PMC\d+$/i.test(hit.pmcid||"")?`https://www.ebi.ac.uk/europepmc/webservices/rest/${hit.pmcid}/fullTextXML`:"";
-  const urls=[...new Set([xmlUrl,hit.uri,...(hit.fullTextUrls||[])].filter(Boolean))].slice(0,4);
+  // Catalog search can identify a DOI while returning only the publisher landing page.
+  // Resolve that DOI once against OpenAlex so repository/OA copies are still tried.
+  const exactOaLocations=hit.doi?await openAlexOpenLocationsForDoi(hit.doi).catch(()=>[]):[];
+  const urls=[...new Set([xmlUrl,...(hit.fullTextUrls||[]),...exactOaLocations,hit.uri].filter(Boolean))].slice(0,8);
   let source=hit;
   for(const uri of urls){
     try {
