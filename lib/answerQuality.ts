@@ -13,6 +13,19 @@ export function planningOnlyAnswer(text: string) {
       && !/^(?:#{1,6}\s|\*[^\n]+\*\s*$)/m.test(clean));
 }
 
+/** A risk trigger, not proof that a statement is false. Only unqualified
+ * numeric safety assurances and mandatory rules attributed to user notes.
+ * Preserve quoted/code examples and explicitly negated statements. */
+export function unsupportedAssurance(text: string) {
+  const prose=text.replace(/```[\s\S]*?(?:```|$)|`[^`\n]*`|^>.*$/gm,"");
+  return prose.split(/\n|(?<=[.!?])\s+(?=[A-ZÀ-Ž])/).some(sentence=>{
+    if(/\b(?:tidak|belum|bukan|jangan|not|cannot|can't|unverified)\b/i.test(sentence))return false;
+    const safety=/\b(?:terbukti (?:cukup )?aman|dijamin aman|guaranteed safe|proven safe)\b/i.test(sentence)&&/\d/.test(sentence);
+    const notesRule=/\b(?:wajib|harus|mandatory|must)\b/i.test(sentence)&&/\b(?:bahan pengguna|user notes)\b/i.test(sentence);
+    return safety||notesRule;
+  });
+}
+
 export function claimSupportInstruction() {
   return "\n\nKESESUAIAN KLAIM DAN SUMBER: pilih sumber menurut fungsi klaim, bukan kemiripan kata pada judul. Definisi/klasifikasi memerlukan sumber yang benar-benar menjelaskannya; paper aplikasi kamus, inventaris atau perangkat lunak bukan sumber utama definisi bidang. Kondisi eksperimen (suhu, durasi, kadar air, dosis atau konsentrasi) hanya berlaku pada sampel dan metode penelitian itu. Jangan mengubah kondisi eksperimen menjadi standar umum, syarat resmi, batas aman atau anjuran untuk semua spesies/populasi. Angka dalam pendahuluan atau referensi sekunder bukan otomatis hasil penelitian tersebut. Jika standar belum tersedia, nyatakan belum ditemukan; jangan menciptakan batas. Setiap klaim harus cocok dengan bagian sumber yang tersedia; metadata saja tidak mendukung hasil, dan abstrak tidak membuktikan prosedur rinci. Catatan agen adalah saran yang harus diperiksa kembali, bukan fakta atau konsensus independen. Jawaban final harus dalam bahasa user dan bukan catatan penyusunan/rencana internal.";
 }

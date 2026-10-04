@@ -1,5 +1,5 @@
 import { GEMINI_MODEL } from "./config";
-import { visibleAnswerParts, planningOnlyAnswer } from "./answerQuality";
+import { visibleAnswerParts, planningOnlyAnswer, unsupportedAssurance } from "./answerQuality";
 import {
   responseLengthInstruction,
   thinkingConfigForModel,
@@ -423,11 +423,11 @@ export async function geminiGenerateDetailed(
     }
 
     const result: GeminiDetailedResult = { text, webSources, usage, model, finishReason: String(candidate?.finishReason || "") };
-    if (options?.retryTruncatedDocument && (result.finishReason === "MAX_TOKENS" || !text || planningOnlyAnswer(text))) {
+    if (options?.retryTruncatedDocument && (result.finishReason === "MAX_TOKENS" || !text || planningOnlyAnswer(text) || unsupportedAssurance(text))) {
       // One bounded rewrite, not concatenation of a broken table/diagram. The
       // original evidence and question remain authoritative, not the partial draft.
       try {
-        const repaired = await geminiGenerateDetailed([...parts, { text: "PERBAIKAN KELENGKAPAN: percobaan sebelumnya terpotong atau tidak menghasilkan jawaban final. Tulis ulang jawaban final utuh dari awal, hanya bagian yang diminta user, dengan referensi untuk karya yang benar-benar disitasi. Jangan menambahkan alat-bahan, prosedur atau bagian laporan jika tidak diminta. Prioritaskan ruang untuk jawaban final; jangan keluarkan catatan rencana. Tetap patuhi batas bukti, data usulan, sumber yang dipilih dan batas panjang eksplisit. Jangan menciptakan data atau referensi agar jawaban terlihat lengkap." }], systemInstruction, {
+        const repaired = await geminiGenerateDetailed([...parts, { text: "PERBAIKAN KELENGKAPAN DAN BATAS KLAIM: percobaan sebelumnya terpotong, bukan jawaban final, atau memuat klaim kepastian yang perlu diperiksa. Tulis ulang jawaban final utuh dari awal, hanya bagian yang diminta user, dengan referensi untuk karya yang benar-benar disitasi. Bedakan angka yang disebut pada pendahuluan dari metode/hasil penelitian. Jangan menyatakan rentang itu target yang berhasil dicapai atau terbukti aman hanya karena angka terlihat di sumber. Jangan gunakan 'terbukti aman', 'dijamin aman' atau kepastian sejenis; jelaskan hasil terbatas pada kondisi studi dan keterbatasan bukti tanpa menjamin keselamatan. Catatan pengguna bukan standar: jangan menjadikannya kewajiban universal atau pembuktian mekanisme. Sajikan sebagai petunjuk dari bahan pengguna bila diperlukan. Jangan menambahkan alat-bahan, prosedur atau bagian laporan jika tidak diminta. Prioritaskan jawaban final, bukan catatan rencana. Tetap patuhi batas bukti, sumber yang dipilih dan batas panjang eksplisit. Jangan menciptakan data atau referensi." }], systemInstruction, {
           ...options, models: [model], strictModel: true, maxAttempts: 1,
           retryTruncatedDocument: false, effort: "low", maxThinkingTokens: 1024,
           maxOutputTokens: Math.min(32768, Math.max(requestedOutputBudget, 16384)), outputBudgetMultiplier: 1,
@@ -439,12 +439,12 @@ export async function geminiGenerateDetailed(
           totalTokens: usage.totalTokens + repaired.usage.totalTokens,
         };
         const sources = Array.from(new Map([...webSources, ...repaired.webSources].map(source => [source.uri, source])).values());
-        if (!repaired.text || planningOnlyAnswer(repaired.text)) throw new GeminiApiError("Jawaban final belum berhasil disusun. Silakan coba kembali.", 502, "GEMINI_EMPTY_RESPONSE");
+        if (!repaired.text || planningOnlyAnswer(repaired.text) || unsupportedAssurance(repaired.text)) throw new GeminiApiError("Jawaban final belum berhasil disusun tanpa klaim yang perlu diverifikasi. Silakan coba kembali.", 502, "GEMINI_EMPTY_RESPONSE");
         if (repaired.finishReason !== "STOP" && repaired.finishReason !== "MAX_TOKENS") return { ...result, usage: combinedUsage };
         return { ...repaired, usage: combinedUsage, webSources: sources, repairedTruncation: repaired.finishReason === "STOP" };
       } catch {
         // Quota/unavailability never hides the initial draft or its warning.
-        if (!text || planningOnlyAnswer(text)) throw new GeminiApiError("Jawaban final belum berhasil disusun. Silakan coba kembali.", 502, "GEMINI_EMPTY_RESPONSE");
+        if (!text || planningOnlyAnswer(text) || unsupportedAssurance(text)) throw new GeminiApiError("Jawaban final belum berhasil disusun tanpa klaim yang perlu diverifikasi. Silakan coba kembali.", 502, "GEMINI_EMPTY_RESPONSE");
         return result;
       }
     }
