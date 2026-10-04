@@ -1371,7 +1371,7 @@ export async function POST(req: NextRequest) {
     const webEvidence=paperEvidence.map(item=>({title:item.source.title,uri:item.uri,format:item.kind,pages:item.pages,metadata:item.source.metadataBasis==="publisher"?"publisher-matched":"catalog-matched",claims:"read excerpt; claim support is not an independent fact-check"}));
 
     const context = data.length
-      ? buildKnowledgeContext(data, contextLimit, question.trim())
+      ? buildKnowledgeContext(data, contextLimit, researchWritingIntent && !hasExplicitDatabaseSources ? researchQuery(question) : question.trim())
       : databaseWarning
         ? "(Pencarian Database gagal sementara. Jangan mengutip atau mengarang sumber pribadi.)"
         : casualAiQuestion

@@ -46,4 +46,5 @@ test("automatic context gate preserves explicit source lookup and filters citati
   assert.match(route,/researchWritingIntent && !hasExplicitDatabaseSources/);
   assert.ok(route.indexOf("data = data.filter((row:any)=>relevantResearchContext")<route.indexOf("answerCitationInventory(scholarlyHits,data"));
   assert.match(route,/Jangan sebut atau sitasikan jurnal tidak relevan/);
+  assert.match(route,/buildKnowledgeContext\(data, contextLimit, researchWritingIntent && !hasExplicitDatabaseSources \? researchQuery\(question\)/);
 });
