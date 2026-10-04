@@ -63,7 +63,7 @@ export function scientificQueryPlan(question: string) {
   const doi=/\b10\.\d{4,9}\/[^\s<>"\]]+/i.exec(question)?.[0]?.replace(/[.,;)]+$/g,"");
   if(doi)return {query:doi,broadQuery:doi,requiredTerm:""};
   const original = researchQuery(question);
-  const formulation = /\b(?:formulasi|formulation|resep|eksipien|excipients?|cocrystals?|kokristal)\b/i.test(question);
+  const formulation = /\b(?:formulasi|formulation|formula|resep|komposisi|composition|eksipien|excipients?|cocrystals?|kokristal)\b/i.test(question);
   if (!formulation) {
     const translated=topicSearchTerms(original);
     const scope=researchScope(translated);
@@ -74,7 +74,7 @@ export function scientificQueryPlan(question: string) {
     }
     return { query: translated, broadQuery: original, requiredTerm: "" };
   }
-  const stop = new Set("carikan cari resep formulasi formulation tablet tablets konvensional conventional dari jurnal tervalidasi tervalidai validated baik modifikasi modification maupun bukan minimal model formula bahan aktif active eksipien excipients jumlah disebutkan cocrystal cocrystals kokristal dan atau dengan untuk dalam yang mg obat drug ingredient ingredients dari jurnal journal public access publik terbuka immediate release".split(" "));
+  const stop = new Set("carikan cari resep formulasi formulation formula komposisi composition tablet tablets konvensional conventional dari jurnal tervalidasi tervalidai validated baik modifikasi modification maupun bukan minimal model bahan zat aktif active eksipien excipients jumlah disebutkan cocrystal cocrystals kokristal dan atau dengan untuk dalam yang mg obat drug ingredient ingredients public access publik terbuka immediate immidiate release membahas bahas hingga sampai massa mass nya tiap setiap unit per".split(" "));
   for(const term of "juga disebutkan relevan relevant konteks context paragraf paragraph singkat short".split(" "))stop.add(term);
   const core=topicSearchTerms(original).split(/\b(?:dasar teori|usulan|perhitungan|monografi bahan|alat (?:dan )?bahan|cara kerja|daftar pustaka)\b/i)[0];
   for(const term of "buatkan buat susun ppt presentasi presentation slides laporan report tab pcs batch jumlah per untuk berisi lengkap".split(" "))stop.add(term);
@@ -84,8 +84,12 @@ export function scientificQueryPlan(question: string) {
   const requiredTerm = candidates.length === 1 ? candidates[0] : "";
   const normalized = core.toLowerCase()
     .replace(/\bformulasi\b/g, "formulation").replace(/\b(?:kokristal|cocrystals?)\b/g, "cocrystal")
-    .replace(/\bdisolusi\b/g, "dissolution").replace(/\beksipien\b/g, "excipients");
-  const query = requiredTerm ? `${requiredTerm} tablet ${/cocrystal|kokristal/i.test(question) ? "cocrystal" : "formulation"}` : normalized;
+    .replace(/\bdisolusi\b/g, "dissolution").replace(/\beksipien\b/g, "excipients")
+    .replace(/\bimmidiate\b/g, "immediate");
+  const immediateRelease = /\b(?:konvensional|conventional|lepas\s+segera|immediate(?:[\s-]+release)?|immidiate(?:[\s-]+release)?)\b/i.test(question);
+  const query = requiredTerm
+    ? `${requiredTerm} tablet ${/cocrystal|kokristal/i.test(question) ? "cocrystal" : immediateRelease ? "immediate release formulation" : "formulation"}`
+    : normalized;
   return { query: query.slice(0, 240), broadQuery: requiredTerm ? `${requiredTerm} tablet formulation` : query.slice(0, 240), requiredTerm };
 }
 
@@ -99,8 +103,8 @@ export function withinResearchScope(hit:{title:string;abstract?:string|null;year
   if(!matchesRequiredTopic(hit.title,plan.requiredTerm))return false;
   const journalOnly=/\b\d+\s*(?:jurnal|journal articles?|papers?)\b/i.test(question)&&! /\b(?:buku|books?|thesis|tesis|prosiding)\b/i.test(question);
   if(journalOnly&&hit.workType&&hit.workType!=="journal_article")return false;
-  const conventional=/\b(?:konvensional|conventional|lepas segera|immediate.release)\b/i.test(question);
-  if(conventional&&/sustained.release|controlled.release|extended.release|floating|gastro.retenti|mucoadhesive/i.test(hit.title))return false;
+  const conventional=/\b(?:konvensional|conventional|lepas\s+segera|immediate(?:[\s.-]+release)?|immidiate(?:[\s.-]+release)?)\b/i.test(question);
+  if(conventional&&/sustained.release|controlled.release|extended.release|biphasic.release|floating|gastro.retenti|mucoadhesive/i.test(hit.title))return false;
   const years=/\b(\d{1,2})\s*(?:tahun|years?)\s*(?:terakhir|last|recent)\b/i.exec(question)?.[1];
   const book=hit.workType==="book"||hit.workType==="chapter";
   // In mixed requests journal recency must not exclude the requested books.
