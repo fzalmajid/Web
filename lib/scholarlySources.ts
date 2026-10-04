@@ -61,6 +61,37 @@ export function openAlexHasApiKey() {
   return Boolean(String(process.env.OPENALEX_API_KEY || "").trim());
 }
 
+export function openAlexOpenLocationUrls(work:any){
+  const bestOa=work?.best_oa_location||null;
+  const locations=Array.isArray(work?.locations)?work.locations:[];
+  return [...new Set([
+    bestOa?.pdf_url,
+    bestOa?.landing_page_url,
+    ...locations
+      .filter((location:any)=>Boolean(location?.is_oa||location?.pdf_url))
+      .flatMap((location:any)=>[location?.pdf_url,location?.landing_page_url]),
+  ].filter((value):value is string=>typeof value==="string"&&/^https?:\/\//i.test(value)))].slice(0,8);
+}
+
+export async function openAlexOpenLocationsForDoi(doi:string){
+  const normalized=cleanDoi(doi);
+  if(!normalized)return [] as string[];
+  const apiKey=String(process.env.OPENALEX_API_KEY||"").trim();
+  const url=new URL("https://api.openalex.org/works");
+  url.searchParams.set("filter","doi:https://doi.org/"+normalized);
+  url.searchParams.set("per-page","1");
+  if(apiKey)url.searchParams.set("api_key",apiKey);
+  const response=await fetch(url,{
+    headers:{"User-Agent":"RuangBelajar/1.0 (full-text resolver)"},
+    signal:AbortSignal.timeout(7000),
+    cache:"no-store",
+  }).catch(()=>null);
+  if(!response?.ok)return [] as string[];
+  const payload=await response.json().catch(()=>null) as any;
+  const work=Array.isArray(payload?.results)?payload.results[0]:null;
+  return work?openAlexOpenLocationUrls(work):[];
+}
+
 async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHit[]> {
   const apiKey = String(process.env.OPENALEX_API_KEY || "").trim();
   const url = new URL("https://api.openalex.org/works");
@@ -82,13 +113,7 @@ async function searchOpenAlex(query: string, limit: number): Promise<ScholarlyHi
     const bestOa = work?.best_oa_location || null;
     const best = bestOa || work?.primary_location || {};
     const locations = Array.isArray(work?.locations) ? work.locations : [];
-    const openLocationUrls = [...new Set([
-      bestOa?.pdf_url,
-      bestOa?.landing_page_url,
-      ...locations
-        .filter((location: any) => Boolean(location?.is_oa || location?.pdf_url))
-        .flatMap((location: any) => [location?.pdf_url, location?.landing_page_url]),
-    ].filter((value): value is string => typeof value === "string" && /^https?:\/\//i.test(value)))].slice(0, 6);
+    const openLocationUrls = openAlexOpenLocationUrls(work);
     const landing = cleanText(best?.landing_page_url || best?.pdf_url || openLocationUrls[0] || work?.id, 1500);
     const uri = landing || (doi ? "https://doi.org/" + doi : cleanText(work?.id, 1500));
     if (!/^https?:\/\//i.test(uri)) return null;
