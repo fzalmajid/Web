@@ -88,7 +88,17 @@ function unresolvedCitationWarnings(body:string,inventory:CitationIdentity[]){
 }
 
 export function requiresQuantitativePaperEvidence(question:string){
-  return /\b(?:formulasi|formulation|resep|formula)\b/i.test(question)&&/\b(?:mg|milligram|miligram|jumlah|komposisi|composition|eksipien|excipients?)\b/i.test(question)&&/\b(?:jurnal|journal|paper|tervalidasi|tervalida[i]?|validated)\b/i.test(question);
+  return /\b(?:formulasi|formulation|resep|formula)\b/i.test(question)&&/\b(?:mg|milligram|miligram|jumlah|massa|mass|komposisi|composition|eksipien|excipients?)\b/i.test(question)&&/\b(?:jurnal|journal|paper|tervalidasi|tervalida[i]?|validated)\b/i.test(question);
+}
+
+/** Natural-language requests to find scholarly literature are themselves an explicit
+ * request for public research. A stale UI Web toggle must not prevent the scholarly
+ * retriever from running when the user literally asks us to find journals/papers. */
+export function explicitScholarlySearchIntent(question:string){
+  const q=String(question||"");
+  const scholarly=/\b(?:jurnal|journal|paper|papers|artikel\s+ilmiah|scientific\s+articles?|publikasi\s+ilmiah|scholarly|pubmed|doi)\b/i.test(q);
+  const discovery=/\b(?:carikan|cari|temukan|telusuri|search(?:kan)?|find|look\s+for|browse|mencari|membahas)\b/i.test(q);
+  return scholarly&&discovery;
 }
 
 /** A user-provided proposal is input data, not proof of a published recipe.
