@@ -33,3 +33,10 @@ test("Server OCR packaging preserves Node worker and bounded PDF batches", () =>
   assert.match(visual, /PDF_PAGES_PER_BATCH = 2/);
   assert.doesNotMatch(visual, /models: modelPlanForSelection/);
 });
+test("Normal Database cards expose retry and PDF replacement preserves the index until OCR succeeds", () => {
+  const ui = fs.readFileSync("app/page.tsx", "utf8"), route = fs.readFileSync("app/api/import-file/route.ts", "utf8");
+  assert.doesNotMatch(ui, /!compact && file.processing_status === "error" && !isLink/);
+  assert.match(ui, /onClick=\{retryRawExtraction\}/);
+  assert.match(ui, /\{retryStatus && <p className="rawRetryMessage" role="status"/);
+  assert.ok(route.indexOf("await resetPreviousIndex()") > route.indexOf("await readPdfBatchWithOcr"));
+});
