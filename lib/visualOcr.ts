@@ -7,6 +7,8 @@ import { normalizeAiMode } from "./aiQuota";
 import { extractPdfPageBatch, type PdfIndexedPage } from "./pdfIndex";
 import { recognizeRasterLocally } from "./localOcrServer";
 import { generateUploadText } from "./uploadAi";
+import { isPdfPasswordError, pdfPasswordError, isPdfLibEncryptionError } from "./pdfAccess";
+import { openPdfRaster, rasterizePdfPage } from "./pdfRasterServer";
 
 export type VisualOcrOptions = {
   selection: ReturnType<typeof selectionFromHeaders>;
@@ -218,8 +220,9 @@ export async function readPdfNativeBatch(buffer: Buffer, startPage: number, maxP
       maxPages: Math.max(1, Math.min(maxPages, PDF_PAGES_PER_BATCH)),
       maxMs: 26000,
     });
-  } catch {
+  } catch (error) {
     // Scanned, malformed text layers can fail pdf.js while pdf-lib can still split pages.
+    if (isPdfPasswordError(error)) throw pdfPasswordError();
     const pdf = await PDFDocument.load(buffer);
     const totalPages = pdf.getPageCount();
     if (first > totalPages) throw new Error("Halaman PDF di luar jangkauan.");
@@ -241,17 +244,33 @@ export async function readPdfBatchWithOcr(
 ): Promise<PdfIndexedPage[]> {
   const needOcr = pages.filter(pdfPageNeedsOcr);
   if (!needOcr.length) return pages;
-  const original = await PDFDocument.load(buffer);
+  let original: PDFDocument | undefined;
+  let raster: Awaited<ReturnType<typeof openPdfRaster>> | undefined;
+  try {
+    original = await PDFDocument.load(buffer);
+  } catch (error) {
+    if (!isPdfLibEncryptionError(error)) throw error;
+    raster = await openPdfRaster(buffer);
+  }
   const results = new Map<number, string>();
 
   // A PDF is split before OCR, so page N can never be omitted because of a long global response.
+  try {
   for (let index = 0; index < needOcr.length; index += 2) {
     const group = needOcr.slice(index, index + 2);
     await Promise.all(group.map(async (page) => {
-      const single = await PDFDocument.create();
-      const [copied] = await single.copyPages(original, [page.page - 1]);
-      single.addPage(copied);
-      const bytes = await single.save();
+      if (options.deadlineAt && Date.now() >= options.deadlineAt) {
+        throw new Error("Waktu pembacaan PDF habis. File asli tetap tersimpan; coba proses ulang.");
+      }
+      let bytes: Uint8Array;
+      if (raster) {
+        bytes = await rasterizePdfPage(raster, page.page);
+      } else {
+        const single = await PDFDocument.create();
+        const [copied] = await single.copyPages(original!, [page.page - 1]);
+        single.addPage(copied);
+        bytes = await single.save();
+      }
       if (bytes.length > 18 * 1024 * 1024) {
         throw new Error("Halaman " + page.page + " terlalu besar untuk OCR. Kompres gambar pada PDF.");
       }
@@ -264,7 +283,7 @@ export async function readPdfBatchWithOcr(
               "Jangan menambah pengetahuan atau menyimpulkan isi yang tidak terbaca. " +
               "Jika benar-benar kosong, jawab persis [tidak ada teks].",
           },
-          { inlineData: { mimeType: "application/pdf", data: Buffer.from(bytes).toString("base64") } },
+          { inlineData: { mimeType: raster ? "image/png" : "application/pdf", data: Buffer.from(bytes).toString("base64") } },
         ],
         "Transkripsi halaman PDF, bukan ringkasan.",
         {
@@ -285,6 +304,9 @@ export async function readPdfBatchWithOcr(
           : ocr || digital || "[tidak ada teks terbaca]"
       );
     }));
+  }
+  } finally {
+    if (raster) await raster.loadingTask.destroy();
   }
   return pages.map((page) => ({ page: page.page, text: results.get(page.page) ?? page.text }));
 }

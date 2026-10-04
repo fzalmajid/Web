@@ -80,7 +80,7 @@ export async function extractPdfPageBatch(
       }
     }
   } finally {
-    try { await doc.destroy(); } catch {}
+    try { await doc.loadingTask.destroy(); } catch {}
   }
 
   const endPage = pages.length ? pages[pages.length - 1].page : firstPage - 1;
