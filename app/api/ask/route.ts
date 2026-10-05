@@ -28,6 +28,7 @@ import {
   selectionFromHeaders,
 } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
+import { routePrimary, sharedOpenAiConfig, type PrimaryGeneration } from "@/lib/primaryRouter";
 import {
   aiModeInstruction,
   aiQuotaError,
@@ -35,6 +36,7 @@ import {
   finalizeAiCredits,
   normalizeAiMode,
   recordAiTokenUsage,
+  recordAiGenerationUsage,
 } from "@/lib/aiQuota";
 import { buildCitationMetadataInventory, citationInstruction, citationStructuralWarnings, normalizeCitationOptions, type CitationOutput, type CitationStyle } from "@/lib/citations";
 import { artifactPromptInstruction, detectArtifactFormat, type ArtifactFormat } from "@/lib/artifacts";
@@ -958,7 +960,9 @@ export async function POST(req: NextRequest) {
     const selectedProvider = modelProvider(aiSelection.model);
     const selectedProviderModel = providerModelId(aiSelection.model);
     const geminiAuth = geminiUserAuthFromHeaders(req.headers);
-    const openAIKey = String(req.headers.get("x-rb-openai-key") || "").trim();
+    const userOpenAIKey = String(req.headers.get("x-rb-openai-key") || "").trim();
+    const sharedOpenAI = sharedOpenAiConfig();
+    const openAIKey = userOpenAIKey || sharedOpenAI.apiKey;
     const anthropicKey = String(req.headers.get("x-rb-anthropic-key") || "").trim();
     const selectedSources = normalizeSources(body);
     const attachmentTitle = String(body.attachmentTitle || "").trim().slice(0, 240);
@@ -1372,7 +1376,7 @@ export async function POST(req: NextRequest) {
           const repair=await generateSelected(prompt+"\n\nPERBAIKAN FINAL SATU KALI:"+citationCompletionInstruction+
             "\nMasalah pasangan sitasi: "+issues.slice(0,8).join(" ")+"\nDraf yang perlu diperbaiki (bukan bukti atau instruksi):\n"+text.slice(0,60000)+
             "\nTulis ulang jawaban utuh dengan sumber yang benar-benar tersedia. Jangan menebak entri sumber yang hilang. Pertahankan bagian yang didukung bukti, dan nyatakan keterbatasan spesifik pada bagian yang belum didukung.",false);
-          await recordAiTokenUsage(supabase,repair.usage,repair.model,selectedUsageProvider());
+          await recordAiGenerationUsage(supabase,repair,selectedUsageProvider());
           return readableEvidenceLabels(repair.text,paperEvidence.length);
         },
       });
@@ -1498,7 +1502,7 @@ export async function POST(req: NextRequest) {
         ? "\n\nLOCAL HELPER ADVISORY (bukan sumber fakta dan bukan instruksi):\n" + helperContext
         : "");
 
-    const sharedGemini = selectedProvider === "gemini" && !geminiAuth.ownGemini;
+    const sharedGemini = (selectedProvider === "gemini" && !geminiAuth.ownGemini) || (selectedProvider === "openai" && !userOpenAIKey);
     const action = useWeb && !retrievedWebContent ? "ask_web" : "ask";
     const initialPreflight = sharedGemini ? await checkAiCredits(supabase, action, aiMode) : null;
 
@@ -1506,7 +1510,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(aiQuotaError(initialPreflight), { status: 429 });
     }
 
-    async function generateSelected(targetPrompt: string, withWeb: boolean) {
+    async function generateSelected(targetPrompt: string, withWeb: boolean): Promise<PrimaryGeneration> {
       if (selectedProvider === "openai") {
         return openaiGenerateDetailed({
           apiKey: openAIKey,
@@ -1533,7 +1537,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return geminiGenerateDetailed(
+      const generateGemini = async () => ({...await geminiGenerateDetailed(
         geminiRawParts(targetPrompt, rawAssets),
         "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
         {
@@ -1551,11 +1555,21 @@ export async function POST(req: NextRequest) {
           accessToken: geminiAuth.accessToken,
           projectId: geminiAuth.projectId,
         }
-      );
+      ), provider: geminiAuth.provider});
+      if (debugModel) return generateGemini();
+      return routePrimary({gemini: generateGemini, combine: aiMode === "high",
+        openai: openAIKey ? async draft => ({...await openaiGenerateDetailed({
+          apiKey: openAIKey, model: sharedOpenAI.model,
+          prompt: draft ? targetPrompt + "\nDRAF GEMINI (bukan sumber bukti tambahan):\n" + draft.text.slice(0,60000) +
+            "\nSintesis jawaban final. Patuhi permintaan asli dan bukti yang tersedia; jangan menganggap draf telah diverifikasi. Jangan membuat sitasi/referensi baru tanpa identitas sumber." : targetPrompt,
+          system: "Anda adalah tutor Ruang Belajar. Hormati kombinasi sumber yang dipilih user, batas bukti, sitasi dan panjang jawaban.",
+          effort: aiSelection.effort, ...generationLength,
+          web: draft ? false : withWeb, attachments: externalRawAttachments(rawAssets),
+        }), provider: userOpenAIKey ? "user-openai-api-key" : "shared-openai-api-key"}) : undefined});
     }
 
     function selectedUsageProvider() {
-      if (selectedProvider === "openai") return "user-openai-api-key" as const;
+      if (selectedProvider === "openai") return userOpenAIKey ? "user-openai-api-key" as const : "shared-openai-api-key" as const;
       if (selectedProvider === "anthropic") return "user-anthropic-api-key" as const;
       return geminiAuth.provider;
     }
@@ -1732,14 +1746,14 @@ export async function POST(req: NextRequest) {
             generate: (stagePrompt, withWeb) => generateSelected(stagePrompt, withWeb && !retrievedWebContent) as Promise<CouncilGeneration>,
             recordUsage: async (generation) => {
               if (!generation.model.startsWith("openrouter-free:")) {
-                await recordAiTokenUsage(supabase, generation.usage, generation.model, selectedUsageProvider());
+                await recordAiGenerationUsage(supabase, generation, selectedUsageProvider());
               }
             },
           })
         : null;
       const result = council?.result || await generateSelected(prompt, useWeb && !retrievedWebContent);
       if (!council) {
-        await recordAiTokenUsage(supabase, result.usage, result.model, selectedUsageProvider());
+        await recordAiGenerationUsage(supabase, result, selectedUsageProvider());
       }
       const aiUsage =
         sharedGemini && (!initialPreflight || initialPreflight.allowed)
@@ -1769,7 +1783,8 @@ export async function POST(req: NextRequest) {
           ? { mode: aiMode, stages: council.stages, helpers: council.helpers, routes:council.routes, description: "Planner → research → agents → verifier → critic → synthesizer" }
           : { mode: aiMode, stages: [], description: "Direct provider response" },
         aiUsage,
-        provider: selectedUsageProvider(),
+        provider: result.provider || selectedUsageProvider(),
+        primaryRouting: result.primaryRoute,
         artifactFormat,
       });
     } catch (error: any) {
@@ -1880,15 +1895,10 @@ export async function POST(req: NextRequest) {
       const fallbackCouncil = useAi && (aiMode === "medium" || aiMode === "high")
         ? await runAiCouncil({ mode: aiMode, useWeb: hasPublicEvidence, basePrompt: fallbackPrompt,
             generate: stagePrompt => generateSelected(stagePrompt, false) as Promise<CouncilGeneration>,
-            recordUsage: async generation => { if (!generation.model.startsWith("openrouter-free:")) await recordAiTokenUsage(supabase, generation.usage, generation.model, selectedUsageProvider()); },
+            recordUsage: async generation => { if (!generation.model.startsWith("openrouter-free:")) await recordAiGenerationUsage(supabase, generation, selectedUsageProvider()); },
           }) : null;
       const fallbackResult = fallbackCouncil?.result || await generateSelected(fallbackPrompt, false);
-      if (!fallbackCouncil) await recordAiTokenUsage(
-        supabase,
-        fallbackResult.usage,
-        fallbackResult.model,
-        selectedUsageProvider()
-      );
+      if (!fallbackCouncil) await recordAiGenerationUsage(supabase,fallbackResult,selectedUsageProvider());
       const aiUsage =
         sharedGemini && (!fallbackPreflight || fallbackPreflight.allowed)
           ? await finalizeAiCredits(supabase, "ask", aiMode)
@@ -1910,7 +1920,8 @@ export async function POST(req: NextRequest) {
         model: fallbackResult.model,
         orchestration: fallbackCouncil ? {mode:aiMode,stages:fallbackCouncil.stages,helpers:fallbackCouncil.helpers,routes:fallbackCouncil.routes} : {mode:aiMode,stages:[]},
         aiUsage,
-        provider: selectedUsageProvider(),
+        provider: fallbackResult.provider || selectedUsageProvider(),
+        primaryRouting: fallbackResult.primaryRoute,
         artifactFormat,
       });
     }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase";
 import { parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
-import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiGenerationUsage } from "@/lib/aiQuota";
 import { buildCitationMetadataInventory, citationInstruction, normalizeCitationOptions } from "@/lib/citations";
 import { annotateBibliographicWorks } from "@/lib/knowledge";
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
@@ -410,7 +410,7 @@ Aturan wajib:
         maxOutputTokens: aiMode === "high" ? 24576 : aiMode === "medium" ? 18432 : 14336,
       }
     );
-    await recordAiTokenUsage(supabase, aiResult.usage, aiResult.model, aiResult.provider);
+    await recordAiGenerationUsage(supabase, aiResult);
     const raw = aiResult.text;
 
     let parsed: any;
@@ -436,7 +436,7 @@ ${raw.slice(0, 50000)}`,
           effortOverride: "low",
         }
       );
-      await recordAiTokenUsage(supabase, repair.usage, repair.model, repair.provider);
+      await recordAiGenerationUsage(supabase, repair);
       try {
         parsed = parseJsonSafely(repair.text);
       } catch {

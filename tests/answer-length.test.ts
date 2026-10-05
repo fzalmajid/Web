@@ -80,7 +80,7 @@ test("completion status counts Unicode characters and flags provider truncation 
 
 test("all ask generation paths share adaptive budgets and avoid fixed medium instructions", () => {
   const route = readFileSync("app/api/ask/route.ts", "utf8");
-  assert.equal((route.match(/\.\.\.generationLength/g) || []).length, 7);
+  assert.equal((route.match(/\.\.\.generationLength/g) || []).length, 8);
   assert.equal(route.includes("responseLength: aiSelection.length"), false);
   assert.match(route, /adaptiveLengthPrompt \+ "\\n\\n" \+ buildPrompt/);
   assert.match(route, /answerLengthStatus\(lengthPlan,fallbackResult/);

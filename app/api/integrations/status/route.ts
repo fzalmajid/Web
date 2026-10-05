@@ -5,6 +5,7 @@ import { verifyReferenceEngine } from "@/lib/referenceHealthServer";
 import { aiCouncilPlan } from "@/lib/aiOrchestration";
 import { openRouterFreeStatus } from "@/lib/openRouterFree";
 import {councilRouterStatus} from "@/lib/councilRouter";
+import { sharedOpenAiConfig } from "@/lib/primaryRouter";
 import { webResearchStatus } from "@/lib/webResearch";
 import { documentEnhancementStatus } from "@/lib/documentEnhancements";
 import { scholarlyIndexStatus } from "@/lib/scholarlyIndexes";
@@ -48,6 +49,8 @@ export async function GET(req: NextRequest) {
       },
       freeHelper: openRouterFreeStatus(),
       router: councilRouterStatus(),
+      sharedPrimary: {geminiConfigured:Boolean(process.env.GEMINI_API_KEY),openaiConfigured:Boolean(sharedOpenAiConfig().apiKey),
+        openaiModel:sharedOpenAiConfig().model,policy:"Gemini first; authorized GPT fallback; High chat Gemini draft + GPT synthesis; helpers free-only",credentialsVerified:false},
     },
     webResearch: {...webResearchStatus(),scholarlyFallback:"Crossref + OpenAlex/Europe PMC/PubMed/Semantic Scholar; optional Scopus",publicFullText:"bounded public PDF + publisher HTML + OA JATS XML; title/DOI matching; page/section/table locators",explicitUrls:true,claimValidation:"retrieval and identity checks; not blanket independent fact verification",formulaEvidenceGate:true},
     documentEnhancements: documentEnhancementStatus(),

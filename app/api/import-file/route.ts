@@ -6,7 +6,7 @@ import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } fr
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
-import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage, recordAiGenerationUsage } from "@/lib/aiQuota";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 import { packPdfPages } from "@/lib/pdfIndex";
 import { assertPdfHeader } from "@/lib/pdfValidation";
@@ -548,7 +548,7 @@ Aturan:
         json: true,
       }
     );
-    await recordAiTokenUsage(supabase, structuredResult.usage, structuredResult.model, structuredResult.provider);
+    await recordAiGenerationUsage(supabase, structuredResult);
     const structuredRaw = structuredResult.text;
 
     let structuredText = rawText;

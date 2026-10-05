@@ -57,7 +57,7 @@ test("primary and alternate provider routes await the same final gate and record
   const route=readFileSync("app/api/ask/route.ts","utf8");
   assert.equal((route.match(/\.\.\.await finalizeAnswer\(/g)||[]).length,3);
   assert.match(route,/await completeAnswerCitations/);
-  assert.match(route,/recordAiTokenUsage\(supabase,repair\.usage/);
+  assert.match(route,/recordAiGenerationUsage\(supabase,repair,/);
   assert.match(citationCompletionInstruction,/Nama lembaga dan tahun yang sama tidak membuktikan/);
 });
 test("short genuine book titles still pair via the canonical full formatted entry",async()=>{
