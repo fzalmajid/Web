@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
       freeHelper: openRouterFreeStatus(),
       router: councilRouterStatus(),
       sharedPrimary: {geminiConfigured:Boolean(process.env.GEMINI_API_KEY),openaiConfigured:Boolean(sharedOpenAiConfig().apiKey),
-        openaiModel:sharedOpenAiConfig().model,policy:"Gemini first; authorized GPT fallback; High chat Gemini draft + GPT synthesis; helpers free-only",credentialsVerified:false},
+        openaiModel:sharedOpenAiConfig().apiKey ? sharedOpenAiConfig().model : null,policy:sharedOpenAiConfig().apiKey ? "Gemini first; authorized GPT fallback; High chat Gemini draft + GPT synthesis; helpers free-only" : "Gemini primary only; helpers free-only",credentialsVerified:false},
     },
     webResearch: {...webResearchStatus(),scholarlyFallback:"Crossref + OpenAlex/Europe PMC/PubMed/Semantic Scholar; optional Scopus",publicFullText:"bounded public PDF + publisher HTML + OA JATS XML; title/DOI matching; page/section/table locators",explicitUrls:true,claimValidation:"retrieval and identity checks; not blanket independent fact verification",formulaEvidenceGate:true},
     documentEnhancements: documentEnhancementStatus(),

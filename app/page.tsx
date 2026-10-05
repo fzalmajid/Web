@@ -4,6 +4,7 @@ import { answerProse, scopeAnswerHeadings, answerHeadingTarget, safeAnswerLink }
 import AnswerProse from "@/components/AnswerProse";
 import ControlPopover from "@/components/ControlPopover";
 import {referenceSubtreeIds,toggleReferenceFolder} from "@/lib/referenceSelection";
+import {needsAiGrading,usableQuizReference} from "@/lib/quizGrading";
 
 // Normal UI exposes AI Ruang Belajar modes; the model picker remains available
 // only as an explicit debugging escape hatch while provider integrations settle.
@@ -8748,8 +8749,7 @@ function PracticePage({
   const localQuizzes = quizzes.filter((item) => item.scope_node_id === node.id);
 
   const fixedMcq = localQuizzes.filter((item) => item.quiz_type === "mcq" && item.grading_mode === "fixed");
-  const fixedEssay = localQuizzes.filter((item) => item.quiz_type === "essay" && item.grading_mode === "fixed");
-  const aiQuizzes = localQuizzes.filter((item) => item.grading_mode === "ai");
+  const aiQuizzes = localQuizzes.filter(needsAiGrading);
   const aiMcq = aiQuizzes.filter((item) => item.quiz_type === "mcq");
   const aiEssay = aiQuizzes.filter((item) => item.quiz_type === "essay");
 
@@ -8792,24 +8792,21 @@ function PracticePage({
   }
 
   const answeredMcq = [...fixedMcq, ...aiMcq].filter((quiz) => answers[quiz.id]).length;
-  const answeredEssay = [...fixedEssay, ...aiEssay].filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
+  const answeredEssay = aiEssay.filter((quiz) => essayAnswers[quiz.id]?.trim()).length;
   const totalQuestions = localQuizzes.length;
   const answeredTotal = answeredMcq + answeredEssay;
   const allAnswered = totalQuestions > 0 && answeredTotal === totalQuestions;
 
   const correctFixedMcq = fixedMcq.filter((quiz) => answers[quiz.id] === quiz.correct_answer).length;
-  const correctFixedEssay = fixedEssay.filter(
-    (quiz) => normalizeQuizAnswer(essayAnswers[quiz.id] || "") === normalizeQuizAnswer(quiz.correct_answer || "")
-  ).length;
   const gradableAiResults = aiQuizzes
     .map((quiz) => aiResults[quiz.id])
     .filter((item): item is AiGradeResult => !!item && item.gradable);
   const correctAi = gradableAiResults.filter((item) => item.correct).length;
-  const gradedCount = fixedMcq.length + fixedEssay.length + gradableAiResults.length;
+  const gradedCount = fixedMcq.length + gradableAiResults.length;
   const totalScorePoints =
-    (correctFixedMcq + correctFixedEssay) * 100 +
+    correctFixedMcq * 100 +
     gradableAiResults.reduce((sum, item) => sum + item.score, 0);
-  const scorePercent = gradedCount ? Math.round(totalScorePoints / gradedCount) : 0;
+  const scorePercent = gradedCount ? Math.round(totalScorePoints / gradedCount) : "—";
 
   async function generate() {
     if (practiceAnswerSources.includes("database") && !practiceSourceNodeIds.length && !practiceSourceFileIds.length) return alert("Pilih minimal satu folder atau file Reference.");
@@ -8914,7 +8911,7 @@ function PracticePage({
     if (!manualQuestion.trim()) return;
 
     const isMcq = manualKind === "mcq-fixed" || manualKind === "mcq-ai";
-    const isAi = manualKind === "mcq-ai" || manualKind === "essay-ai";
+    const isAi = !isMcq || manualKind === "mcq-ai";
     const choices = manualChoices.map((item) => item.trim()).filter(Boolean);
 
     if (isMcq && choices.length < 2) {
@@ -8943,10 +8940,8 @@ function PracticePage({
       choices: isMcq ? choices : [],
       correct_answer: correctAnswer,
       explanation: isAi
-        ? "Dinilai model Gemini aktif hanya berdasarkan Database."
-        : manualKind === "essay-fixed"
-          ? "Essay dinilai lokal berdasarkan jawaban acuan."
-          : "Kuis dibuat manual.",
+        ? "Dinilai AI secara semantik berdasarkan sumber aktif."
+        : "Kuis dibuat manual.",
       quiz_type: isMcq ? "mcq" : "essay",
       grading_mode: isAi ? "ai" : "fixed",
     });
@@ -8973,16 +8968,16 @@ function PracticePage({
     if (!allAnswered) return;
 
     if (aiQuizzes.length) {
-      if (aiSelection.model === "local") {
-        return alert("Soal yang dinilai AI membutuhkan model Gemini.");
-      }
-
       setGrading(true);
+      try {
       const response = await fetch("/api/grade-quiz", {
         method: "POST",
         headers: aiRequestHeaders(session, aiSelection),
         body: JSON.stringify({
           aiMode,
+          sources: practiceAnswerSources,
+          sourceNodeIds: practiceSourceNodeIds,
+          sourceFileIds: practiceSourceFileIds,
           answers: aiQuizzes.map((quiz) => ({
             quizId: quiz.id,
             answer: quiz.quiz_type === "mcq" ? answers[quiz.id] : essayAnswers[quiz.id],
@@ -8990,14 +8985,12 @@ function PracticePage({
         }),
       });
       const data = await response.json();
-      setGrading(false);
-
       if (!response.ok) return alert(data.error || "Gagal menilai jawaban AI.");
 
       const mapped: Record<string, AiGradeResult> = {};
       (data.results || []).forEach((item: any) => {
         mapped[String(item.id)] = {
-          gradable: item.gradable !== false,
+          gradable: item.gradable === true && Number.isFinite(item.score),
           correct: item.correct === true,
           score: Number(item.score || 0),
           feedback: String(item.feedback || ""),
@@ -9005,6 +8998,11 @@ function PracticePage({
         };
       });
       setAiResults(mapped);
+      } catch (error: any) {
+        return alert(error?.message || "Penilaian AI belum tersedia. Jawabanmu tetap tersimpan di form; coba lagi.");
+      } finally {
+        setGrading(false);
+      }
     }
 
     setSubmitted(true);
@@ -9036,7 +9034,7 @@ function PracticePage({
 
   function quizLabel(quiz: Quiz) {
     if (quiz.quiz_type === "mcq" && quiz.grading_mode === "fixed") return "PILIHAN GANDA";
-    if (quiz.quiz_type === "essay" && quiz.grading_mode === "fixed") return "ESSAY";
+    if (quiz.quiz_type === "essay") return "ESSAY DINILAI AI";
     if (quiz.quiz_type === "mcq" && quiz.grading_mode === "ai") return "PILIHAN GANDA DINILAI AI";
     return "ESSAY DINILAI AI";
   }
@@ -9046,7 +9044,7 @@ function PracticePage({
       <div className="toolHeader rbFeatureHeader">
         <p className="eyebrow">{mode === "flashcards" ? "FLASHCARD" : "KUIS"}</p>
         <h1>{node.title}</h1>
-        <p className="muted">Dibuat hanya dari Database pada halaman induknya.</p>
+        <p className="muted">Mengikuti sumber aktif. Semua esai dinilai AI berdasarkan makna, bukan kecocokan teks. Penilaian esai pada Simple memakai Instant.</p>
 
         {mode === "flashcards" ? (
           <>
@@ -9066,7 +9064,7 @@ function PracticePage({
         ) : (
           <div className="quizCreateActions">
             <div>
-              <small className="createLabel">SUMBER & MODEL AI</small>
+              <small className="createLabel">SUMBER & KEDALAMAN AI</small>
               <AiSourceModelBar
                 sources={practiceAnswerSources}
                 referenceControl={<AiDatabaseSourcePicker nodes={nodes} files={files} nodeIds={practiceSourceNodeIds} fileIds={practiceSourceFileIds} onChange={next=>{setPracticeSourceNodeIds(next.nodeIds);setPracticeSourceFileIds(next.fileIds);}} currentNodeId={node.parent_id} sources={practiceAnswerSources} onSourcesChange={setPracticeAnswerSources} selectionModel={aiSelection.model} showIndexTools={false} />}
@@ -9163,14 +9161,14 @@ function PracticePage({
                 onChange={(e) => setManualExpectedAnswer(e.target.value)}
                 placeholder="Tulis jawaban yang dianggap benar..."
               />
-              <small className="muted">Mode Essay tanpa AI membandingkan jawaban secara lokal dengan jawaban acuan ini.</small>
+              <small className="muted">Jawaban acuan membantu rubrik. AI menilai makna jawaban, bukan kesamaan teks.</small>
             </label>
           )}
 
           {(manualKind === "mcq-ai" || manualKind === "essay-ai") && (
             <div className="essayInfo">
-              <strong>Model Gemini aktif akan menentukan benar/salah.</strong>
-              <span>Penilaian hanya memakai Database di materi induk. Public Web tidak dipakai untuk penilaian kuis.</span>
+              <strong>AI menilai ketepatan konsep dan kelengkapan jawaban.</strong>
+              <span>Penilaian mengikuti pilihan AI, Reference, dan Web di bar atas. Kekurangan sumber tidak dihitung salah.</span>
             </div>
           )}
 
@@ -9222,7 +9220,7 @@ function PracticePage({
               <div className="scoreNumber">{scorePercent}</div>
               <div>
                 <small>NILAI AKHIR</small>
-                <strong>{correctFixedMcq + correctFixedEssay + correctAi} jawaban dinilai benar · {gradedCount} soal dinilai</strong>
+                <strong>{correctFixedMcq + correctAi} jawaban dinilai benar · {gradedCount} soal dinilai</strong>
                 {aiQuizzes.length !== gradableAiResults.length && (
                   <span className="muted">{aiQuizzes.length - gradableAiResults.length} soal AI tidak cukup sumber untuk dinilai.</span>
                 )}
@@ -9269,7 +9267,7 @@ function PracticePage({
                     />
                   )}
 
-                  {submitted && quiz.grading_mode === "fixed" && (
+                  {submitted && isMcq && quiz.grading_mode === "fixed" && (
                     <div className={fixedCorrect ? "answerState ok" : "answerState bad"}>
                       <strong>{fixedCorrect ? "Benar" : "Salah"}</strong>
                       <br />
@@ -9278,11 +9276,11 @@ function PracticePage({
                     </div>
                   )}
 
-                  {submitted && quiz.grading_mode === "ai" && aiResult && (
-                    <div className={aiResult.correct ? "answerState ok" : aiResult.score > 0 ? "answerState partial" : "answerState bad"}>
+                  {submitted && needsAiGrading(quiz) && aiResult && (
+                    <div className={!aiResult.gradable ? "answerState" : aiResult.correct ? "answerState ok" : aiResult.score > 0 ? "answerState partial" : "answerState bad"}>
                       <strong>{
                         !aiResult.gradable
-                          ? "Belum dapat dinilai · 0/100"
+                          ? "Belum dapat dinilai · tidak masuk nilai akhir"
                           : aiResult.score === 100
                             ? "Benar · 100/100"
                             : aiResult.score === 70
@@ -9294,10 +9292,10 @@ function PracticePage({
                                   : "Salah · 0/100"
                       }</strong>
                       {aiResult.feedback && <><br /><RichText text={aiResult.feedback} /></>}
-                      {quiz.quiz_type === "essay" && quiz.correct_answer && (
+                      {quiz.quiz_type === "essay" && usableQuizReference(quiz.correct_answer) && (
                         <><br /><small>Jawaban acuan (referensi): <RichText text={quiz.correct_answer} /></small></>
                       )}
-                      {aiResult.basis && <><br /><small>Dasar Database: <RichText text={aiResult.basis} /></small></>}
+                      {aiResult.basis && <><br /><small>Dasar penilaian AI: <RichText text={aiResult.basis} /></small></>}
                     </div>
                   )}
                 </article>
@@ -9320,16 +9318,17 @@ function PracticePage({
                     disabled={!allAnswered || grading}
                     onClick={finishQuiz}
                   >
-                    {grading ? "Gemini sedang menilai..." : "Selesai & lihat nilai"}
+                    {grading ? "AI sedang menilai makna jawaban..." : "Selesai & lihat nilai"}
                   </button>
                 </>
               ) : (
                 <>
                   <div>
-                    <strong>Nilai sudah dihitung</strong>
-                    <span>Kamu bisa mengulang kuis dari awal.</span>
+                    <strong>{gradedCount ? "Nilai soal yang dapat dinilai sudah dihitung" : "Belum ada soal yang dapat dinilai"}</strong>
+                    <span>Lengkapi Reference atau aktifkan AI/Web, lalu nilai ulang tanpa mengetik jawaban kembali.</span>
                   </div>
                   <button className="ghost" onClick={resetQuizSession}>Ulangi kuis</button>
+                  {aiQuizzes.length > 0 && <button className="primary" disabled={grading} onClick={finishQuiz}>{grading ? "AI sedang menilai..." : "Nilai ulang jawaban"}</button>}
                 </>
               )}
             </div>

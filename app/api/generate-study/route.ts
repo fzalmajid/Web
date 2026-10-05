@@ -6,6 +6,7 @@ import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiGenerationUsage } from "@/lib/aiQuota";
 import { buildCitationMetadataInventory, citationInstruction, normalizeCitationOptions } from "@/lib/citations";
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
+import { usableQuizReference } from "@/lib/quizGrading";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
@@ -246,7 +247,7 @@ export async function POST(req: NextRequest) {
             "Jenis soal yang dipilih user: " + quizKinds.join(", ") + ".",
             "Arti kode:",
             "- mcq-fixed = pilihan ganda, jawaban benar disimpan dan dinilai langsung.",
-            "- essay-fixed = essay dengan jawaban acuan, dinilai langsung terhadap jawaban acuan.",
+            "- essay-fixed = essay dengan jawaban acuan; tetap dinilai AI berdasarkan makna saat selesai.",
             "- mcq-ai = pilihan ganda, benar/salah dinilai AI saat user menekan selesai.",
             "- essay-ai = essay bebas, benar/salah dinilai AI saat user menekan selesai.",
             "Bagi jumlah soal seimbang di antara jenis yang dipilih. Jangan membuat jenis lain.",
@@ -291,10 +292,10 @@ ${requested}\n${quizKindInstruction}\n${answerAiInstruction}\n${citationRule}\n$
 
 Aturan quiz:
 - mcq-fixed: choices minimal 2 (utamakan 4), correct_answer wajib sama persis dengan salah satu choices.
-- essay-fixed: choices harus [], correct_answer wajib berisi jawaban acuan ringkas berbasis RAW.
+- essay-fixed: choices harus [], correct_answer berisi jawaban acuan ringkas dari sumber aktif bila tersedia; tetap dinilai AI secara semantik.
 - mcq-ai: choices minimal 2 (utamakan 4), correct_answer boleh kosong karena penilaian dilakukan AI saat submit.
 - essay-ai: choices harus [], correct_answer boleh kosong.
-- Jangan mengubah fungsi penilaian: fixed tetap fixed, AI tetap dinilai AI saat user selesai.
+- Semua essay dinilai AI saat selesai, bukan exact-match. Jika sumber tidak membahas pertanyaan, kosongkan correct_answer; jangan jadikan pernyataan kekurangan sumber sebagai kunci jawaban.
 
 Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? counts.quiz + " soal" : counts.cards + " flashcard dan " + counts.quiz + " soal"}. Patuhi sumber AI / Database / Web yang diaktifkan user. Jika Database aktif, pertahankan isi RAW/ORIGINAL dan jangan menggantinya dengan versi tertata. Ikuti INSTRUKSI USER selama sesuai dengan sumber aktif.\n${WHATSAPP_FORMAT_INSTRUCTION}`,
       "Patuhi sumber AI / Database / Web yang diaktifkan user. Jangan memakai sumber yang dinonaktifkan.",
@@ -323,7 +324,7 @@ Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? c
           const rawKind = String(x.kind || "").trim();
           const kind = quizKinds.includes(rawKind) ? rawKind : requestedKind;
           const isMcq = kind === "mcq-fixed" || kind === "mcq-ai";
-          const isAi = kind === "mcq-ai" || kind === "essay-ai";
+          const isAi = !isMcq || kind === "mcq-ai";
           const choices = isMcq && Array.isArray(x.choices)
             ? x.choices.slice(0, 4).map((v: any) => String(v).trim()).filter(Boolean)
             : [];
@@ -337,7 +338,7 @@ Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? c
                 ? String(manualQuestions[index] || "").trim()
                 : String(x.question || "").trim(),
             choices,
-            correct_answer: isAi ? "" : correctAnswer,
+            correct_answer: isMcq ? (isAi ? "" : correctAnswer) : usableQuizReference(correctAnswer),
             explanation: String(x.explanation || "").trim(),
           };
         }).filter((x: any) => {
