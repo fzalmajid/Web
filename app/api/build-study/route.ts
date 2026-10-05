@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { aiFailure } from "@/lib/aiFailure";
 import { createServerSupabase } from "@/lib/supabase";
 import { parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
@@ -535,9 +536,7 @@ ${raw.slice(0, 50000)}`,
         .eq("node_id", studyNodeId);
     }
 
-    return NextResponse.json(
-      { error: error?.message || "Gagal menyusun Study." },
-      { status: status >= 400 && status < 600 ? status : 500 }
-    );
+    const failure = aiFailure(error, "Gagal menyusun Study.");
+    return NextResponse.json(failure.body, failure.init);
   }
 }

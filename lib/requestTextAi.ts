@@ -118,6 +118,7 @@ async function generateTextAiOnProvider(
     {
       models: modelPlanForSelection(info.selection.model, aiMode, "web"),
       googleSearch: true, effort, responseLength: "long", maxOutputTokens: 4096,
+      allowedFallbackModels: modelPlanForSelection(info.selection.model, aiMode, "web"),
       apiKey: info.geminiAuth.apiKey, accessToken: info.geminiAuth.accessToken, projectId: info.geminiAuth.projectId,
     }
   ) : null;
@@ -132,6 +133,7 @@ async function generateTextAiOnProvider(
     system,
     {
       models: modelPlanForSelection(research ? research.model as typeof info.selection.model : info.selection.model, aiMode, research ? "standard" : options?.web ? "web" : "standard"),
+      allowedFallbackModels: modelPlanForSelection(info.selection.model, aiMode, options?.web && !research ? "web" : "standard"),
       effort,
       responseLength: info.selection.length,
       responseMimeType: options?.json ? "application/json" : undefined,

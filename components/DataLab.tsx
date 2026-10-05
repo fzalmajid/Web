@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { parseCsv, fitLinear, invertCalibration } from "@/lib/dataLab";
+import { observeVisualizationResize } from "@/lib/visualizationResize";
 
 export default function DataLab() {
   const [text, setText] = useState("konsentrasi,respons\n1,0.061\n2,0.109\n3,0.161\n4,0.209\n5,0.261");
@@ -9,6 +10,7 @@ export default function DataLab() {
   const [message, setMessage] = useState(""), [busy, setBusy] = useState(false), [sample, setSample] = useState<any>(null);
   const host = useRef<HTMLDivElement>(null), chart = useRef<any>(null), generation = useRef(0);
   useEffect(() => () => { generation.current++; chart.current?.dispose(); }, []);
+  useEffect(() => observeVisualizationResize(host.current, () => chart.current?.resize()), []);
   useEffect(()=>{generation.current++;setFit(null);setSample(null);chart.current?.clear();},[text,x,y,unit]);
   useEffect(()=>{setSample(null);},[response,dilution]);
   async function draw() {

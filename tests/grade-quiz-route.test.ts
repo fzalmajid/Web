@@ -7,6 +7,7 @@ const originalLoad=Module._load;
 let generated:any[]=[];
 let responseRows:any[]=[];
 let searches:any[]=[];
+let providerError:any=null;
 const quiz={id:"11111111-1111-1111-1111-111111111111",scope_node_id:"22222222-2222-2222-2222-222222222222",quiz_type:"essay",grading_mode:"fixed",question:"Bagaimana cara determinasi dan apa yang diamati?",choices:[],correct_answer:"Sumber data aktif tidak memuat rujukan terkait prosedur determinasi."};
 const sourceId="33333333-3333-3333-3333-333333333333";
 const db={
@@ -21,7 +22,7 @@ Module._load=function(id:string,...args:any[]) {
   if(id==="@/lib/supabase")return {createServerSupabase:()=>db};
   if(id==="@/lib/requestTextAi")return {
     getTextAiRequestInfo:(_:any,mode:string)=>({sharedGemini:true,mode}),
-    generateTextAi:async (...values:any[])=>{generated.push(values);return {text:JSON.stringify({results:responseRows}),model:"gemini-test",provider:"shared-api-key",usage:{}};},
+    generateTextAi:async (...values:any[])=>{generated.push(values);if(providerError)throw providerError;return {text:JSON.stringify({results:responseRows}),model:"gemini-test",provider:"shared-api-key",usage:{}};},
   };
   if(id==="@/lib/knowledge")return {
     searchSelectedKnowledge:async(...values:any[])=>{searches.push(values);return [];},
@@ -61,4 +62,13 @@ test("insufficient and duplicate model results never fail a student",async()=>{
 test("missing login is rejected before grading",async()=>{
   const result=await POST(new NextRequest("https://example.test/api/grade-quiz",{method:"POST"}));
   assert.equal(result.status,401);
+});
+test("quota is an actionable retryable service error, never a score or missing-model claim",async()=>{
+  providerError=Object.assign(new Error("private provider payload"),{code:"GEMINI_QUOTA",statusCode:429,retryAfterSeconds:15});
+  try {
+    const response=await POST(request(["ai"]));const data=await response.json();
+    assert.equal(response.status,429);assert.equal(response.headers.get("Retry-After"),"15");
+    assert.equal(data.code,"GEMINI_QUOTA");assert.equal(data.results,undefined);
+    assert.match(data.error,/15 detik/);assert.doesNotMatch(data.error,/private provider|Tidak ada model/);
+  }finally{providerError=null;}
 });

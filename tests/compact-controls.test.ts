@@ -23,6 +23,10 @@ test("all source bars share compact popups and portal positioning rather than ov
   assert.ok((page.match(/referenceControl={<AiDatabaseSourcePicker/g) || []).length >= 5);
   assert.match(css, /\.rbCompactBar[^{}]*\{[^}]*flex-wrap:nowrap!important/);
   assert.match(css, /button\.rbCompactControl[^{}]*\{[^}]*height:44px!important/);
+  assert.match(css, /\.toolPlanner \{ grid-template-columns:minmax\(0,1fr\)!important; \}/);
+  const alignment = readFileSync("app/layout-alignment.css", "utf8");
+  assert.match(alignment, /\.gptComposer\.bottomAsk \.askTopControls>\.aiSourceModelBar\.rbCompactBar\{[^}]*display:flex!important;[^}]*flex-wrap:nowrap!important/);
+  assert.doesNotMatch(alignment, /\.gptComposer\.bottomAsk \.askTopControls>\.aiSourceModelBar\{display:contents!important\}/);
   assert.match(popover, /createPortal/);
   assert.match(popover, /visualViewport/);
   assert.match(popover, /event.key === "Escape"/);
