@@ -11889,13 +11889,15 @@ body,
 .aiAnswerProse{white-space:normal;line-height:1.65;overflow-wrap:anywhere}.aiAnswerProse p{margin:.7rem 0;white-space:pre-wrap}.aiAnswerProse h2,.aiAnswerProse h3,.aiAnswerProse h4,.aiAnswerProse h5,.aiAnswerProse h6{margin:1.2rem 0 .5rem;scroll-margin-top:1rem;line-height:1.35}.aiAnswerProse ul,.aiAnswerProse ol{padding-left:1.5rem;margin:.6rem 0}.aiAnswerProse li{margin:.35rem 0;white-space:pre-wrap}.aiAnswerProse a{color:inherit;text-decoration:underline;text-underline-offset:3px}.aiAnswerProse a:focus-visible{outline:2px solid currentColor;outline-offset:3px}.aiAnswerProse pre{white-space:pre-wrap;padding:.8rem;border:1px solid #7891ad55;border-radius:8px;overflow-wrap:anywhere}.aiAnswerProse hr{border:0;border-top:1px solid #7891ad55;margin:1rem 0}
 
 /* One compact strip in every browser view, not a separate device-specific UI. */
+.toolPlanner { grid-template-columns:minmax(0,1fr)!important; }
+.instructionAiBar,.studyInstructionAiBar { min-width:0!important; max-width:100%!important; }
 .rbCompactBar, .gptComposer .askTopControls > .rbCompactBar {
   display:flex!important; flex-wrap:nowrap!important; align-items:center!important;
   gap:6px!important; min-width:0!important; width:100%!important; padding:0!important;
   border:0!important; background:transparent!important; overflow:visible!important;
 }
 .rbCompactBar > .sourceToggleGroup, .gptComposer .rbCompactBar > .sourceToggleGroup {
-  display:flex!important; flex:1 1 auto!important; gap:6px!important; min-width:0!important;
+  display:flex!important; flex:1 1 auto!important; gap:6px!important; min-width:120px!important;
   width:auto!important; padding:0!important; border:0!important; background:transparent!important;
   grid-column:auto!important; grid-row:auto!important;
   order:0!important; margin:0!important; height:44px!important; min-height:44px!important; align-items:center!important;

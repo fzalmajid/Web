@@ -33,6 +33,7 @@ export const WHATSAPP_FORMAT_INSTRUCTION =
 export class GeminiApiError extends Error {
   code: string;
   statusCode: number;
+  retryAfterSeconds?: number;
 
   constructor(message: string, statusCode = 500, code = "GEMINI_API_ERROR") {
     super(message);
@@ -104,7 +105,7 @@ async function listGenerateModels(
   accessToken: string,
   projectId: string,
   key: string
-): Promise<string[]> {
+): Promise<{ models: string[]; verified: boolean }> {
   try {
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
@@ -114,12 +115,19 @@ async function listGenerateModels(
         signal: AbortSignal.timeout(7000),
       }
     );
-    if (!response.ok) return [];
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const error = normalizeProviderError(response, data, false);
+      console.warn("[GEMINI_DISCOVERY_FAILED]", { status: response.status, code: error.code });
+      // Authentication failures cannot be repaired by trying more model IDs.
+      if (error.code === "GEMINI_AUTH_REJECTED") throw error;
+      return { models: [], verified: false };
+    }
 
     const data = await response.json().catch(() => ({}));
-    if (!Array.isArray(data?.models)) return [];
+    if (!Array.isArray(data?.models)) return { models: [], verified: false };
 
-    return data.models
+    const models = data.models
       .filter((item: any) => {
         const methods = Array.isArray(item?.supportedGenerationMethods)
           ? item.supportedGenerationMethods.map(String)
@@ -128,8 +136,11 @@ async function listGenerateModels(
       })
       .map((item: any) => String(item?.name || "").replace(/^models\//, "").trim())
       .filter(Boolean);
-  } catch {
-    return [];
+    return { models, verified: !data.nextPageToken };
+  } catch (error) {
+    if (error instanceof GeminiApiError) throw error;
+    console.warn("[GEMINI_DISCOVERY_FAILED]", { code: "DISCOVERY_UNREACHABLE" });
+    return { models: [], verified: false };
   }
 }
 
@@ -144,7 +155,7 @@ export async function geminiAvailableTextModels(options?: {
   if (!accessToken && !key) return [] as string[];
 
   const available = await listGenerateModels(accessToken, projectId, key);
-  return available.filter(
+  return available.models.filter(
     (model) =>
       /^gemini-/i.test(model) &&
       !/image|embedding|tts|live|robotics|omni|transcribe/i.test(model)
@@ -160,7 +171,7 @@ export function prioritizeAvailableModels(
 ) {
   // If model discovery itself is unavailable, still attempt the exact requested
   // model(s) directly. The provider response is authoritative.
-  if (!available.length) return Array.from(new Set([...requested,...(!strictModel ? allowedFallbacks || [] : [])]));
+  if (!available.length) return Array.from(new Set([...requested,...(!strictModel ? allowedFallbacks || ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"] : [])]));
 
   const availableSet = new Set(available);
   const requestedAvailable = requested.filter((model) => availableSet.has(model));
@@ -219,6 +230,10 @@ function normalizeProviderError(
   googleSearch: boolean
 ): GeminiApiError {
   const providerMessage = String(data?.error?.message || "");
+  const detailText = JSON.stringify(data?.error?.details || []);
+  const authRejected = response.status === 401 || response.status === 403 ||
+    /API_KEY_INVALID|API_KEY_SERVICE_BLOCKED|API_KEY_HTTP_REFERRER_BLOCKED|API_KEY_IP_ADDRESS_BLOCKED/.test(detailText) ||
+    /api key.*(?:invalid|not valid|expired|leaked)|permission denied|unauthenticated/i.test(providerMessage);
   const quotaLike =
     response.status === 429 ||
     /quota|rate.?limit|resource.?exhausted/i.test(providerMessage);
@@ -234,13 +249,25 @@ function normalizeProviderError(
     response.status === 400 &&
     /thinking|temperature|generation.?config|unsupported.*parameter|invalid argument/i.test(providerMessage);
 
+  if (authRejected) return new GeminiApiError(
+    "Akses Gemini ditolak. Pengelola perlu memeriksa API key, izin API, atau project Google yang terhubung; mengganti tingkat AI tidak memperbaiki izin akses.",
+    response.status === 401 ? 401 : 403, "GEMINI_AUTH_REJECTED"
+  );
   if (modelConfigInvalid) return new GeminiApiError(
     "Konfigurasi permintaan AI tidak kompatibel. Ini bukan berarti semua model tidak tersedia.",
     400, "GEMINI_CONFIG_INCOMPATIBLE"
   );
   if (modelUnavailable) return new GeminiModelUnavailableError();
-  if (quotaLike && googleSearch) return new GeminiWebSearchQuotaError();
-  if (quotaLike) return new GeminiQuotaError();
+  if (quotaLike) {
+    // A request with Search can exhaust generation quota, not necessarily Search.
+    const searchQuota = googleSearch && /google.?search|grounding|search.?queries/i.test(providerMessage + detailText);
+    const error = searchQuota ? new GeminiWebSearchQuotaError() : new GeminiQuotaError();
+    const retryInfo = Array.isArray(data?.error?.details) ? data.error.details.find((item: any) => /RetryInfo$/.test(String(item?.["@type"]))) : null;
+    const rawDelay = String(retryInfo?.retryDelay || "");
+    const delay = /^\d+(?:\.\d+)?s$/.test(rawDelay) ? Number(rawDelay.slice(0, -1)) : Number(response.headers.get("retry-after"));
+    if (Number.isFinite(delay) && delay > 0) error.retryAfterSeconds = Math.min(86400, Math.ceil(delay));
+    return error;
+  }
   if (busyLike) return new GeminiUnavailableError();
 
   return new GeminiApiError(
@@ -301,7 +328,11 @@ export async function geminiGenerateDetailed(
   const requestedModels = Array.from(
     new Set((options?.models?.length ? options.models : [GEMINI_MODEL]).filter(Boolean))
   );
-  const availableModels = await listGenerateModels(accessToken, projectId, key);
+  const discovery = await listGenerateModels(accessToken, projectId, key);
+  const availableModels = discovery.models;
+  if (discovery.verified && !availableModels.length) throw new GeminiApiError(
+    "Katalog Gemini belum menyediakan model generateContent untuk akses ini. Pengelola perlu memeriksa project dan izin model.", 503, "GEMINI_NO_AVAILABLE_MODEL"
+  );
   const models = prioritizeAvailableModels(
     requestedModels,
     availableModels,
@@ -309,7 +340,13 @@ export async function geminiGenerateDetailed(
     Boolean(options?.strictModel)
     , options?.allowedFallbackModels
   );
-  const attemptModels=models.slice(0,Math.max(1,Math.min(3,options?.maxAttempts||3)));
+  const attemptLimit = Math.max(1, Math.min(3, options?.maxAttempts || 3));
+  // When discovery fails, reserve fallbacks rather than spending all three
+  // attempts on an unverified chain of requested experimental models.
+  const uncertainFallbacks = options?.allowedFallbackModels || ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"];
+  const attemptModels = (!availableModels.length && !options?.strictModel
+    ? Array.from(new Set([models[0], ...uncertainFallbacks, ...models])).filter(Boolean)
+    : models).slice(0, attemptLimit);
 
   if (!models.length) {
     throw new GeminiApiError(
@@ -322,6 +359,8 @@ export async function geminiGenerateDetailed(
   }
 
   let lastError: GeminiApiError | null = null;
+  let quotaError: GeminiApiError | null = null;
+  let transientError: GeminiApiError | null = null;
 
   for (let index = 0; index < attemptModels.length; index++) {
     const model = attemptModels[index];
@@ -366,8 +405,9 @@ export async function geminiGenerateDetailed(
       );
     } catch {
       lastError = new GeminiUnavailableError();
+      transientError = lastError;
       if (index < attemptModels.length - 1) continue;
-      throw lastError;
+      throw quotaError || lastError;
     }
 
     const data = await response.json().catch(() => ({}));
@@ -378,6 +418,8 @@ export async function geminiGenerateDetailed(
       console.error("[GEMINI_REQUEST_REJECTED]", { model, status: response.status, code: error.code,
         web: Boolean(options?.googleSearch), json: options?.responseMimeType === "application/json" });
       lastError = error;
+      if (error.code === "GEMINI_QUOTA" || error.code === "WEB_SEARCH_QUOTA") quotaError = error;
+      if (error.code === "GEMINI_UNAVAILABLE") transientError = error;
       if (
         index < attemptModels.length - 1 &&
         (error.code === "GEMINI_QUOTA" ||
@@ -388,12 +430,15 @@ export async function geminiGenerateDetailed(
         continue;
       }
       if (error.code === "GEMINI_MODEL_UNAVAILABLE" && index === attemptModels.length - 1) {
+        // A later 404 must not erase an earlier real quota or service failure.
+        if (quotaError || transientError) throw quotaError || transientError;
         throw new GeminiApiError(
-          "Tidak ada model Gemini yang tersedia untuk credential/project ini. Pilih model/provider lain atau hubungkan project Google Cloud lain.",
+          "Model pada jalur Gemini yang dicoba belum dapat digunakan. Ini belum membuktikan seluruh model tidak tersedia. Pengelola perlu memeriksa akses model pada project ini.",
           503,
-          "GEMINI_NO_AVAILABLE_MODEL"
+          "GEMINI_MODEL_UNAVAILABLE"
         );
       }
+      if (quotaError && error.code === "GEMINI_UNAVAILABLE") throw quotaError;
       throw error;
     }
 
@@ -403,7 +448,7 @@ export async function geminiGenerateDetailed(
     if (!text && !options?.retryTruncatedDocument) {
       lastError = new GeminiApiError("Gemini tidak mengembalikan teks.", 502, "GEMINI_EMPTY_RESPONSE");
       if (index < attemptModels.length - 1) continue;
-      throw lastError;
+      throw quotaError || lastError;
     }
 
     const usageMetadata = data?.usageMetadata || {};

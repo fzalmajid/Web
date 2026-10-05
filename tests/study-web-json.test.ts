@@ -36,7 +36,7 @@ test("Study Web researches with tools then creates JSON without tools, retaining
 
 test("Web with no grounding evidence does not silently become an internal-knowledge Study", async () => {
   const original = globalThis.fetch;
-  globalThis.fetch = async (_url, init) => init?.body ? Response.json({ candidates: [{ content: { parts: [{ text: "No sources" }] } }] }) : Response.json({ models: [] });
+  globalThis.fetch = async (_url, init) => init?.body ? Response.json({ candidates: [{ content: { parts: [{ text: "No sources" }] } }] }) : Response.json({ error: { message: "Discovery unavailable" } }, { status: 503 });
   try {
     await assert.rejects(() => generateTextAi(info, "instant", "Study", "Web", { web: true, json: true }), (error: any) => error.code === "WEB_EVIDENCE_MISSING");
   } finally { globalThis.fetch = original; }
@@ -46,14 +46,14 @@ test("JSON without Web needs one generation, and configuration errors do not mas
   const original = globalThis.fetch;
   let generations = 0;
   globalThis.fetch = async (_url, init) => {
-    if (!init?.body) return Response.json({ models: [] });
+    if (!init?.body) return Response.json({ error: { message: "Discovery unavailable" } }, { status: 503 });
     generations++;
     return Response.json({ candidates: [{ content: { parts: [{ text: '{"units":[]}' }] } }] });
   };
   try {
     await generateTextAi(info, "instant", "Study", "Database", { json: true });
     assert.equal(generations, 1);
-    globalThis.fetch = async (_url, init) => init?.body ? Response.json({ error: { message: "Invalid argument: unsupported generation config" } }, { status: 400 }) : Response.json({ models: [] });
+    globalThis.fetch = async (_url, init) => init?.body ? Response.json({ error: { message: "Invalid argument: unsupported generation config" } }, { status: 400 }) : Response.json({ error: { message: "Discovery unavailable" } }, { status: 503 });
     await assert.rejects(() => geminiGenerateDetailed([{ text: "Test" }], "", { apiKey: "test-only", models: ["gemini-2.5-flash"] }), (error: any) => error.code === "GEMINI_CONFIG_INCOMPATIBLE" && error.statusCode === 400);
   } finally { globalThis.fetch = original; }
 });

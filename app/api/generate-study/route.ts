@@ -3,6 +3,7 @@ import { createServerSupabase } from "@/lib/supabase";
 import { parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { annotateBibliographicWorks, buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
+import { aiFailure } from "@/lib/aiFailure";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiGenerationUsage } from "@/lib/aiQuota";
 import { buildCitationMetadataInventory, citationInstruction, normalizeCitationOptions } from "@/lib/citations";
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
@@ -392,9 +393,7 @@ Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? c
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
     console.error("[API_GENERATE_STUDY_ERROR]", { name: error?.name, code: error?.code, status });
-    return NextResponse.json(
-      { error: error?.message || "Gagal membuat latihan." },
-      { status: status >= 400 && status < 600 ? status : 500 }
-    );
+    const failure = aiFailure(error, "Gagal membuat latihan.");
+    return NextResponse.json(failure.body, failure.init);
   }
 }

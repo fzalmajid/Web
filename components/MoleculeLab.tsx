@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { loadRDKit } from "@/lib/rdkitBrowser";
+import { observeVisualizationResize } from "@/lib/visualizationResize";
 
 export default function MoleculeLab() {
   const [name, setName] = useState("aspirin"), [smiles, setSmiles] = useState("CC(=O)OC1=CC=CC=C1C(=O)O");
@@ -10,6 +11,7 @@ export default function MoleculeLab() {
   const canvas = useRef<HTMLCanvasElement>(null), host = useRef<HTMLDivElement>(null), viewer = useRef<any>(null), molblock = useRef("");
   const module = useRef<any>(null), sequence = useRef(0);
   useEffect(() => () => { sequence.current++; viewer.current?.clear(); }, []);
+  useEffect(() => observeVisualizationResize(host.current, () => viewer.current?.resize()), []);
   async function render(input: string, dimensional = false, id = sequence.current) {
     molblock.current="";setHasMol(false);setProtein("");
     if (!module.current) {

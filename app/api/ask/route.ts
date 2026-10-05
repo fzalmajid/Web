@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { visualLearningRequest } from "@/lib/visualIntent";
+import { aiFailure } from "@/lib/aiFailure";
 import { calibrationEvidence } from "@/lib/calibrationEvidence";
 import { researchQuery, relevantResearchContext } from "@/lib/researchQuery";
 import { researchScopeInstruction } from "@/lib/researchScope";
@@ -1928,6 +1929,10 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
     console.error("[API_ASK_ERROR]", { name: error?.name, code: error?.code, status });
+    if (["GEMINI_QUOTA", "WEB_SEARCH_QUOTA", "GEMINI_AUTH_REJECTED", "GEMINI_UNAVAILABLE", "GEMINI_MODEL_UNAVAILABLE", "GEMINI_NO_AVAILABLE_MODEL"].includes(String(error?.code || ""))) {
+      const failure = aiFailure(error, "Gagal menjawab.");
+      return NextResponse.json(failure.body, failure.init);
+    }
     const privateProviderError = req.headers.get("X-RB-AI-Debug-Model") !== "1" && (/^(GEMINI|OPENAI|ANTHROPIC)_/.test(String(error?.code || "")) || /gemini-\d|claude-|gpt-\d/i.test(String(error?.message || "")));
     return NextResponse.json(
       { error: privateProviderError ? "AI Ruang Belajar sedang tidak tersedia. Pertanyaan tetap tersimpan; coba lagi nanti atau gunakan Simple untuk Database." : error?.message || "Gagal menjawab." },

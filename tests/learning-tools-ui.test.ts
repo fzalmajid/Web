@@ -33,7 +33,7 @@ test("media search is contextual in chat, not a duplicate composer form", () => 
   assert.ok(!page.includes("<OpenMedia"));assert.ok(page.includes("<ChatImages question="));
   const css = readFileSync(join(process.cwd(), "app/layout-alignment.css"), "utf8");
   assert.match(css, /\.askWebPanel\{\s*grid-column:1\/-1/);
-  assert.match(css, /\.askTopControls\{[^}]*display:flex!important;[^}]*flex-wrap:wrap!important/);
+  assert.match(css, /\.askTopControls\{[^}]*display:flex!important;[^}]*flex-wrap:nowrap!important/);
   assert.match(css, /\.aiExperienceChoices\{flex-shrink:0\}/);
 });
 

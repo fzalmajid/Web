@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { normalizeDoi } from "@/lib/referenceMetadata";
 import { publicUrl } from "@/lib/researchLinks";
+import { observeVisualizationResize } from "@/lib/visualizationResize";
 
 export default function PaperExplorer({ doi: initial = "" }: { doi?: string }) {
   const [doi, setDoi] = useState(initial), [result, setResult] = useState<any>(null);
@@ -10,6 +11,7 @@ export default function PaperExplorer({ doi: initial = "" }: { doi?: string }) {
   const sequence = useRef(0), graph = useRef<HTMLDivElement>(null);
   const cyRef = useRef<any>(null);
   useEffect(() => () => { sequence.current++; cyRef.current?.destroy(); }, []);
+  useEffect(() => observeVisualizationResize(graph.current, () => cyRef.current?.resize()), [result]);
   async function lookup(value = doi, connections = false) {
     const normalized = normalizeDoi(value);
     if (!normalized) { setError("Masukkan DOI yang valid."); return; }

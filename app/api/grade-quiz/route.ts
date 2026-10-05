@@ -4,6 +4,7 @@ import { cleanJsonText, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getSelectedKnowledge, searchSelectedKnowledge, prioritizeQuestionRelevantSources } from "@/lib/knowledge";
 import { generateTextAi, getTextAiRequestInfo } from "@/lib/requestTextAi";
 import { normalizeQuizGrade, usableQuizReference } from "@/lib/quizGrading";
+import { aiFailure } from "@/lib/aiFailure";
 import { aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiGenerationUsage } from "@/lib/aiQuota";
 
 export const maxDuration = 300;
@@ -200,9 +201,7 @@ Aturan:
   } catch (error: any) {
     const status = Number(error?.statusCode || 500);
     console.error("[API_GRADE_QUIZ_ERROR]", { name: error?.name, code: error?.code, status });
-    return NextResponse.json(
-      { error: error?.message || "Gagal menilai jawaban." },
-      { status: status >= 400 && status < 600 ? status : 500 }
-    );
+    const failure = aiFailure(error, "Gagal menilai jawaban.");
+    return NextResponse.json(failure.body, failure.init);
   }
 }
