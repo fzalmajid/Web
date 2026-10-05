@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { routePrimary, type PrimaryGeneration } from "../lib/primaryRouter";
 import { recordAiGenerationUsage } from "../lib/aiQuota";
 import { openaiGenerateDetailed } from "../lib/externalAi";
+import {getTextAiRequestInfo} from "../lib/requestTextAi";
 
 const output = (model: string, provider: PrimaryGeneration["provider"]): PrimaryGeneration => ({text:`Answer ${model}`, model, provider,
   usage:{inputTokens:10,outputTokens:20,thoughtsTokens:0,totalTokens:30},webSources:[{title:model,uri:"https://example.org/paper"}]});
@@ -14,6 +15,20 @@ test("High combines two authorized primaries and records each provider once", as
   await recordAiGenerationUsage({rpc:async(_name:string,args:any)=>{tracked.push(args);return {data:null,error:null};}} as any,result);
   assert.equal(tracked.length,2); assert.equal(tracked[0].model_name,"shared-api-key|gemini-test");
   assert.equal(tracked[1].model_name,"shared-openai-api-key|gpt-test");
+});
+test("normal Study/quiz ignores stale GPT model selection; debug remains explicit",()=>{
+  const req={headers:new Headers({"x-rb-ai-model":"openai:gpt-4.1-mini"})} as any;
+  assert.equal(getTextAiRequestInfo(req,"medium").provider,"gemini");
+  req.headers.set("x-rb-ai-debug-model","1");
+  assert.equal(getTextAiRequestInfo(req,"medium").provider,"openai");
+});
+test("both primary failure and exhausted GPT credits are reported without repeated provider attempts",async()=>{
+  let calls=0;
+  await assert.rejects(routePrimary({gemini:async()=>{throw {code:"GEMINI_QUOTA"};},openai:async()=>{calls++;throw {code:"PROVIDER_CREDIT_EXHAUSTED"};}}),error=>{
+    assert.equal((error as any).code,"PRIMARY_PROVIDERS_UNAVAILABLE");
+    assert.match((error as Error).message,/Kedua jalur/);assert.match((error as Error).message,/Billing API OpenAI/);return true;
+  });
+  assert.equal(calls,1);
 });
 test("Instant only invokes Gemini on success, but uses GPT once on provider unavailability", async () => {
   let gpt=0;

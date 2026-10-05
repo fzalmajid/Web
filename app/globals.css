@@ -11891,13 +11891,14 @@ body,
 /* One compact strip in every browser view, not a separate device-specific UI. */
 .rbCompactBar, .gptComposer .askTopControls > .rbCompactBar {
   display:flex!important; flex-wrap:nowrap!important; align-items:center!important;
-  gap:4px!important; min-width:0!important; width:100%!important; padding:0!important;
+  gap:6px!important; min-width:0!important; width:100%!important; padding:0!important;
   border:0!important; background:transparent!important; overflow:visible!important;
 }
 .rbCompactBar > .sourceToggleGroup, .gptComposer .rbCompactBar > .sourceToggleGroup {
-  display:flex!important; flex:1 1 auto!important; gap:4px!important; min-width:0!important;
+  display:flex!important; flex:1 1 auto!important; gap:6px!important; min-width:0!important;
   width:auto!important; padding:0!important; border:0!important; background:transparent!important;
   grid-column:auto!important; grid-row:auto!important;
+  order:0!important; margin:0!important; height:44px!important; min-height:44px!important; align-items:center!important;
 }
 .rbCompactBar > .rbControlPopover { flex:0 1 90px; min-width:44px; }
 .rbCompactBar .sourceToggleGroup > .rbCompactControl { flex:1 1 44px; min-width:32px; }
@@ -11905,14 +11906,18 @@ body,
 .rbCompactBar .rbControlPopover { min-width:0; }
 button.rbCompactControl, .gptComposer button.rbCompactControl {
   box-sizing:border-box!important; display:flex!important; align-items:center!important; justify-content:center!important;
-  gap:3px!important; width:100%!important; height:44px!important; min-height:44px!important;
+  gap:5px!important; width:100%!important; height:44px!important; min-height:44px!important;
   padding:0 8px!important; margin:0!important; border:1px solid var(--line,#d5dedb)!important;
-  border-radius:12px!important; background:var(--card,#fff)!important; color:var(--text,#17211e)!important;
+  border-radius:12px!important; background:var(--card,#fff)!important; color:var(--ink,#17211e)!important;
   font:inherit!important; font-size:.78rem!important; font-weight:700!important;
   white-space:nowrap!important; overflow:hidden!important; cursor:pointer;
 }
 .rbCompactControl > span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; }
-button.rbCompactControl.active { background:color-mix(in srgb,var(--accent,#b23d6b) 12%,var(--card,#fff))!important; }
+button.rbCompactControl { transition:background-color .15s,border-color .15s,box-shadow .15s; box-shadow:0 1px 2px #17211e05; }
+.rbControlChevron { flex:none; opacity:.65; transition:transform .15s; }
+.rbCompactControl[aria-expanded="true"] .rbControlChevron { transform:rotate(180deg); opacity:1; }
+button.rbCompactControl:hover:not(:disabled), button.rbCompactControl[aria-expanded="true"] { border-color:color-mix(in srgb,var(--accent) 50%,var(--line))!important; background:var(--soft,#f5f8f6)!important; }
+button.rbCompactControl.active { background:color-mix(in srgb,var(--accent,#b23d6b) 10%,var(--card,#fff))!important; border-color:color-mix(in srgb,var(--accent) 38%,var(--line))!important; }
 button.rbCompactControl:disabled { opacity:.5; cursor:not-allowed; }
 button.rbCompactControl:focus-visible, .rbControlPanel button:focus-visible { outline:2px solid var(--accent,#b23d6b); outline-offset:2px; }
 .gptComposer .askTopControls { display:flex!important; flex-wrap:nowrap!important; min-width:0!important; width:100%!important; gap:4px!important; }
@@ -11920,19 +11925,41 @@ button.rbCompactControl:focus-visible, .rbControlPanel button:focus-visible { ou
 .rbControlPanel {
   position:fixed; z-index:10000; box-sizing:border-box; width:420px;
   max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); overflow:auto;
-  padding:12px; border:1px solid var(--line,#d5dedb); border-radius:14px;
-  background:var(--card,#fff); color:var(--text,#17211e); box-shadow:0 12px 40px #17211e33;
+  padding:16px; border:1px solid var(--line,#d5dedb); border-radius:18px;
+  background:var(--card,#fff); color:var(--ink,#17211e); box-shadow:0 16px 48px #17211e26,0 2px 8px #17211e0d;
+  font-family:inherit; font-size:.84rem; line-height:1.5; scrollbar-width:thin;
   overscroll-behavior:contain; overflow-wrap:anywhere;
 }
-.rbControlPanelHead { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
-.rbControlPanelHead button { min-width:44px; min-height:44px; border:1px solid var(--line,#d5dedb); border-radius:12px; background:transparent; color:inherit; }
+.rbControlPanelHead { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+.rbControlPanelHead strong { font-size:.95rem; font-weight:700; letter-spacing:-.015em; }
+.rbControlPanelHead button { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border:1px solid var(--line,#d5dedb); border-radius:12px; background:var(--card); color:inherit; cursor:pointer; }
+.rbControlPanelHead button:hover { background:var(--soft); }
+.rbControlPanel button { font-family:inherit; font-size:inherit; }
 .rbControlPanel .citationPopoverHead, .rbReferenceContent > .aiDatabaseSourceHead { display:none; }
 .rbControlPanel .citationStyleGrid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .rbModeChoices { display:grid; gap:6px; }
 .rbModeChoices button { display:grid; gap:3px; text-align:left; min-height:44px; padding:10px; border:1px solid var(--line,#d5dedb); border-radius:12px; background:transparent; color:inherit; }
 .rbModeChoices button.active { background:color-mix(in srgb,var(--accent,#b23d6b) 12%,var(--card,#fff)); }
 .rbModeChoices small { color:var(--muted,#65736c); }
-.rbReferenceToggle { min-height:44px; width:100%; margin-bottom:8px; }
+.rbReferenceToggle { box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:48px; width:100%; margin:0 0 12px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--soft,#f5f8f6); color:var(--ink); font:inherit; font-weight:600; text-align:left; cursor:pointer; }
+.rbReferenceToggle::after { content:""; flex:none; width:36px; height:22px; border-radius:20px; background:radial-gradient(circle at 11px 11px,var(--card) 0 8px,transparent 8.5px),var(--muted); }
+.rbReferenceToggle[aria-pressed="true"] { border-color:color-mix(in srgb,var(--accent) 35%,var(--line)); background:color-mix(in srgb,var(--accent) 8%,var(--card)); }
+.rbReferenceToggle[aria-pressed="true"]::after { background:radial-gradient(circle at 25px 11px,var(--card) 0 8px,transparent 8.5px),var(--accent); }
 .rbControlPanel .folderTreePicker { width:100%; min-width:0; }
-.rbControlPanel .folderTreePanel { position:static!important; width:100%!important; max-height:45dvh!important; box-shadow:none!important; }
+.rbControlPanel .folderTreePanel { box-sizing:border-box; position:static!important; width:100%!important; max-height:45dvh!important; padding:6px; margin:0; border-radius:12px; box-shadow:none!important; }
+.rbControlPanel .folderTreeRow { min-height:44px; margin:2px 0; }
+.rbControlPanel .folderTreeRow.selected { background:color-mix(in srgb,var(--accent) 8%,var(--card)); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 40%,var(--line)); }
+.rbControlPanel .folderTreeChoice { min-height:44px; }
+.rbControlPanel .folderTreeChoice strong { font-size:.82rem; font-weight:600; }
+.rbControlPanel .folderTreeToggle { height:44px!important; }
 .rbControlPanel .aiDatabaseSourceTree { max-height:45dvh; overflow:auto; }
+.rbReferenceHint { margin:0 0 12px; color:var(--muted); font-size:.76rem; line-height:1.55; }
+.rbControlPanel .aiSourceTreeChoice,.rbControlPanel .aiSourceFileRow { min-height:44px; }
+.rbControlPanel .aiSourceTreeExpand { height:44px; cursor:pointer; }
+.rbControlPanel .aiSourceTreeRow { margin:2px 0; border-radius:10px; }
+.rbControlPanel .aiSourceTreeRow.selected,.rbControlPanel .aiSourceFileRow.selected { background:color-mix(in srgb,var(--accent) 8%,var(--card)); }
+.rbControlPanel .sourceCheck.checked { color:var(--ink); background:color-mix(in srgb,var(--accent) 25%,var(--card)); }
+.rbControlPanel .aiDatabaseSourceTools { gap:8px; flex-wrap:wrap; padding:0 0 10px; }
+.rbControlPanel .aiDatabaseSourceDone { margin-top:10px; padding:10px 0 0; background:transparent; }
+.rbControlPanel .aiDatabaseSourceDone button { min-height:44px; padding:10px 14px; border:0; border-radius:12px; background:var(--ink); color:var(--card); font-family:inherit; font-size:.8rem; font-weight:600; line-height:1.2; letter-spacing:normal; text-shadow:none; cursor:pointer; }
+@media (prefers-reduced-motion:reduce) { button.rbCompactControl,.rbControlChevron { transition:none; } }
