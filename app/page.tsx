@@ -3,6 +3,7 @@ import { answerBlocks } from "@/lib/answerLayout";
 import { answerProse, scopeAnswerHeadings, answerHeadingTarget, safeAnswerLink } from "@/lib/answerProse";
 import AnswerProse from "@/components/AnswerProse";
 import ControlPopover from "@/components/ControlPopover";
+import {referenceSubtreeIds,toggleReferenceFolder} from "@/lib/referenceSelection";
 
 // Normal UI exposes AI Ruang Belajar modes; the model picker remains available
 // only as an explicit debugging escape hatch while provider integrations settle.
@@ -192,6 +193,7 @@ type StudyPath = {
   user_id: string;
   node_id: string;
   source_node_ids: string[];
+  source_file_ids?: string[];
   ai_mode: "instant" | "medium" | "high";
   ai_model?: AiModelId | null;
   ai_effort?: AiEffort | null;
@@ -1685,6 +1687,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             node={current}
             nodes={nodes}
             entries={entries}
+            files={files}
             onOpen={setCurrentId}
             onChange={refresh}
           />
@@ -1751,6 +1754,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           user={user}
           parent={current}
           nodes={nodes}
+          files={files}
           onClose={() => setAddOpen(false)}
           onAdded={() => {
             setAddOpen(false);
@@ -3938,6 +3942,7 @@ function AddSheet({
   user,
   parent,
   nodes,
+  files,
   onClose,
   onCreated,
   onAdded,
@@ -3946,6 +3951,7 @@ function AddSheet({
   user: User;
   parent: StudyNode | null;
   nodes: StudyNode[];
+  files: SourceFile[];
   onClose: () => void;
   onCreated: (id: string) => void;
   onAdded: () => void;
@@ -3962,6 +3968,9 @@ function AddSheet({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [plannerSourceId, setPlannerSourceId] = useState("");
+  const [plannerSourceNodeIds, setPlannerSourceNodeIds] = useState<string[]>(() =>
+    parent && isFolderLikeNode(parent) ? [parent.id] : nodes.filter(isFolderLikeNode).slice(0,1).map(item => item.id));
+  const [plannerSourceFileIds, setPlannerSourceFileIds] = useState<string[]>([]);
   const [plannerInstruction, setPlannerInstruction] = useState("");
   const [plannerCount, setPlannerCount] = useState(5);
   const [plannerQuizKinds, setPlannerQuizKinds] = useState<Array<"mcq-fixed" | "essay-fixed">>(["mcq-fixed"]);
@@ -4135,7 +4144,7 @@ function AddSheet({
     const isManualQuiz = kind === "quiz" && quizCreationMode === "manual";
     const isAnswerAiQuiz = kind === "quiz" && quizCreationMode === "answer-ai";
 
-    if (!isManualQuiz && !plannerSourceId) {
+    if (!isManualQuiz && plannerAnswerSources.includes("database") && !plannerSourceNodeIds.length && !plannerSourceFileIds.length) {
       setStatus("Pilih folder sumber terlebih dahulu.");
       return;
     }
@@ -4237,7 +4246,8 @@ function AddSheet({
               headers: aiRequestHeaders(session, plannerSelection),
               body: JSON.stringify({
                 studyNodeId: data.id,
-                sourceNodeIds: [plannerSourceId],
+                sourceNodeIds: plannerSourceNodeIds,
+                sourceFileIds: plannerSourceFileIds,
                 studyInstruction: plannerInstruction.trim(),
                 aiMode: plannerMode,
                 aiModel: plannerSelection.model,
@@ -4256,7 +4266,8 @@ function AddSheet({
               method: "POST",
               headers: aiRequestHeaders(session, plannerSelection),
               body: JSON.stringify({
-                sourceNodeId: plannerSourceId,
+                sourceNodeIds: plannerSourceNodeIds,
+                sourceFileIds: plannerSourceFileIds,
                 targetNodeId: data.id,
                 mode: nodeType,
                 aiMode: plannerMode,
@@ -5022,7 +5033,7 @@ function AddSheet({
                 <small className="createLabel">SUMBER & MODEL AI</small>
                 <AiSourceModelBar
                   sources={plannerAnswerSources}
-                  referencePicker={<FolderTreePicker inline nodes={nodes} value={plannerSourceId} onChange={setPlannerSourceId} allowedIds={new Set(plannerFolders.map(folder => folder.id))} placeholder="Pilih folder sumber" />}
+                  referenceControl={<AiDatabaseSourcePicker nodes={nodes} files={files} nodeIds={plannerSourceNodeIds} fileIds={plannerSourceFileIds} onChange={next=>{setPlannerSourceNodeIds(next.nodeIds);setPlannerSourceFileIds(next.fileIds);}} currentNodeId={parent?.id} sources={plannerAnswerSources} onSourcesChange={setPlannerAnswerSources} selectionModel={plannerSelection.model} showIndexTools={false} />}
                   onSourcesChange={setPlannerAnswerSources}
                   selection={plannerSelection}
                   onSelectionChange={setPlannerSelection}
@@ -5053,7 +5064,7 @@ function AddSheet({
 
             <button
               className="primary"
-              disabled={busy || !title.trim() || (!(kind === "quiz" && quizCreationMode === "manual") && !plannerSourceId)}
+              disabled={busy || !title.trim() || (!(kind === "quiz" && quizCreationMode === "manual") && plannerAnswerSources.includes("database") && !plannerSourceNodeIds.length && !plannerSourceFileIds.length)}
             >
               {busy
                 ? status || "Membuat..."
@@ -6543,6 +6554,7 @@ function StudyPage({
   node,
   nodes,
   entries,
+  files,
   onOpen,
   onChange,
 }: {
@@ -6551,6 +6563,7 @@ function StudyPage({
   node: StudyNode;
   nodes: StudyNode[];
   entries: KnowledgeEntry[];
+  files: SourceFile[];
   onOpen: (id: string) => void;
   onChange: () => void;
 }) {
@@ -6560,6 +6573,7 @@ function StudyPage({
   const [building, setBuilding] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [selectedSourceFiles, setSelectedSourceFiles] = useState<string[]>([]);
   const [studyInstruction, setStudyInstruction] = useState("");
   const [studyDepth, setStudyDepth] = useState<"simple" | "medium" | "complex">("medium");
   const [quizPerChapter, setQuizPerChapter] = useState(true);
@@ -6616,6 +6630,7 @@ function StudyPage({
     if (!nextPath) {
       setUnits([]);
       setSelectedSources([]);
+      setSelectedSourceFiles([]);
       setStudyInstruction("");
       setStudyDepth("medium");
       setQuizPerChapter(true);
@@ -6626,6 +6641,7 @@ function StudyPage({
     }
 
     setSelectedSources(nextPath.source_node_ids || []);
+    setSelectedSourceFiles(nextPath.source_file_ids || []);
     setStudyInstruction(nextPath.focus_instruction || "");
     setStudyDepth(nextPath.teaching_depth || "medium");
     setQuizPerChapter(nextPath.quiz_per_chapter !== false);
@@ -6667,7 +6683,7 @@ function StudyPage({
   }
 
   async function buildStudy() {
-    if (studyAnswerSources.includes("database") && !selectedSources.length) {
+    if (studyAnswerSources.includes("database") && !selectedSources.length && !selectedSourceFiles.length) {
       return alert("Database aktif. Pilih minimal satu folder sumber.");
     }
     if (aiSelection.model === "local") return alert("Study terarah membutuhkan model cloud.");
@@ -6679,6 +6695,7 @@ function StudyPage({
       body: JSON.stringify({
         studyNodeId: node.id,
         sourceNodeIds: selectedSources,
+        sourceFileIds: selectedSourceFiles,
         studyInstruction: studyInstruction.trim(),
         aiMode,
         aiModel: aiSelection.model,
@@ -7077,7 +7094,7 @@ function StudyPage({
           <div className="instructionAiBar studyInstructionAiBar">
             <AiSourceModelBar
               sources={studyAnswerSources}
-              referencePicker={<div className="studySourceGrid">{sourceDatabases.map(database => <button type="button" key={database.id} className={selectedSources.includes(database.id) ? "studySource active" : "studySource"} aria-pressed={selectedSources.includes(database.id)} onClick={() => toggleSource(database.id)}>{database.emoji || "📁"} {database.title}</button>)}{!sourceDatabases.length && <p>Belum ada folder sumber di cabang ini.</p>}</div>}
+              referenceControl={<AiDatabaseSourcePicker nodes={nodes} files={files} nodeIds={selectedSources} fileIds={selectedSourceFiles} onChange={next=>{setSelectedSources(next.nodeIds);setSelectedSourceFiles(next.fileIds);}} currentNodeId={node.parent_id} sources={studyAnswerSources} onSourcesChange={setStudyAnswerSources} selectionModel={aiSelection.model} showIndexTools={false} />}
               onSourcesChange={setStudyAnswerSources}
               selection={aiSelection}
               onSelectionChange={setAiSelection}
@@ -7092,7 +7109,7 @@ function StudyPage({
             </button>
             <button
               className="primary"
-              disabled={building || (studyAnswerSources.includes("database") && !selectedSources.length)}
+              disabled={building || (studyAnswerSources.includes("database") && !selectedSources.length && !selectedSourceFiles.length)}
               onClick={buildStudy}
             >
               {building ? "Sedang menyusun urutan belajar..." : path ? "Susun ulang Study" : "Mulai susun Study"}
@@ -8746,7 +8763,8 @@ function PracticePage({
   const [submitted, setSubmitted] = useState(false);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
   const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["database"]);
-  const [practiceSourceId, setPracticeSourceId] = useState(node.parent_id || "");
+  const [practiceSourceNodeIds, setPracticeSourceNodeIds] = useState<string[]>(node.parent_id ? [node.parent_id] : []);
+  const [practiceSourceFileIds, setPracticeSourceFileIds] = useState<string[]>([]);
   const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
@@ -8794,26 +8812,27 @@ function PracticePage({
   const scorePercent = gradedCount ? Math.round(totalScorePoints / gradedCount) : 0;
 
   async function generate() {
-    if (!node.parent_id) return alert("Buat Flashcard/Kuis di dalam Materi agar ada folder sumber.");
+    if (practiceAnswerSources.includes("database") && !practiceSourceNodeIds.length && !practiceSourceFileIds.length) return alert("Pilih minimal satu folder atau file Reference.");
 
     if (aiSelection.model === "local") {
       setBusy(true);
-      const scopeResult = await supabase.rpc("get_scope_knowledge", {
-        scope_node_id: practiceSourceId || node.parent_id,
-        result_limit: 120,
-      });
+      const scopeResults = await Promise.all(practiceSourceNodeIds.map(scopeId => supabase.rpc("get_scope_knowledge", {scope_node_id:scopeId,result_limit:120})));
+      if (practiceSourceFileIds.length) scopeResults.push(await supabase.from("knowledge_entries").select("*").in("source_file_id",practiceSourceFileIds).limit(120) as any);
+      const practiceScopeIds = new Set(practiceSourceNodeIds.flatMap(id=>collectSubtreeIds(nodes,id)));
+      const mergedScope = new Map<string,any>();
+      for (const result of scopeResults) if (!result.error && Array.isArray(result.data)) for (const entry of result.data) mergedScope.set(String(entry.id),entry);
       const readyFileIds = new Set(
         files.filter((file) => file.processing_status === "ready").map((file) => file.id)
       );
-      const sourceEntries = !scopeResult.error && Array.isArray(scopeResult.data)
-        ? (scopeResult.data as any[]).filter(
+      const sourceEntries = mergedScope.size
+        ? Array.from(mergedScope.values()).filter(
             (item) =>
               item.source_type !== "transcript" &&
               (!item.source_file_id || readyFileIds.has(String(item.source_file_id)))
           )
         : entries.filter(
             (item) =>
-              collectSubtreeIds(nodes, practiceSourceId || node.parent_id as string).includes(item.node_id) &&
+              (practiceScopeIds.has(item.node_id) || practiceSourceFileIds.includes(item.source_file_id || "")) &&
               item.source_type === "manual"
           );
       const sentences = sourceEntries
@@ -8872,7 +8891,8 @@ function PracticePage({
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
-        sourceNodeId: practiceSourceId || node.parent_id,
+        sourceNodeIds: practiceSourceNodeIds,
+        sourceFileIds: practiceSourceFileIds,
         targetNodeId: node.id,
         mode,
         aiMode,
@@ -9032,7 +9052,7 @@ function PracticePage({
           <>
             <AiSourceModelBar
               sources={practiceAnswerSources}
-              referencePicker={<FolderTreePicker inline nodes={nodes} value={practiceSourceId} onChange={setPracticeSourceId} placeholder="Pilih folder sumber" />}
+              referenceControl={<AiDatabaseSourcePicker nodes={nodes} files={files} nodeIds={practiceSourceNodeIds} fileIds={practiceSourceFileIds} onChange={next=>{setPracticeSourceNodeIds(next.nodeIds);setPracticeSourceFileIds(next.fileIds);}} currentNodeId={node.parent_id} sources={practiceAnswerSources} onSourcesChange={setPracticeAnswerSources} selectionModel={aiSelection.model} showIndexTools={false} />}
               onSourcesChange={setPracticeAnswerSources}
               selection={aiSelection}
               onSelectionChange={setAiSelection}
@@ -9049,7 +9069,7 @@ function PracticePage({
               <small className="createLabel">SUMBER & MODEL AI</small>
               <AiSourceModelBar
                 sources={practiceAnswerSources}
-                referencePicker={<FolderTreePicker inline nodes={nodes} value={practiceSourceId} onChange={setPracticeSourceId} placeholder="Pilih folder sumber" />}
+                referenceControl={<AiDatabaseSourcePicker nodes={nodes} files={files} nodeIds={practiceSourceNodeIds} fileIds={practiceSourceFileIds} onChange={next=>{setPracticeSourceNodeIds(next.nodeIds);setPracticeSourceFileIds(next.fileIds);}} currentNodeId={node.parent_id} sources={practiceAnswerSources} onSourcesChange={setPracticeAnswerSources} selectionModel={aiSelection.model} showIndexTools={false} />}
                 onSourcesChange={setPracticeAnswerSources}
                 selection={aiSelection}
                 onSelectionChange={setAiSelection}
@@ -9332,6 +9352,8 @@ function AiDatabaseSourcePicker({
   onSourcesChange,
   selectionModel,
   readOnlyReference = false,
+  showIndexTools = true,
+  allowAutomatic = showIndexTools,
 }: {
   nodes: StudyNode[];
   files: SourceFile[];
@@ -9344,6 +9366,8 @@ function AiDatabaseSourcePicker({
   onSourcesChange?: (sources: AiSourceKind[]) => void;
   selectionModel?: AiModelId;
   readOnlyReference?: boolean;
+  showIndexTools?: boolean;
+  allowAutomatic?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -9366,7 +9390,7 @@ function AiDatabaseSourcePicker({
     if (disabled) setOpen(false);
   }, [disabled]);
 
-  const databaseRelevantForPrewarm = !readOnlyReference && (!sources || sources.includes("database"));
+  const databaseRelevantForPrewarm = showIndexTools && !readOnlyReference && (!sources || sources.includes("database"));
 
   useEffect(() => {
     // Do not let a 118 MB embedding model compete with the first explorer render.
@@ -9381,7 +9405,7 @@ function AiDatabaseSourcePicker({
   useEffect(() => () => { stopVectorRef.current = true; }, []);
 
   useEffect(() => {
-    if (!open || readOnlyReference) return;
+    if (!open || readOnlyReference || !showIndexTools) return;
     let cancelled = false;
     getHfIndexStatus(supabase)
       .then((status) => {
@@ -9482,15 +9506,7 @@ function AiDatabaseSourcePicker({
   }, [files]);
 
   function subtreeNodeIds(id: string) {
-    const result = [id];
-    let cursor = 0;
-    while (cursor < result.length) {
-      const parentId = result[cursor++];
-      for (const child of childrenByParent.get(parentId) || []) {
-        if (!result.includes(child.id)) result.push(child.id);
-      }
-    }
-    return result;
+    return referenceSubtreeIds(nodes,id);
   }
 
   function folderCoveredBySelection(id: string) {
@@ -9514,33 +9530,7 @@ function AiDatabaseSourcePicker({
   }, [currentNodeId, nodes]);
 
   function toggleFolder(id: string) {
-    const subtree = new Set(subtreeNodeIds(id));
-    const coveredByAncestor = nodeIds.some(
-      (selectedId) => selectedId !== id && subtreeNodeIds(selectedId).includes(id)
-    );
-
-    // A child selected through its parent is intentionally locked to that parent.
-    // Uncheck the parent to remove the complete subtree, avoiding hidden exclusions.
-    if (coveredByAncestor && !nodeIds.includes(id)) return;
-
-    if (nodeIds.includes(id)) {
-      const nextNodes = nodeIds.filter((item) => !subtree.has(item));
-      const nextFiles = fileIds.filter((fileId) => {
-        const file = files.find((item) => item.id === fileId);
-        return !file || !subtree.has(file.node_id);
-      });
-      onChange({ nodeIds: nextNodes, fileIds: nextFiles });
-      return;
-    }
-
-    // Store only the selected parent root. Backend retrieval expands it recursively,
-    // so hundreds of child folders/files do not bloat the request.
-    const nextNodes = [...nodeIds.filter((item) => !subtree.has(item)), id];
-    const nextFiles = fileIds.filter((fileId) => {
-      const file = files.find((item) => item.id === fileId);
-      return !file || !subtree.has(file.node_id);
-    });
-    onChange({ nodeIds: nextNodes, fileIds: nextFiles });
+    onChange(toggleReferenceFolder(nodes,files,{nodeIds,fileIds},id));
   }
 
   function toggleFile(id: string) {
@@ -9594,6 +9584,8 @@ function AiDatabaseSourcePicker({
             <button
               type="button"
               className="aiSourceTreeChoice"
+              aria-pressed={selected}
+              aria-disabled={inherited}
               onClick={() => toggleFolder(node.id)}
               title={inherited ? "Dipilih melalui folder induk. Uncheck folder induk untuk menghapus seluruh anakannya." : undefined}
             >
@@ -9633,6 +9625,7 @@ function AiDatabaseSourcePicker({
                           : undefined
                     }
                     aria-disabled={!fileReady || inheritedFile}
+                    aria-pressed={fileSelected}
                     disabled={!fileReady}
                   >
                     <span className={fileSelected ? "sourceCheck checked" : "sourceCheck"}>{fileSelected ? "✓" : ""}</span>
@@ -9663,7 +9656,7 @@ function AiDatabaseSourcePicker({
             <button type="button" onClick={() => setOpen(false)}>×</button>
           </div>
 
-          {readOnlyReference ? (
+          {showIndexTools && (readOnlyReference ? (
             <div className="aiDatabaseSourceTools socialSharedReferenceInfo">
               <strong>👥 Reference teman</strong>
               <small className="muted">Tanya AI membaca folder dan isi Reference teman yang sedang dibuka. Reference ini hanya-baca dan tidak diindeks ulang oleh akun kamu.</small>
@@ -9706,34 +9699,14 @@ function AiDatabaseSourcePicker({
               </div>
             </div>
           </details>
-          )}
+          ))}
 
           {sources && onSourcesChange && (
-            <div className="aiSourceKindsInPicker">
-              <small>SUMBER JAWABAN · AI / REFERENCE / WEB</small>
-              <div className="sourceToggleGroup" role="group" aria-label="Sumber jawaban AI Reference Web">
-                {([
-                  { id: "ai" as const, label: "AI" },
-                  { id: "database" as const, label: "Reference" },
-                  { id: "web" as const, label: "Web" },
-                ]).map((item) => {
-                  const itemDisabled = selectionModel === "local" && item.id !== "database";
-                  return (
-                    <button
-                      type="button"
-                      key={item.id}
-                      className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
-                      onClick={() => toggleSourceKind(item.id)}
-                      aria-pressed={sources.includes(item.id)}
-                      disabled={itemDisabled}
-                    >
-                      {item.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <button type="button" className="rbReferenceToggle" aria-pressed={databaseEnabled} onClick={()=>toggleSourceKind("database")}>
+              {databaseEnabled ? "Reference aktif" : "Aktifkan Reference"}
+            </button>
           )}
+          <p className="rbReferenceHint">Pilih beberapa folder atau file. Folder mencakup semua anak dan file di dalamnya; lepaskan pilihan induk untuk menghapus cakupannya.</p>
 
           {!databaseEnabled && (
             <div className="aiDatabaseDisabledHint">
@@ -9744,13 +9717,13 @@ function AiDatabaseSourcePicker({
           <div className={databaseEnabled ? "aiDatabaseSourceContent" : "aiDatabaseSourceContent disabled"}>
           <div className="aiDatabaseSourceTools">
             <strong className="aiSourceTreeLabel">FOLDER &amp; FILE</strong>
-            <button
+            {allowAutomatic && <button
               type="button"
               className="ghost"
               onClick={() => onChange({ nodeIds: [], fileIds: [] })}
             >
               Otomatis dari halaman aktif
-            </button>
+            </button>}
             {selectedCount > 0 && (
               <button type="button" className="ghost" onClick={() => onChange({ nodeIds: [], fileIds: [] })}>
                 Hapus pilihan
@@ -9758,7 +9731,7 @@ function AiDatabaseSourcePicker({
             )}
           </div>
           <div className="aiDatabaseSourceTree" role="tree" aria-label="Pilih folder dan file sumber">
-            <button
+            {allowAutomatic && <button
               type="button"
               className={!selectedCount ? "aiSourceRootRow active" : "aiSourceRootRow"}
               onClick={() => onChange({ nodeIds: [], fileIds: [] })}
@@ -9766,12 +9739,12 @@ function AiDatabaseSourcePicker({
             >
               <span aria-hidden="true">⌂</span><strong>Beranda</strong>
               <small>{!selectedCount ? "Otomatis" : "Semua folder"}</small>
-            </button>
+            </button>}
             {renderBranch(null, 0)}
             {!folderNodes.length && <small className="muted">Belum ada folder sumber.</small>}
           </div>
           <div className="aiDatabaseSourceDone">
-            <span>{databaseEnabled ? (selectedCount ? selectedCount + " sumber dipilih" : "Mengikuti folder/halaman yang sedang aktif") : "Database tidak aktif"}</span>
+            <span>{databaseEnabled ? (selectedCount ? selectedCount + " sumber dipilih" : allowAutomatic ? "Mengikuti folder/halaman yang sedang aktif" : "Belum ada sumber dipilih") : "Database tidak aktif"}</span>
             <button type="button" className="primary" onClick={() => setOpen(false)}>Selesai</button>
           </div>
           </div>

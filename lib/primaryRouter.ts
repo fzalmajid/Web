@@ -19,7 +19,7 @@ export function primaryFallbackAllowed(error: unknown) {
     "GEMINI_NO_AVAILABLE_MODEL", "GEMINI_AUTH_MISSING", "GEMINI_CONFIG_INCOMPATIBLE", "GEMINI_EMPTY_RESPONSE"].includes(code);
 }
 
-/** At most two authorized primary calls. Council helpers remain free-only. */
+/** At most two authorized primary paths. Council helpers remain free-only. */
 export async function routePrimary(options: {
   gemini: () => Promise<PrimaryGeneration>;
   openai?: (draft?: PrimaryGeneration) => Promise<PrimaryGeneration>;
@@ -36,8 +36,19 @@ export async function routePrimary(options: {
   try { draft = track(await options.gemini()); }
   catch (error) {
     if (!options.openai || !primaryFallbackAllowed(error)) throw error;
-    const result = track(await options.openai());
-    return { ...result, usageRecords: receipts, primaryRoute: { path: paths, combined: false, fallback: true } };
+    try {
+      const result = track(await options.openai());
+      return { ...result, usageRecords: receipts, primaryRoute: { path: paths, combined: false, fallback: true } };
+    } catch (secondaryError) {
+      const billing = ["PROVIDER_CREDIT_EXHAUSTED", "PROVIDER_INSUFFICIENT_QUOTA", "PROVIDER_PROJECT_SPEND_LIMIT", "PROVIDER_ORG_LIMIT"].includes(String((secondaryError as any)?.code || ""));
+      if (!billing) throw secondaryError;
+      // Do not hide the primary failure behind an unrelated secondary billing
+      // error or keep retrying a provider whose credits cannot serve this request.
+      const unavailable = new Error("Kedua jalur AI belum dapat melayani permintaan ini: jalur utama sedang tidak tersedia, sedangkan jalur cadangan terhalang saldo/limit Billing API OpenAI. Pertanyaan tidak perlu dikirim ulang. Coba setelah layanan utama pulih atau pengelola memulihkan kredit API; Simple dapat dipakai untuk bahan lokal.");
+      Object.assign(unavailable, {code:"PRIMARY_PROVIDERS_UNAVAILABLE",statusCode:503,
+        providerCodes:[String((error as any)?.code || ""),String((secondaryError as any)?.code || "")]});
+      throw unavailable;
+    }
   }
   if (!options.combine || !options.openai) return { ...draft, usageRecords: receipts, primaryRoute: { path: paths, combined: false, fallback: false } };
   try {

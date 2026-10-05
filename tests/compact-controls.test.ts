@@ -20,10 +20,20 @@ test("all source bars share compact popups and portal positioning rather than ov
   const popover = readFileSync("components/ControlPopover.tsx", "utf8");
   assert.match(page, /aiSourceModelBar rbCompactBar/);
   assert.match(page, /referenceControl={<AiDatabaseSourcePicker/);
-  assert.ok((page.match(/referencePicker=/g) || []).length >= 4);
+  assert.ok((page.match(/referenceControl={<AiDatabaseSourcePicker/g) || []).length >= 5);
   assert.match(css, /\.rbCompactBar[^{}]*\{[^}]*flex-wrap:nowrap!important/);
   assert.match(css, /button\.rbCompactControl[^{}]*\{[^}]*height:44px!important/);
   assert.match(popover, /createPortal/);
   assert.match(popover, /visualViewport/);
   assert.match(popover, /event.key === "Escape"/);
+});
+test("Reference selection reaches every generator as node and file arrays",()=>{
+  const page=readFileSync("app/page.tsx","utf8");
+  for(const prefix of ["plannerSource","practiceSource"]){
+    assert.ok(page.includes(`sourceNodeIds: ${prefix}NodeIds`));
+    assert.ok(page.includes(`sourceFileIds: ${prefix}FileIds`));
+  }
+  assert.ok(page.includes("sourceFileIds: selectedSourceFiles"));
+  assert.ok(page.includes("toggleReferenceFolder(nodes,files,{nodeIds,fileIds},id)"));
+  assert.ok(page.includes("aria-pressed={fileSelected}"));
 });

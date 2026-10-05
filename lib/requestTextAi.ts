@@ -6,13 +6,16 @@ import {
   modelProvider,
   providerModelId,
   selectionFromHeaders,
+  selectionFromExperienceMode,
   type AiLegacyMode,
 } from "./aiModels";
 import { geminiUserAuthFromHeaders } from "./geminiUserAuth";
 import { routePrimary, sharedOpenAiConfig } from "./primaryRouter";
 
 export function getTextAiRequestInfo(req: NextRequest, aiMode: AiLegacyMode) {
-  const selection = selectionFromHeaders(req.headers, "chat", aiMode);
+  const selection = req.headers.get("x-rb-ai-debug-model") === "1"
+    ? selectionFromHeaders(req.headers, "chat", aiMode)
+    : selectionFromExperienceMode(aiMode, "chat");
   const provider = modelProvider(selection.model);
   const providerModel = providerModelId(selection.model);
   const geminiAuth = geminiUserAuthFromHeaders(req.headers);
