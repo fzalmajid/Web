@@ -234,11 +234,11 @@ function normalizeProviderError(
     response.status === 400 &&
     /thinking|temperature|generation.?config|unsupported.*parameter|invalid argument/i.test(providerMessage);
 
-  if (modelUnavailable || modelConfigInvalid) return new GeminiModelUnavailableError(
-    modelConfigInvalid
-      ? "Konfigurasi model ini tidak cocok untuk request tersebut. Sistem mencoba model fallback."
-      : undefined
+  if (modelConfigInvalid) return new GeminiApiError(
+    "Konfigurasi permintaan AI tidak kompatibel. Ini bukan berarti semua model tidak tersedia.",
+    400, "GEMINI_CONFIG_INCOMPATIBLE"
   );
+  if (modelUnavailable) return new GeminiModelUnavailableError();
   if (quotaLike && googleSearch) return new GeminiWebSearchQuotaError();
   if (quotaLike) return new GeminiQuotaError();
   if (busyLike) return new GeminiUnavailableError();
@@ -373,6 +373,10 @@ export async function geminiGenerateDetailed(
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const error = normalizeProviderError(response, data, Boolean(options?.googleSearch));
+      // Diagnostic metadata only: never log keys, authorization, prompts, or
+      // provider messages that might contain private source content.
+      console.error("[GEMINI_REQUEST_REJECTED]", { model, status: response.status, code: error.code,
+        web: Boolean(options?.googleSearch), json: options?.responseMimeType === "application/json" });
       lastError = error;
       if (
         index < attemptModels.length - 1 &&

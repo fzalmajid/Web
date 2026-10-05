@@ -3,7 +3,7 @@ import { createServerSupabase } from "@/lib/supabase";
 import { parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { annotateBibliographicWorks, buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
-import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiTokenUsage } from "@/lib/aiQuota";
+import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiGenerationUsage } from "@/lib/aiQuota";
 import { buildCitationMetadataInventory, citationInstruction, normalizeCitationOptions } from "@/lib/citations";
 import { buildDeterministicCitationInventory } from "@/lib/citationFormatterServer";
 
@@ -304,7 +304,7 @@ Buat ${mode === "flashcards" ? counts.cards + " flashcard" : mode === "quiz" ? c
         maxOutputTokens: aiMode === "high" ? 16384 : 12288,
       }
     );
-    await recordAiTokenUsage(supabase, aiResult.usage, aiResult.model, aiResult.provider);
+    await recordAiGenerationUsage(supabase, aiResult);
     const raw = aiResult.text;
 
     const parsed = parseJsonSafely(raw);

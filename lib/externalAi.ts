@@ -117,6 +117,7 @@ export async function openaiGenerateDetailed(options: {
   maxOutputTokens?: number;
   web?: boolean;
   attachments?: ExternalAiAttachment[];
+  json?: boolean;
 }) {
   const key = String(options.apiKey || "").trim();
   if (!key) throw new ExternalAiError("OpenAI belum terhubung.", 400, "OPENAI_KEY_MISSING");
@@ -155,6 +156,7 @@ export async function openaiGenerateDetailed(options: {
       "Content-Type": "application/json",
       Authorization: "Bearer " + key,
     },
+    signal: AbortSignal.timeout(90000),
     body: JSON.stringify({
       model: options.model,
       instructions: effectiveSystem || undefined,
@@ -179,7 +181,9 @@ export async function openaiGenerateDetailed(options: {
             ],
           }]
         : options.prompt,
-      reasoning: effort === "none" ? undefined : { effort },
+      store: false,
+      reasoning: effort === "none" || !/^(?:gpt-[56]|o[134])/.test(options.model) ? undefined : { effort },
+      text: options.json ? { format: { type: "json_object" } } : undefined,
       tools: options.web ? [{ type: "web_search" }] : undefined,
     }),
   });

@@ -2,6 +2,7 @@
 import { answerBlocks } from "@/lib/answerLayout";
 import { answerProse, scopeAnswerHeadings, answerHeadingTarget, safeAnswerLink } from "@/lib/answerProse";
 import AnswerProse from "@/components/AnswerProse";
+import ControlPopover from "@/components/ControlPopover";
 
 // Normal UI exposes AI Ruang Belajar modes; the model picker remains available
 // only as an explicit debugging escape hatch while provider integrations settle.
@@ -11,13 +12,12 @@ import katex from "katex";
 import "katex/contrib/mhchem";
 import { scientificRichPattern, scientificScriptPattern } from "@/lib/scientificNotation";
 import { createPortal } from "react-dom";
-import type { ClipboardEvent as ReactClipboardEvent, FormEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { ClipboardEvent as ReactClipboardEvent, FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrieval } from "@/lib/hfIndexing";
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
-import { boundedPopoverLeft } from "@/lib/popoverPosition";
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { assertPdfFile } from "@/lib/pdfValidation";
 import ProfileHome, { FriendCenter, ProfileEditorPanel, type UserProfile } from "@/components/ProfileHome";
@@ -3766,6 +3766,7 @@ function FolderTreePicker({
   allowedIds,
   placeholder = "Pilih folder",
   allowHome = false,
+  inline = false,
 }: {
   nodes: StudyNode[];
   value: string;
@@ -3773,6 +3774,7 @@ function FolderTreePicker({
   allowedIds?: Set<string>;
   placeholder?: string;
   allowHome?: boolean;
+  inline?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const folderNodes = useMemo(
@@ -3881,7 +3883,7 @@ function FolderTreePicker({
 
   return (
     <div className="folderTreePicker">
-      <button
+      {!inline && <button
         type="button"
         className={open ? "folderTreeSelected open" : "folderTreeSelected"}
         onClick={() => setOpen((current) => !current)}
@@ -3892,8 +3894,8 @@ function FolderTreePicker({
           {!homeSelected && selectedPath && <small>{selectedPath}</small>}
         </span>
         <b>{open ? "⌄" : ">"}</b>
-      </button>
-      {open && (
+      </button>}
+      {(open || inline) && (
         <div className="folderTreePanel">
           {allowHome ? (
             <div className={homeSelected ? "folderTreeRow folderTreeHomeRow selected" : "folderTreeRow folderTreeHomeRow"}>
@@ -4747,18 +4749,6 @@ function AddSheet({
               />
             </label>
 
-            <div className="plannerFolderField">
-              <span className="fieldLabel">Sumber RAW / folder</span>
-              <FolderTreePicker
-                nodes={nodes}
-                value={plannerSourceId}
-                onChange={setPlannerSourceId}
-                allowedIds={new Set(plannerFolders.map((folder) => folder.id))}
-                placeholder="Pilih folder sumber"
-              />
-              <small className="muted">AI membaca RAW/original dari folder ini. Versi tertata hanya bantuan.</small>
-            </div>
-
             <label>
               Fokus / instruksi (opsional)
               <textarea
@@ -5032,6 +5022,7 @@ function AddSheet({
                 <small className="createLabel">SUMBER & MODEL AI</small>
                 <AiSourceModelBar
                   sources={plannerAnswerSources}
+                  referencePicker={<FolderTreePicker inline nodes={nodes} value={plannerSourceId} onChange={setPlannerSourceId} allowedIds={new Set(plannerFolders.map(folder => folder.id))} placeholder="Pilih folder sumber" />}
                   onSourcesChange={setPlannerAnswerSources}
                   selection={plannerSelection}
                   onSelectionChange={setPlannerSelection}
@@ -7024,31 +7015,6 @@ function StudyPage({
             )}
           </div>
 
-          <div className="studySourceGrid">
-            {sourceDatabases.map((database) => {
-              const count = entries.filter((entry) => entry.node_id === database.id).length;
-              const active = selectedSources.includes(database.id);
-              return (
-                <button
-                  type="button"
-                  key={database.id}
-                  className={active ? "studySource active" : "studySource"}
-                  onClick={() => toggleSource(database.id)}
-                >
-                  <span className="studySourceCheck">{active ? "✓" : ""}</span>
-                  <span className="studySourceIcon">{database.emoji || "🗂️"}</span>
-                  <span className="studySourceCopy">
-                    <strong>{database.title}</strong>
-                    <small>{count ? count + " item teks/transkrip" : "Belum ada isi"}</small>
-                  </span>
-                </button>
-              );
-            })}
-            {!sourceDatabases.length && (
-              <div className="emptyStudySource">Belum ada folder sumber di cabang ini.</div>
-            )}
-          </div>
-
           <label className="studyInstructionField">
             Fokus belajar / instruksi khusus <span>opsional</span>
             <textarea
@@ -7111,6 +7077,7 @@ function StudyPage({
           <div className="instructionAiBar studyInstructionAiBar">
             <AiSourceModelBar
               sources={studyAnswerSources}
+              referencePicker={<div className="studySourceGrid">{sourceDatabases.map(database => <button type="button" key={database.id} className={selectedSources.includes(database.id) ? "studySource active" : "studySource"} aria-pressed={selectedSources.includes(database.id)} onClick={() => toggleSource(database.id)}>{database.emoji || "📁"} {database.title}</button>)}{!sourceDatabases.length && <p>Belum ada folder sumber di cabang ini.</p>}</div>}
               onSourcesChange={setStudyAnswerSources}
               selection={aiSelection}
               onSelectionChange={setAiSelection}
@@ -8779,6 +8746,7 @@ function PracticePage({
   const [submitted, setSubmitted] = useState(false);
   const [aiSelection, setAiSelection] = useState<AiSelection>(defaultSelection("local"));
   const [practiceAnswerSources, setPracticeAnswerSources] = useState<AiSourceKind[]>(["database"]);
+  const [practiceSourceId, setPracticeSourceId] = useState(node.parent_id || "");
   const aiMode = legacyModeForSelection(aiSelection);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<ManualKind>("mcq-fixed");
@@ -8831,7 +8799,7 @@ function PracticePage({
     if (aiSelection.model === "local") {
       setBusy(true);
       const scopeResult = await supabase.rpc("get_scope_knowledge", {
-        scope_node_id: node.parent_id,
+        scope_node_id: practiceSourceId || node.parent_id,
         result_limit: 120,
       });
       const readyFileIds = new Set(
@@ -8845,7 +8813,7 @@ function PracticePage({
           )
         : entries.filter(
             (item) =>
-              collectSubtreeIds(nodes, node.parent_id as string).includes(item.node_id) &&
+              collectSubtreeIds(nodes, practiceSourceId || node.parent_id as string).includes(item.node_id) &&
               item.source_type === "manual"
           );
       const sentences = sourceEntries
@@ -8904,7 +8872,7 @@ function PracticePage({
       method: "POST",
       headers: aiRequestHeaders(session, aiSelection),
       body: JSON.stringify({
-        sourceNodeId: node.parent_id,
+        sourceNodeId: practiceSourceId || node.parent_id,
         targetNodeId: node.id,
         mode,
         aiMode,
@@ -9064,6 +9032,7 @@ function PracticePage({
           <>
             <AiSourceModelBar
               sources={practiceAnswerSources}
+              referencePicker={<FolderTreePicker inline nodes={nodes} value={practiceSourceId} onChange={setPracticeSourceId} placeholder="Pilih folder sumber" />}
               onSourcesChange={setPracticeAnswerSources}
               selection={aiSelection}
               onSelectionChange={setAiSelection}
@@ -9080,6 +9049,7 @@ function PracticePage({
               <small className="createLabel">SUMBER & MODEL AI</small>
               <AiSourceModelBar
                 sources={practiceAnswerSources}
+                referencePicker={<FolderTreePicker inline nodes={nodes} value={practiceSourceId} onChange={setPracticeSourceId} placeholder="Pilih folder sumber" />}
                 onSourcesChange={setPracticeAnswerSources}
                 selection={aiSelection}
                 onSelectionChange={setAiSelection}
@@ -9681,28 +9651,10 @@ function AiDatabaseSourcePicker({
   }
 
   return (
-    <div className="aiDatabaseSourcePicker">
-      <button
-        type="button"
-        className={
-          (selectedCount ? "chooseSourcesTrigger active" : "chooseSourcesTrigger") +
-          (disabled ? " disabled" : "")
-        }
-        onClick={() => setOpen((current) => !current)}
-        disabled={disabled}
-        aria-disabled={disabled}
-        title={disabled ? "Aktifkan Database untuk memilih folder atau file sumber." : "Pilih folder atau file sumber"}
-      >
-        <span>☷</span>
-        <span>
-          <strong>Pilih sumber</strong>
-          <small>{selectedCount ? selectedCount + " dipilih" : "Folder / file"}</small>
-        </span>
-        <b>{open ? "⌄" : ">"}</b>
-      </button>
+    <ControlPopover label="Reference" title="Pilih folder dan file Reference" active={databaseEnabled} disabled={disabled} open={open} onOpenChange={setOpen}>
 
       {open && (
-        <div className="aiDatabaseSourcePopover">
+        <div className="rbReferenceContent">
           <div className="aiDatabaseSourceHead">
             <div>
               <strong>Pilih sumber</strong>
@@ -9825,14 +9777,13 @@ function AiDatabaseSourcePicker({
           </div>
         </div>
       )}
-    </div>
+    </ControlPopover>
   );
 }
 
 function AiModePicker({value,onChange,allowLocal=true,context="general"}: {value:AiSelection;onChange:(selection:AiSelection)=>void;allowLocal?:boolean;context?:"general"|"transcription"|"chat";action:"ask"|"ask_web"|"study"|"transcription"|"file_light"|"file_heavy";compact?:boolean}) {
-  const [mode,setMode]=useState<AiExperienceMode>(()=>value.model==="local"&&allowLocal?"simple":legacyModeForSelection(value)==="high"?"high":"instant");
-  useEffect(()=>{onChange({...selectionFromExperienceMode(mode,context),length:value.length||"medium"});},[mode]);
-  return <AiExperiencePicker value={mode} allowSimple={allowLocal} onChange={setMode}/>;
+  const mode = value.model === "local" && allowLocal ? "simple" : legacyModeForSelection(value);
+  return <AiExperiencePicker value={mode} allowSimple={allowLocal} onChange={next => onChange({...selectionFromExperienceMode(next,context),length:value.length||"medium"})}/>;
 }
 
 function DebugAiModePicker({
@@ -10128,37 +10079,6 @@ function DebugAiModePicker({
 function CitationPicker({ compact = true }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [prefs, setPrefs] = useState<CitationPrefs>({ style: "none", outputs: ["in-text"] });
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const wrap = wrapRef.current;
-    const panel = wrap?.querySelector<HTMLElement>(".citationPopover");
-    if (!wrap || !panel) return;
-    const reposition = () => {
-      const anchor = wrap.getBoundingClientRect();
-      const viewport = window.visualViewport;
-      const left = boundedPopoverLeft(anchor.left, anchor.right, panel.getBoundingClientRect().width, viewport?.offsetLeft || 0, viewport?.width || document.documentElement.clientWidth);
-      panel.style.setProperty("--citation-viewport-left", `${left}px`);
-    };
-    reposition();
-    const observer = new ResizeObserver(reposition);
-    observer.observe(wrap);
-    observer.observe(panel);
-    const composer = wrap.closest(".gptComposer");
-    if (composer) observer.observe(composer);
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
-    window.visualViewport?.addEventListener("resize", reposition);
-    window.visualViewport?.addEventListener("scroll", reposition);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
-      window.visualViewport?.removeEventListener("resize", reposition);
-      window.visualViewport?.removeEventListener("scroll", reposition);
-    };
-  }, [open]);
 
   useEffect(() => {
     setPrefs(readCitationPrefs());
@@ -10167,20 +10087,6 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
     return () => window.removeEventListener("rb-citation-change", sync as EventListener);
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent | TouchEvent) => {
-      const target = event.target as Node | null;
-      if (target && wrapRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("touchstart", close);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("touchstart", close);
-    };
-  }, [open]);
 
   function setStyle(style: CitationStyle) {
     const next = { ...prefs, style };
@@ -10203,22 +10109,10 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
   const officialGuide = prefs.style === "none" ? null : CITATION_STYLE_GUIDES[prefs.style];
 
   return (
-    <div ref={wrapRef} className={compact ? "citationPicker compact" : "citationPicker"}>
-      <button
-        type="button"
-        className="citationTrigger"
-        onClick={() => setOpen((current) => !current)}
-        aria-expanded={open}
-      >
-        <span>
-          <strong>Choose Citation</strong>
-          <small>{selected.label}{prefs.style !== "none" ? " · " + selected.preview : ""}</small>
-        </span>
-        <b>⌄</b>
-      </button>
+    <ControlPopover label={selected.label} title="Pilih gaya sitasi" open={open} onOpenChange={setOpen}>
 
       {open && (
-        <div className="citationPopover">
+        <div className="rbCitationContent">
           <div className="citationPopoverHead">
             <div>
               <small>CHOOSE CITATION</small>
@@ -10291,7 +10185,7 @@ function CitationPicker({ compact = true }: { compact?: boolean }) {
           )}
         </div>
       )}
-    </div>
+    </ControlPopover>
   );
 }
 
@@ -10304,6 +10198,7 @@ function AiExperiencePicker({
   onChange: (value: AiExperienceMode) => void;
   allowSimple?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const options: Array<{ value: AiExperienceMode; label: string; hint: string }> = [
     { value: "simple", label: "Simple", hint: "Local/browser" },
     { value: "instant", label: "Instant", hint: "Jawaban cepat" },
@@ -10311,8 +10206,8 @@ function AiExperiencePicker({
     { value: "high", label: "High", hint: "Council + verifier" },
   ];
   return (
-    <div className="aiExperiencePicker" role="group" aria-label="Mode AI Ruang Belajar">
-      <div className="aiExperienceChoices">
+    <ControlPopover label={options.find(option => option.value === value)?.label || "Instant"} title="Pilih kedalaman AI" open={open} onOpenChange={setOpen}>
+      <div className="rbModeChoices">
         {options.filter(option=>allowSimple||option.value!=="simple").map((option) => (
           <button
             type="button"
@@ -10321,15 +10216,16 @@ function AiExperiencePicker({
             onClick={() => {
               onChange(option.value);
               window.localStorage.setItem("rb-ai-experience-mode", option.value);
+              setOpen(false);
             }}
             aria-pressed={value === option.value}
             title={option.hint}
           >
-            {option.label}
+            <strong>{option.label}</strong><small>{option.hint}</small>
           </button>
         ))}
       </div>
-    </div>
+    </ControlPopover>
   );
 }
 
@@ -10346,6 +10242,8 @@ function AiSourceModelBar({
   experienceMode,
   onExperienceModeChange,
   showModelDebug = false,
+  referenceControl,
+  referencePicker,
 }: {
   sources: AiSourceKind[];
   onSourcesChange: (sources: AiSourceKind[]) => void;
@@ -10359,6 +10257,8 @@ function AiSourceModelBar({
   experienceMode?: AiExperienceMode;
   onExperienceModeChange?: (mode: AiExperienceMode) => void;
   showModelDebug?: boolean;
+  referenceControl?: ReactNode;
+  referencePicker?: ReactNode;
 }) {
   useEffect(() => {
     if (selection.model === "local" && (sources.length !== 1 || sources[0] !== "database")) {
@@ -10375,7 +10275,7 @@ function AiSourceModelBar({
   }
 
   return (
-    <div className="askControls aiSourceModelBar">
+    <div className="askControls aiSourceModelBar rbCompactBar">
       {showSources && (
         <div className="sourceToggleGroup" role="group" aria-label="Sumber jawaban AI Reference Web">
           {([
@@ -10383,12 +10283,18 @@ function AiSourceModelBar({
             { id: "database" as const, label: "Reference" },
             { id: "web" as const, label: "Web" },
           ]).map((item) => {
-            const disabled = selection.model === "local" && item.id !== "database";
+            if (item.id === "database") return <div key={item.id} className="rbReferenceSlot">{referenceControl || <ControlPopover label="Reference" title="Pilih sumber Reference" active={sources.includes("database")}>
+              <button type="button" className="rbReferenceToggle" aria-pressed={sources.includes("database")} onClick={() => toggle("database")}>
+                {sources.includes("database") ? "✓ Reference aktif — nonaktifkan" : "Aktifkan Reference"}
+              </button>
+              {referencePicker || <p>Sumber mengikuti folder halaman aktif.</p>}
+            </ControlPopover>}</div>;
+            const disabled = selection.model === "local";
             return (
               <button
                 type="button"
                 key={item.id}
-                className={sources.includes(item.id) ? "sourceToggle active" : "sourceToggle"}
+                className={sources.includes(item.id) ? "rbCompactControl active" : "rbCompactControl"}
                 onClick={() => toggle(item.id)}
                 aria-pressed={sources.includes(item.id)}
                 disabled={disabled}
@@ -12422,7 +12328,7 @@ function BottomAskBar({
             <div className="askScope" title={activeChatScopeName}>
               <span>{activeChatScopeName}</span>
             </div>
-            <AiDatabaseSourcePicker
+            <AiSourceModelBar referenceControl={<AiDatabaseSourcePicker
               nodes={nodes}
               files={files}
               nodeIds={selectedSourceNodeIds}
@@ -12444,8 +12350,7 @@ function BottomAskBar({
                   );
                 }
               }}
-            />
-            <AiSourceModelBar
+            />}
               sources={selectedSources}
               onSourcesChange={setSelectedSources}
               selection={aiSelection}
@@ -12459,7 +12364,7 @@ function BottomAskBar({
               context="chat"
               compact
               allowLocal
-              showSources={false}
+              showSources
             />
           </div>
         </div>

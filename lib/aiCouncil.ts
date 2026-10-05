@@ -1,5 +1,6 @@
 import { aiCouncilPlan, type AiCouncilStage, type AiExperienceMode } from "@/lib/aiOrchestration";
 import {routeCouncilStage,type CouncilRoute} from "@/lib/councilRouter";
+import type { PrimaryGeneration } from "@/lib/primaryRouter";
 
 export type CouncilUsage = {
   inputTokens?: number;
@@ -14,6 +15,9 @@ export type CouncilGeneration = {
   usage?: CouncilUsage | null;
   webSources?: Array<{ title: string; uri: string }>;
   finishReason?: string;
+  provider?: PrimaryGeneration["provider"];
+  usageRecords?: PrimaryGeneration["usageRecords"];
+  primaryRoute?: PrimaryGeneration["primaryRoute"];
 };
 
 function clip(value: string, max: number) {

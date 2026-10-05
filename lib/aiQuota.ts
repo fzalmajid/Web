@@ -33,16 +33,24 @@ export type ActualGeminiUsage = {
   totalTokens?: number;
 };
 
+export type AiUsageProvider = "shared-api-key" | "user-api-key" | "user-google-oauth" | "user-openai-api-key" | "user-anthropic-api-key" | "shared-openai-api-key";
+
+export async function recordAiGenerationUsage(supabase: SupabaseClient, generation: {
+  usage?: ActualGeminiUsage | null; model: string; provider?: AiUsageProvider;
+  usageRecords?: Array<{usage: ActualGeminiUsage; model: string; provider: AiUsageProvider}>;
+}, fallbackProvider: AiUsageProvider = "shared-api-key") {
+  if (generation.usageRecords?.length) {
+    for (const record of generation.usageRecords) await recordAiTokenUsage(supabase, record.usage, record.model, record.provider);
+    return;
+  }
+  await recordAiTokenUsage(supabase, generation.usage, generation.model, generation.provider || fallbackProvider);
+}
+
 export async function recordAiTokenUsage(
   supabase: SupabaseClient,
   usage?: ActualGeminiUsage | null,
   model = "unknown",
-  provider:
-    | "shared-api-key"
-    | "user-api-key"
-    | "user-google-oauth"
-    | "user-openai-api-key"
-    | "user-anthropic-api-key" = "shared-api-key"
+  provider: AiUsageProvider = "shared-api-key"
 ) {
   if (!usage) return null;
   const total = Math.max(0, Math.round(Number(usage.totalTokens || 0)));
