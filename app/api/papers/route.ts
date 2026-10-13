@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import { normalizeDoi } from "@/lib/referenceMetadata";
 import { findOpenPaper, paperConnections } from "@/lib/publicResearch";
 

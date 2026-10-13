@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import { processLibraryCitations, type ProcessorStyle } from "@/lib/citationFormatterServer";
 
 export const runtime = "nodejs";

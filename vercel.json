@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "npm install",
-  "buildCommand": "npm run prepare:learning-assets && npm test && npm run build",
+  "buildCommand": "node scripts/setup-neon.mjs && npm run prepare:learning-assets && npm test && npm run build",
   "git": {
     "deploymentEnabled": {
       "dev": false

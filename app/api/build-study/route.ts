@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { aiFailure } from "@/lib/aiFailure";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import { parseJsonSafely, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { getTextAiRequestInfo, generateTextAi } from "@/lib/requestTextAi";
 import { aiModeInstruction, aiQuotaError, checkAiCredits, finalizeAiCredits, normalizeAiMode, recordAiGenerationUsage } from "@/lib/aiQuota";

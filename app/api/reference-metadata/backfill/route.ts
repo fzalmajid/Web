@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import { resolveReferenceMetadata } from "@/lib/referencePipelineServer";
 
 export const runtime = "nodejs";

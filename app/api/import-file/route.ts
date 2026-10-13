@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
 import JSZip from "jszip";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import { cleanJsonText, geminiGenerateDetailed, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getScopeKnowledge } from "@/lib/knowledge";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";

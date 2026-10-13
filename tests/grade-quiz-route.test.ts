@@ -19,7 +19,7 @@ const db={
   }),
 };
 Module._load=function(id:string,...args:any[]) {
-  if(id==="@/lib/supabase")return {createServerSupabase:()=>db};
+  if(id==="@/lib/serverSupabase")return {createServerSupabase:()=>db};
   if(id==="@/lib/requestTextAi")return {
     getTextAiRequestInfo:(_:any,mode:string)=>({sharedGemini:true,mode}),
     generateTextAi:async (...values:any[])=>{generated.push(values);if(providerError)throw providerError;return {text:JSON.stringify({results:responseRows}),model:"gemini-test",provider:"shared-api-key",usage:{}};},

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from "mammoth";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import { geminiGenerateDetailed } from "@/lib/gemini";
 import { modelPlanForSelection, selectionFromHeaders } from "@/lib/aiModels";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";

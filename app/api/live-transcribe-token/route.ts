@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import { aiQuotaError, checkAiCredits, normalizeAiMode } from "@/lib/aiQuota";
 import { geminiUserAuthFromHeaders } from "@/lib/geminiUserAuth";
 

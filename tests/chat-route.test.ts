@@ -12,7 +12,7 @@ let databaseReads = 0;
 let getUser: () => Promise<any> = async () => ({ data: { user: null }, error: { message: "invalid token" } });
 const earlyModules = new Set(["chatStream", "aiModels", "aiOrchestration", "aiQuota", "primaryRouter", "geminiUserAuth", "citations", "answerLength"]);
 Module._load = function (id: string, ...args: any[]) {
-  if (id === "@/lib/supabase") return { createServerSupabase: () => ({
+  if (id === "@/lib/serverSupabase") return { createServerSupabase: () => ({
     auth: { getUser: () => { authCalls++; return getUser(); } },
     from: () => { databaseReads++; throw new Error("Unexpected database read before auth/cancellation gate"); },
   }) };

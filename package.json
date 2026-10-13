@@ -12,6 +12,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@neondatabase/neon-js": "0.8.0-beta",
+    "@neondatabase/serverless": "1.0.2",
+    "@vercel/blob": "2.8.1",
     "@citation-js/core": "0.9.0",
     "@citation-js/plugin-csl": "0.9.0",
     "@duckdb/duckdb-wasm": "1.32.0",
@@ -31,6 +34,7 @@
     "echarts": "6.1.0",
     "foliate-js": "1.0.1",
     "jszip": "3.10.1",
+    "jose": "6.2.12",
     "katex": "0.18.9",
     "mammoth": "1.12.3",
     "mermaid": "12.0.0",
@@ -48,6 +52,11 @@
     "undici": "7.16.0",
     "unpdf": "^1.8.1",
     "wavesurfer.js": "7.12.12"
+  },
+  "overrides": {
+    "@neondatabase/auth": {
+      "next": "$next"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.18.6",

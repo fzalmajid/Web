@@ -19,7 +19,8 @@ import { scientificRichPattern, scientificScriptPattern } from "@/lib/scientific
 import { createPortal } from "react-dom";
 import type { ClipboardEvent as ReactClipboardEvent, FormEvent, ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { supabase, USING_NEON } from "@/lib/supabase";
+import { delegatedGoogleSignIn } from "@/lib/authDelegation";
 import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrieval } from "@/lib/hfIndexing";
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
@@ -784,9 +785,24 @@ function Auth() {
     }
 
     if (mode === "login") {
-      const result = await supabase.auth.signInWithPassword({ email, password });
-      if (result.error) setMessage(authErrorMessage(result.error.message));
-      setBusy(false);
+      try {
+        const result = await supabase.auth.signInWithPassword({ email, password });
+        if (result.error) setMessage(authErrorMessage(result.error.message));
+      } catch (error: any) { setMessage(authErrorMessage(error?.message || "Gagal masuk.")); }
+      finally { setBusy(false); }
+      return;
+    }
+
+    if (USING_NEON) {
+      try {
+        const registration = await supabase.auth.signUp({
+          email: email.trim(), password,
+          options: { data: { name: email.trim().split("@")[0] } },
+        });
+        if (registration.error) setMessage(authErrorMessage(registration.error.message));
+        else if (!registration.data.session) setMessage("Akun dibuat. Periksa email untuk melanjutkan login.");
+      } catch (error: any) { setMessage(authErrorMessage(error?.message || "Gagal membuat akun.")); }
+      finally { setBusy(false); }
       return;
     }
 
@@ -821,6 +837,10 @@ function Auth() {
     setOauthBusy(true);
     setMessage("");
     try {
+      if (USING_NEON) {
+        await delegatedGoogleSignIn(supabase.auth, window.location.origin);
+        return;
+      }
       await loadGoogleIdentityScript();
       const google = (window as any).google;
       if (!google?.accounts?.oauth2?.initTokenClient) {

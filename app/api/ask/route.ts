@@ -5,7 +5,7 @@ import { aiFailure } from "@/lib/aiFailure";
 import { calibrationEvidence } from "@/lib/calibrationEvidence";
 import { researchQuery, relevantResearchContext } from "@/lib/researchQuery";
 import { researchScopeInstruction } from "@/lib/researchScope";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import {
   geminiGenerateDetailed,
   geminiAvailableTextModels,

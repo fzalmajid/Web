@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import type { ReferenceMetadata } from "@/lib/referenceMetadata";
 import { auditReferenceMetadata, resolveReferenceMetadata, REFERENCE_CAPABILITIES } from "@/lib/referencePipelineServer";
 import { citationPreviews } from "@/lib/citationFormatterServer";

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import { cleanJsonText, WHATSAPP_FORMAT_INSTRUCTION } from "@/lib/gemini";
 import { buildKnowledgeContext, getSelectedKnowledge, searchSelectedKnowledge, prioritizeQuestionRelevantSources } from "@/lib/knowledge";
 import { generateTextAi, getTextAiRequestInfo } from "@/lib/requestTextAi";

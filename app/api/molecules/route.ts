@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/serverSupabase";
 import { boundedJson } from "@/lib/publicResearch";
 export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
