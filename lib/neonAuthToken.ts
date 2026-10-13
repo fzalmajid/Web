@@ -38,8 +38,7 @@ export async function verifyNeonToken(token: string): Promise<User> {
     keySets.set(baseUrl, keys);
   }
   try {
-    const origin = new URL(baseUrl).origin;
-    return await verifyManagedNeonJwt(token, origin, keys);
+    return await verifyManagedNeonJwt(token, baseUrl, keys);
   } catch {
     throw new Error("Sesi tidak valid.");
   }
@@ -48,11 +47,14 @@ export async function verifyNeonToken(token: string): Promise<User> {
 /** Shared signature validation; the runtime always supplies the configured JWKS. */
 export async function verifyManagedNeonJwt(
   token: string,
-  origin: string,
+  authUrl: string,
   keys: Parameters<typeof jwtVerify>[1]
 ): Promise<User> {
+  // Managed Neon tokens use the complete branch Auth URL as issuer, while
+  // their audience is its origin. Requiring both also prevents branch mixing.
+  const issuer = authUrl.replace(/\/$/, "");
   const { payload } = await jwtVerify(token, keys, {
-    algorithms: ["EdDSA"], issuer: origin, audience: origin,
+    algorithms: ["EdDSA"], issuer, audience: new URL(issuer).origin,
     requiredClaims: ["exp", "sub", "iat"],
   });
   return userFromVerifiedNeonClaims(payload);
