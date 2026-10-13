@@ -6,13 +6,15 @@ export type CouncilRoute={stage:AiCouncilStage;policy:"free-only"|"existing-prim
 export function councilRouterStatus(){return {enabled:true,implementation:"native",helperPolicy:"free-only",synthesizerPolicy:"existing authorized primary and its existing model fallbacks",maxHelperAttempts:3,helperBudgetMs:35000,nestedCouncil:false,omniRouteInstalled:false,localFallback:"structural guidance, not independent semantic verification"};}
 
 /** One Council owns the workflow; this router only selects a generation path. */
-export async function routeCouncilStage(options:{stage:AiCouncilStage;prompt:string;withWeb:boolean;deadline:number;usedModels:readonly string[];primary:(prompt:string,web:boolean)=>Promise<CouncilGeneration>;local:()=>CouncilGeneration}):Promise<{generation:CouncilGeneration;route:CouncilRoute}>{
+export async function routeCouncilStage(options:{stage:AiCouncilStage;prompt:string;withWeb:boolean;deadline:number;usedModels:readonly string[];primary:(prompt:string,web:boolean)=>Promise<CouncilGeneration>;local:()=>CouncilGeneration;signal?:AbortSignal}):Promise<{generation:CouncilGeneration;route:CouncilRoute}>{
+  options.signal?.throwIfAborted();
   if(options.stage==="synthesizer")return {generation:await options.primary(options.prompt,options.withWeb),route:{stage:options.stage,policy:"existing-primary",provider:"existing-primary",fallback:false}};
   try{
     if(Date.now()>=options.deadline)throw new Error("Helper budget exhausted");
-    const generation=await openRouterFreeGenerate({prompt:options.prompt,stage:options.stage,avoidModels:options.usedModels,deadline:options.deadline,maxTokens:options.stage==="critic"?1200:900});
+    const generation=await openRouterFreeGenerate({prompt:options.prompt,stage:options.stage,avoidModels:options.usedModels,deadline:options.deadline,maxTokens:options.stage==="critic"?1200:900,signal:options.signal});
     return {generation,route:{stage:options.stage,policy:"free-only",provider:"openrouter-free",fallback:false}};
   }catch{
+    options.signal?.throwIfAborted();
     return {generation:options.local(),route:{stage:options.stage,policy:"free-only",provider:"local-structural",fallback:true}};
   }
 }

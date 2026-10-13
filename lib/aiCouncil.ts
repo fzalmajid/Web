@@ -51,6 +51,7 @@ export async function runAiCouncil(options: {
   basePrompt: string;
   generate: (prompt: string, withWeb: boolean) => Promise<CouncilGeneration>;
   recordUsage?: (generation: CouncilGeneration, stage: AiCouncilStage) => Promise<void>;
+  signal?: AbortSignal;
 }) {
   const plan = aiCouncilPlan(options.mode, options.useWeb);
   if (!plan.stages.length) return null;
@@ -65,9 +66,11 @@ export async function runAiCouncil(options: {
   };
 
   async function run(stage: AiCouncilStage, notes: string, withWeb = false, allowFree = true) {
+    options.signal?.throwIfAborted();
     const routed=await routeCouncilStage({stage,prompt:stagePrompt(stage,options.basePrompt,notes),withWeb,deadline:helperDeadline,
       usedModels:completed.map(item=>item.generation.model.replace(/^openrouter-free:/,"")),
-      primary:options.generate,local:()=>localStage(stage,options.basePrompt,notes)});
+      primary:options.generate,signal:options.signal,local:()=>localStage(stage,options.basePrompt,notes)});
+    options.signal?.throwIfAborted();
     const generation=routed.generation;routes.push(routed.route);
     completed.push({ stage, generation });
     allWebSources.push(...(generation.webSources || []));

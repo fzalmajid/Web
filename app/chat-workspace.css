@@ -1,0 +1,669 @@
+/* Chat is a full-height workspace. These scoped rules supersede the legacy
+   floating composer geometry without changing the study and library pages. */
+.appShell.chatWorkspace {
+  --rb-topbar-h: 64px;
+  --rb-left-rail-w: 260px;
+  --chat-surface: #fff;
+  --chat-sidebar: #f7f7f8;
+  --chat-bubble: #f2f3f5;
+  --chat-border: #e5e7eb;
+  --chat-text: #25282d;
+  --chat-muted: #687078;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  min-height: 100dvh !important;
+  margin: 0 !important;
+  padding-top: var(--rb-topbar-h) !important;
+}
+
+:root[data-theme="dark"] .appShell.chatWorkspace {
+  --chat-surface: #181c1b;
+  --chat-sidebar: #121615;
+  --chat-bubble: #292e2c;
+  --chat-border: #353b38;
+  --chat-text: #eef1ef;
+  --chat-muted: #a3ada7;
+}
+
+.appShell.chatWorkspace.chatSurface {
+  height: 100dvh !important;
+  overflow: hidden !important;
+  background: var(--chat-surface);
+  color: var(--chat-text);
+}
+
+.appShell.chatWorkspace .topbar {
+  inset: 0 0 auto !important;
+  width: 100% !important;
+  height: var(--rb-topbar-h) !important;
+  padding: 0 20px !important;
+  gap: 12px !important;
+  border-bottom: 1px solid var(--chat-border) !important;
+  background: var(--chat-surface) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+.appShell.chatWorkspace .topbarStart {
+  position: static !important;
+  transform: none !important;
+  gap: 4px !important;
+}
+
+.appShell.chatWorkspace .topbarStart::after { display: none !important; }
+
+.appShell.chatWorkspace .topbarChatToggle,
+.appShell.chatWorkspace .topbarNewChat {
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px !important;
+  flex: 0 0 44px !important;
+  margin: 0 !important;
+  color: var(--chat-text) !important;
+}
+
+.appShell.chatWorkspace .chatWorkspaceBrand {
+  flex: 0 1 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  min-height: 44px !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 auto 0 0 !important;
+  padding: 4px 8px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  color: var(--chat-text) !important;
+  font-size: .95rem;
+  font-weight: 650;
+  letter-spacing: -.025em;
+  white-space: nowrap;
+}
+
+.appShell.chatWorkspace .chatWorkspaceBrand .brandMini {
+  width: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  border-radius: 10px !important;
+  background: var(--chat-text) !important;
+  color: var(--chat-surface) !important;
+  font-size: .68rem;
+}
+
+.appShell.chatWorkspace .chatWorkspaceSwitch,
+.appShell.chatWorkspace .learningTopLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px !important;
+  padding: 8px 12px;
+  border: 1px solid var(--chat-border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--chat-text);
+  font-size: .8rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.appShell.chatWorkspace .chatWorkspaceSwitch:hover,
+.appShell.chatWorkspace .learningTopLink:hover {
+  background: var(--chat-bubble);
+}
+
+.appShell.chatWorkspace .leftChatSidebar.open {
+  top: var(--rb-topbar-h) !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  width: var(--rb-left-rail-w) !important;
+  max-width: var(--rb-left-rail-w) !important;
+  padding: 16px 12px max(12px, env(safe-area-inset-bottom)) !important;
+  gap: 12px !important;
+  border-right: 1px solid var(--chat-border) !important;
+  background: var(--chat-sidebar) !important;
+  color: var(--chat-text) !important;
+  box-shadow: none !important;
+  z-index: 1001 !important;
+}
+
+.appShell.chatWorkspace .chatSidebarNav {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 3px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--chat-border);
+}
+
+.appShell.chatWorkspace .chatSidebarNav button,
+.appShell.chatWorkspace .chatSidebarNav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--chat-text);
+  font-size: .86rem;
+  font-weight: 550;
+  text-decoration: none;
+  text-align: left;
+}
+
+.appShell.chatWorkspace .chatSidebarNav button:hover,
+.appShell.chatWorkspace .chatSidebarNav a:hover,
+.appShell.chatWorkspace .chatSidebarNav button.active {
+  background: var(--chat-bubble);
+}
+
+.appShell.chatWorkspace .chatSidebarNav button[aria-current="page"] {
+  background: var(--chat-bubble);
+}
+
+.appShell.chatWorkspace .chatSidebarNav button:first-child {
+  border: 1px solid var(--chat-border);
+  background: var(--chat-surface);
+  font-weight: 650;
+}
+
+.appShell.chatWorkspace .leftChatPanelTitle {
+  min-height: 34px;
+  padding: 3px 10px 8px;
+  border-bottom: 0;
+}
+
+.appShell.chatWorkspace .leftChatPanelTitle strong {
+  color: var(--chat-muted);
+  font-size: .76rem;
+  font-weight: 650;
+}
+
+.appShell.chatWorkspace .leftChatPanelTitle small { display: none !important; }
+.appShell.chatWorkspace .leftChatHistory > input {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-color: var(--chat-border);
+  border-radius: 10px;
+  background: var(--chat-surface);
+  color: var(--chat-text);
+  font-size: .8rem;
+}
+.appShell.chatWorkspace .leftChatHistory > .chatRequestError {
+  width: 100%;
+  margin: 0;
+}
+.appShell.chatWorkspace .chatRequestError button {
+  min-height: 44px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+}
+.appShell.chatWorkspace .leftChatHistoryList { gap: 4px; }
+.appShell.chatWorkspace .leftChatHistoryItem {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  border-color: transparent;
+}
+
+.appShell.chatWorkspace .leftChatHistoryItem.active,
+.appShell.chatWorkspace .leftChatHistoryItem:hover { background: var(--chat-bubble); }
+
+.appShell.chatWorkspace .leftChatHistoryMain {
+  min-height: 50px;
+  padding: 10px !important;
+  color: var(--chat-text);
+}
+
+.appShell.chatWorkspace .leftChatHistoryTitle strong { font-size: .8rem; font-weight: 500; }
+.appShell.chatWorkspace .leftChatHistoryMain small { font-size: .63rem; color: var(--chat-muted); }
+.appShell.chatWorkspace .leftChatMoreButton {
+  width: 44px;
+  height: 44px;
+  color: var(--chat-muted);
+}
+
+.appShell.chatWorkspace .leftChatItemMenu button { min-height: 44px; font-size: .8rem !important; }
+.appShell.chatWorkspace .leftChatEmpty { padding: 12px 10px; font-size: .8rem; color: var(--chat-muted); }
+.appShell.chatWorkspace .leftChatAccountArea { border-top-color: var(--chat-border); }
+.appShell.chatWorkspace .leftChatAccountButton { min-height: 56px; color: var(--chat-text); }
+.appShell.chatWorkspace .leftChatAccountAction { min-height: 44px; }
+.appShell.chatWorkspace .chatSidebarBackdrop { display: none; }
+
+.appShell.chatWorkspace .pageShell[hidden],
+.appShell.chatWorkspace .chatWorkspaceStage[hidden] { display: none !important; }
+
+.appShell.chatWorkspace .chatWorkspaceStage {
+  position: relative !important;
+  inset: auto !important;
+  display: flex;
+  width: auto !important;
+  height: calc(100dvh - var(--rb-topbar-h));
+  min-height: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  background: var(--chat-surface);
+}
+
+.appShell.chatWorkspace .chatWorkspaceMain {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.appShell.chatWorkspace .chatWorkspaceMain .aiAnswer.aiChatRoom {
+  position: relative !important;
+  inset: auto !important;
+  transform: none !important;
+  display: flex !important;
+  flex: 1 1 auto;
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--chat-surface) !important;
+  box-shadow: none !important;
+  z-index: auto !important;
+}
+
+.appShell.chatWorkspace .aiChatHead {
+  width: min(100%, 860px);
+  margin: 0 auto;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--chat-border);
+  background: var(--chat-surface) !important;
+  color: var(--chat-text);
+}
+
+.appShell.chatWorkspace .aiChatHead > div { min-width: 0; gap: 5px; }
+.appShell.chatWorkspace .aiChatHead strong { font-size: .98rem; font-weight: 650; }
+.appShell.chatWorkspace .aiChatHead small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--chat-muted);
+  font-size: .71rem;
+}
+
+.appShell.chatWorkspace .aiChatHead button {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 10px;
+  color: var(--chat-text);
+}
+
+.appShell.chatWorkspace .aiChatMessages {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto;
+  align-items: stretch !important;
+  width: 100%;
+  max-width: 860px;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 28px 20px 24px;
+  gap: 28px !important;
+  background: var(--chat-surface) !important;
+  color: var(--chat-text) !important;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.appShell.chatWorkspace .aiChatEmpty {
+  width: 100%;
+  max-width: 680px;
+  margin: auto;
+  gap: 14px;
+  padding: 24px 0 36px;
+  color: var(--chat-muted);
+  font-size: .95rem;
+  line-height: 1.6;
+}
+
+.appShell.chatWorkspace .aiChatEmpty > strong,
+.appShell.chatWorkspace .aiChatEmpty > h1 {
+  margin: 0;
+  color: var(--chat-text);
+  font-size: clamp(1.6rem, 3.4vw, 2.3rem);
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -.04em;
+}
+
+.appShell.chatWorkspace .aiChatEmpty > .brandMini {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 4px;
+  border-radius: 14px;
+  background: var(--chat-text);
+  color: var(--chat-surface);
+}
+
+.appShell.chatWorkspace .aiChatEmpty > p {
+  max-width: 520px;
+  margin: 0 auto;
+  font-size: inherit;
+}
+
+.appShell.chatWorkspace .chatSuggestions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.appShell.chatWorkspace .chatSuggestions button {
+  min-height: 76px;
+  padding: 14px;
+  border: 1px solid var(--chat-border);
+  border-radius: 16px;
+  background: var(--chat-surface);
+  color: var(--chat-text);
+  font-size: .82rem;
+  line-height: 1.5;
+  text-align: left;
+  transition: background-color .15s, border-color .15s;
+}
+
+.appShell.chatWorkspace .chatSuggestions button:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--chat-border));
+  background: var(--chat-bubble);
+}
+
+.appShell.chatWorkspace .aiChatMessage {
+  flex: 0 0 auto;
+  gap: 8px;
+  min-width: 0;
+  color: var(--chat-text);
+}
+
+.appShell.chatWorkspace .aiChatMessage.user { max-width: 82%; }
+.appShell.chatWorkspace .aiChatMessage.assistant { width: 100%; max-width: 100%; }
+.appShell.chatWorkspace .aiChatMessageMeta { color: var(--chat-muted); gap: 8px; }
+.appShell.chatWorkspace .aiChatMessageMeta strong { font-size: .73rem; font-weight: 650; }
+.appShell.chatWorkspace .aiChatMessageMeta small { font-size: .67rem; }
+.appShell.chatWorkspace .aiChatMessage.user .aiChatMessageMeta { justify-content: flex-end; }
+
+.appShell.chatWorkspace .aiChatMessageBody {
+  display: block !important;
+  color: var(--chat-text) !important;
+  font-size: .96rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.appShell.chatWorkspace .aiChatMessage.user .aiChatMessageBody {
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--chat-bubble) !important;
+}
+
+.appShell.chatWorkspace .aiChatMessage.assistant .aiChatMessageBody {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--chat-surface) !important;
+}
+
+.appShell.chatWorkspace .aiChatMessageBody .aiAnswerProse { line-height: 1.75; }
+.appShell.chatWorkspace .aiChatMessageBody .aiAnswerProse > :first-child { margin-top: 0; }
+.appShell.chatWorkspace .aiChatMessageBody .aiAnswerProse > :last-child { margin-bottom: 0; }
+.appShell.chatWorkspace .aiChatMessageBody pre { max-width: 100%; overflow-x: auto; }
+.appShell.chatWorkspace .aiChatMessageBody .aiAnswerTable { max-width: 100%; }
+.appShell.chatWorkspace .aiChatMessageBody .katex-display { overflow-x: auto; overflow-y: hidden; }
+.appShell.chatWorkspace .aiChatMessage.pending { color: var(--chat-muted); }
+.appShell.chatWorkspace .aiChatMessage.pending .aiChatMessageBody { color: var(--chat-muted) !important; }
+.appShell.chatWorkspace .aiChatSources { color: var(--chat-muted); font-size: .76rem; line-height: 1.5; }
+.appShell.chatWorkspace .aiChatSources > summary { display: flex; align-items: center; min-height: 44px; }
+.appShell.chatWorkspace .aiChatSources a { overflow-wrap: anywhere; }
+.appShell.chatWorkspace .chatMessageActions { display: flex; align-items: center; gap: 6px; }
+.appShell.chatWorkspace .aiChatMessage.user .chatMessageActions { justify-content: flex-end; }
+.appShell.chatWorkspace .chatMessageActions button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--chat-muted);
+  font-size: .74rem;
+}
+.appShell.chatWorkspace .chatMessageActions button:hover { background: var(--chat-bubble); color: var(--chat-text); }
+
+.appShell.chatWorkspace .chatWorkspaceMain .gptComposer.bottomAsk {
+  position: relative !important;
+  inset: auto !important;
+  transform: none !important;
+  display: flex !important;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: calc(100% - 40px) !important;
+  max-width: 820px !important;
+  min-width: 0 !important;
+  margin: 0 auto !important;
+  padding: 12px !important;
+  gap: 10px !important;
+  border: 1px solid var(--chat-border) !important;
+  border-radius: 24px !important;
+  background: var(--chat-surface) !important;
+  box-shadow: 0 2px 12px rgb(22 34 31 / 5%) !important;
+  z-index: 10 !important;
+  overflow: visible !important;
+}
+
+.appShell.chatWorkspace .chatWorkspaceMain .gptComposer.bottomAsk:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--chat-border)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+
+.appShell.chatWorkspace .composerDragHandle { display: none !important; }
+.appShell.chatWorkspace .gptComposer.bottomAsk .askTopRow { width: 100% !important; padding: 0 !important; }
+.appShell.chatWorkspace .gptComposer.bottomAsk .askTopControls {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  gap: 8px !important;
+}
+.appShell.chatWorkspace .gptComposer.bottomAsk .askTopControls > .aiSourceModelBar.rbCompactBar {
+  flex-wrap: wrap !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+.appShell.chatWorkspace .gptComposer.bottomAsk .rbCompactBar > .sourceToggleGroup { min-width: 120px !important; flex: 1 1 230px !important; }
+.appShell.chatWorkspace .gptComposer.bottomAsk .rbCompactBar > .rbControlPopover { flex: 0 1 120px; }
+.appShell.chatWorkspace .gptComposer.bottomAsk .rbCompactBar .rbReferenceSlot { flex: 1.5 1 90px; }
+.appShell.chatWorkspace .gptComposer.bottomAsk button.rbCompactControl {
+  border-radius: 10px !important;
+  border-color: var(--chat-border) !important;
+  background: var(--chat-surface) !important;
+  color: var(--chat-text) !important;
+  font-size: .75rem !important;
+}
+.appShell.chatWorkspace .gptComposer.bottomAsk button.rbCompactControl.active {
+  background: color-mix(in srgb, var(--accent) 9%, var(--chat-surface)) !important;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--chat-border)) !important;
+}
+.appShell.chatWorkspace .gptComposer.bottomAsk .aiExperiencePicker { margin-left: 0; }
+.appShell.chatWorkspace .gptComposer.bottomAsk .aiExperienceChoices { background: var(--chat-surface); border-color: var(--chat-border); }
+.appShell.chatWorkspace .gptComposer.bottomAsk .aiExperienceChoices button { min-height: 44px; color: var(--chat-muted); }
+.appShell.chatWorkspace .gptComposer.bottomAsk .aiExperienceChoices button.active { color: var(--chat-text); }
+.appShell.chatWorkspace .gptComposer.bottomAsk .aiDebugModelDetails > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 8px;
+  border-radius: 10px;
+  color: var(--chat-muted);
+}
+
+.appShell.chatWorkspace .gptComposer.bottomAsk .askInputRow {
+  display: grid !important;
+  grid-template-columns: 44px 44px minmax(0, 1fr) 44px !important;
+  gap: 5px !important;
+  align-items: end !important;
+  width: 100%;
+  min-width: 0;
+  margin: 0 !important;
+}
+.appShell.chatWorkspace .gptComposer.bottomAsk .askInputRow textarea {
+  grid-column: auto !important;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px !important;
+  max-height: min(160px, 25dvh) !important;
+  padding: 11px 10px !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  background: var(--chat-surface) !important;
+  color: var(--chat-text) !important;
+  box-shadow: none !important;
+  font-size: 1rem;
+  line-height: 1.45;
+  resize: none;
+  overflow-y: auto;
+}
+.appShell.chatWorkspace .gptComposer.bottomAsk .askInputRow textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, var(--chat-text));
+  outline-offset: 1px;
+}
+.appShell.chatWorkspace .gptComposer.bottomAsk .askInputRow textarea::placeholder { color: var(--chat-muted); opacity: 1; }
+.appShell.chatWorkspace .gptComposer.bottomAsk .askAttach,
+.appShell.chatWorkspace .gptComposer.bottomAsk .askMic,
+.appShell.chatWorkspace .gptComposer.bottomAsk .sendAsk {
+  width: 44px !important;
+  min-width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  border-radius: 50% !important;
+  border: 0 !important;
+  background: var(--chat-bubble) !important;
+  color: var(--chat-text) !important;
+  box-shadow: none !important;
+}
+.appShell.chatWorkspace .gptComposer.bottomAsk .askInputRow .sendAsk:not(:disabled) { background: var(--chat-text) !important; color: var(--chat-surface) !important; }
+.appShell.chatWorkspace .gptComposer.bottomAsk .askMic.recording { background: #cc3737 !important; color: #fff !important; }
+.appShell.chatWorkspace .gptComposer.bottomAsk .askLinkInputRow { flex-wrap: wrap; }
+.appShell.chatWorkspace .gptComposer.bottomAsk .askLinkInputRow button,
+.appShell.chatWorkspace .gptComposer.bottomAsk .askAttachMenu button,
+.appShell.chatWorkspace .gptComposer.bottomAsk .askAttachmentPanel button,
+.appShell.chatWorkspace .gptComposer.bottomAsk .askVoicePanel button { min-height: 44px !important; }
+
+.appShell.chatWorkspace .chatComposerHint {
+  flex: 0 0 auto;
+  width: calc(100% - 40px);
+  max-width: 820px;
+  margin: 8px auto 12px;
+  color: var(--chat-muted);
+  font-size: .69rem;
+  line-height: 1.5;
+  text-align: center;
+}
+.appShell.chatWorkspace .chatRequestError {
+  flex: 0 0 auto;
+  width: calc(100% - 40px);
+  max-width: 820px;
+  margin: 8px auto;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--chat-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 7%, var(--chat-surface));
+  color: var(--danger);
+  font-size: .8rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.appShell.chatWorkspace :is(button, a, summary):focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; }
+
+@media (min-width: 900px) {
+  .appShell.chatWorkspace.leftChatSidebarOpen .chatWorkspaceStage { margin-left: var(--rb-left-rail-w) !important; }
+}
+
+@media (max-width: 899px) {
+  .appShell.chatWorkspace .topbar { padding: 0 10px !important; gap: 6px !important; }
+  .appShell.chatWorkspace .leftChatSidebar.open {
+    width: min(300px, calc(100vw - 48px)) !important;
+    max-width: min(300px, calc(100vw - 48px)) !important;
+    box-shadow: 12px 0 40px rgb(0 0 0 / 12%) !important;
+  }
+  .appShell.chatWorkspace .chatSidebarBackdrop {
+    position: fixed;
+    inset: var(--rb-topbar-h) 0 0;
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgb(0 0 0 / 32%);
+    z-index: 1000;
+    touch-action: none;
+  }
+  .appShell.chatWorkspace .chatWorkspaceStage { margin-left: 0 !important; }
+  .appShell.chatWorkspace .aiChatMessages { padding-top: 22px; }
+}
+
+@media (max-width: 600px) {
+  .appShell.chatWorkspace .chatWorkspaceBrand { gap: 7px !important; padding: 4px !important; font-size: .85rem; }
+  .appShell.chatWorkspace .chatWorkspaceSwitch { font-size: .74rem; padding: 8px 10px; }
+  .appShell.chatWorkspace .learningTopLink { display: none; }
+  .appShell.chatWorkspace .topbarNewChat { display: none !important; }
+  .appShell.chatWorkspace .aiChatHead { padding: 12px 16px 10px; }
+  .appShell.chatWorkspace .aiChatHead small { font-size: .66rem; }
+  .appShell.chatWorkspace .aiChatMessages { padding: 20px 16px; gap: 24px !important; }
+  .appShell.chatWorkspace .aiChatEmpty { padding: 12px 0 20px; gap: 10px; font-size: .85rem; }
+  .appShell.chatWorkspace .chatSuggestions { grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 10px; }
+  .appShell.chatWorkspace .chatSuggestions button { min-height: 48px; padding: 11px 14px; border-radius: 12px; }
+  .appShell.chatWorkspace .aiChatMessage.user { max-width: 90%; }
+  .appShell.chatWorkspace .aiChatMessageBody { font-size: .94rem; }
+  .appShell.chatWorkspace .chatWorkspaceMain .gptComposer.bottomAsk { width: calc(100% - 20px) !important; padding: 9px !important; border-radius: 20px !important; gap: 8px !important; }
+  .appShell.chatWorkspace .gptComposer.bottomAsk .askInputRow { grid-template-columns: 44px 44px minmax(0, 1fr) 44px !important; gap: 2px !important; }
+  .appShell.chatWorkspace .gptComposer.bottomAsk .askInputRow textarea { padding-inline: 7px !important; }
+  .appShell.chatWorkspace .gptComposer.bottomAsk .rbCompactBar > .sourceToggleGroup { flex-basis: 180px !important; }
+  .appShell.chatWorkspace .gptComposer.bottomAsk .rbCompactBar > .rbControlPopover { flex: 0 1 90px; }
+  .appShell.chatWorkspace .chatComposerHint { width: calc(100% - 28px); margin: 7px auto 9px; font-size: .64rem; }
+  .appShell.chatWorkspace .chatRequestError { width: calc(100% - 20px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appShell.chatWorkspace .chatSuggestions button,
+  .appShell.chatWorkspace .gptComposer.bottomAsk { transition: none; }
+}

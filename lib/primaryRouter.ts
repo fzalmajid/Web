@@ -24,7 +24,9 @@ export async function routePrimary(options: {
   gemini: () => Promise<PrimaryGeneration>;
   openai?: (draft?: PrimaryGeneration) => Promise<PrimaryGeneration>;
   combine?: boolean;
+  signal?: AbortSignal;
 }): Promise<PrimaryGeneration> {
+  options.signal?.throwIfAborted();
   const receipts: NonNullable<PrimaryGeneration["usageRecords"]> = [];
   const paths: string[] = [];
   const track = (result: PrimaryGeneration) => {
@@ -35,11 +37,13 @@ export async function routePrimary(options: {
   let draft: PrimaryGeneration;
   try { draft = track(await options.gemini()); }
   catch (error) {
+    options.signal?.throwIfAborted();
     if (!options.openai || !primaryFallbackAllowed(error)) throw error;
     try {
       const result = track(await options.openai());
       return { ...result, usageRecords: receipts, primaryRoute: { path: paths, combined: false, fallback: true } };
     } catch (secondaryError) {
+      options.signal?.throwIfAborted();
       const billing = ["PROVIDER_CREDIT_EXHAUSTED", "PROVIDER_INSUFFICIENT_QUOTA", "PROVIDER_PROJECT_SPEND_LIMIT", "PROVIDER_ORG_LIMIT"].includes(String((secondaryError as any)?.code || ""));
       if (!billing) throw secondaryError;
       // Do not hide the primary failure behind an unrelated secondary billing
@@ -57,6 +61,7 @@ export async function routePrimary(options: {
     return { ...final, webSources: [...draft.webSources, ...final.webSources].filter(source => !seen.has(source.uri) && Boolean(seen.add(source.uri))),
       usageRecords: receipts, primaryRoute: { path: paths, combined: true, fallback: false } };
   } catch {
+    options.signal?.throwIfAborted();
     // Extra synthesis must not discard a successful Gemini answer, nor create
     // a retry loop when the additional provider has a billing/rate limit.
     return { ...draft, usageRecords: receipts, primaryRoute: { path: paths, combined: false, fallback: true } };

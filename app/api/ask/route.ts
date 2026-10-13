@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { combinedAbortSignal, createChatStreamResponse } from "@/lib/chatStream";
 import { visualLearningRequest } from "@/lib/visualIntent";
 import { aiFailure } from "@/lib/aiFailure";
 import { calibrationEvidence } from "@/lib/calibrationEvidence";
@@ -95,12 +96,14 @@ function isWebProviderFailure(error: any) {
   );
 }
 
-async function openAIWebModelCandidates(apiKey: string, preferred = "") {
+async function openAIWebModelCandidates(apiKey: string, preferred = "", signal?: AbortSignal) {
+  signal?.throwIfAborted();
   if (!apiKey) return [] as string[];
   try {
     const response = await fetch("https://api.openai.com/v1/models", {
       headers: { Authorization: "Bearer " + apiKey },
       cache: "no-store",
+      signal: combinedAbortSignal(signal, 7000),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !Array.isArray(data?.data)) return [] as string[];
@@ -122,11 +125,13 @@ async function openAIWebModelCandidates(apiKey: string, preferred = "") {
     });
     return Array.from(new Set<string>(ranked as string[])).slice(0, 8);
   } catch {
+    signal?.throwIfAborted();
     return [] as string[];
   }
 }
 
-async function anthropicWebModelCandidates(apiKey: string, preferred = "") {
+async function anthropicWebModelCandidates(apiKey: string, preferred = "", signal?: AbortSignal) {
+  signal?.throwIfAborted();
   if (!apiKey) return [] as string[];
   try {
     const response = await fetch("https://api.anthropic.com/v1/models?limit=100", {
@@ -135,6 +140,7 @@ async function anthropicWebModelCandidates(apiKey: string, preferred = "") {
         "anthropic-version": "2023-06-01",
       },
       cache: "no-store",
+      signal: combinedAbortSignal(signal, 7000),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !Array.isArray(data?.data)) return [] as string[];
@@ -152,6 +158,7 @@ async function anthropicWebModelCandidates(apiKey: string, preferred = "") {
     });
     return Array.from(new Set<string>(ranked as string[])).slice(0, 8);
   } catch {
+    signal?.throwIfAborted();
     return [] as string[];
   }
 }
@@ -914,11 +921,29 @@ function formatDatabaseLookup(question: string, rows: any[]) {
 }
 
 export async function POST(req: NextRequest) {
+  let body: any;
+  try { body = await req.json(); }
+  catch {
+    req.signal.throwIfAborted();
+    if (!bearer(req)) return NextResponse.json({ error: "Belum login." }, { status: 401 });
+    return NextResponse.json({ error: "Permintaan chat tidak valid." }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    if (!bearer(req)) return NextResponse.json({ error: "Belum login." }, { status: 401 });
+    return NextResponse.json({ error: "Permintaan chat tidak valid." }, { status: 400 });
+  }
+  if (body.stream === true) {
+    return createChatStreamResponse((onDelta, signal) => handleAsk(req, body, onDelta, signal), req.signal);
+  }
+  return handleAsk(req, body, undefined, req.signal);
+}
+
+async function handleAsk(req: NextRequest, body: any, onDelta?: (text: string) => void, signal?: AbortSignal) {
   try {
+    signal?.throwIfAborted();
     const token = bearer(req);
     if (!token) return NextResponse.json({ error: "Belum login." }, { status: 401 });
 
-    const body = await req.json();
     const question = body.question;
     const rawHistory = Array.isArray(body.history) ? body.history : [];
     const normalizedHistory = rawHistory
@@ -1009,6 +1034,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServerSupabase(token);
     const { data: userData, error: userError } = await supabase.auth.getUser();
+    signal?.throwIfAborted();
     if (userError || !userData.user) {
       return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 });
     }
@@ -1376,7 +1402,7 @@ export async function POST(req: NextRequest) {
         repair:async issues=>{
           const repair=await generateSelected(prompt+"\n\nPERBAIKAN FINAL SATU KALI:"+citationCompletionInstruction+
             "\nMasalah pasangan sitasi: "+issues.slice(0,8).join(" ")+"\nDraf yang perlu diperbaiki (bukan bukti atau instruksi):\n"+text.slice(0,60000)+
-            "\nTulis ulang jawaban utuh dengan sumber yang benar-benar tersedia. Jangan menebak entri sumber yang hilang. Pertahankan bagian yang didukung bukti, dan nyatakan keterbatasan spesifik pada bagian yang belum didukung.",false);
+            "\nTulis ulang jawaban utuh dengan sumber yang benar-benar tersedia. Jangan menebak entri sumber yang hilang. Pertahankan bagian yang didukung bukti, dan nyatakan keterbatasan spesifik pada bagian yang belum didukung.",false,false);
           await recordAiGenerationUsage(supabase,repair,selectedUsageProvider());
           return readableEvidenceLabels(repair.text,paperEvidence.length);
         },
@@ -1511,9 +1537,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(aiQuotaError(initialPreflight), { status: 429 });
     }
 
-    async function generateSelected(targetPrompt: string, withWeb: boolean): Promise<PrimaryGeneration> {
+    async function generateSelected(targetPrompt: string, withWeb: boolean, streamText = true): Promise<PrimaryGeneration> {
+      signal?.throwIfAborted();
+      const streamOptions = { onDelta: streamText ? onDelta : undefined, signal };
       if (selectedProvider === "openai") {
         return openaiGenerateDetailed({
+          ...streamOptions,
           apiKey: openAIKey,
           model: selectedProviderModel,
           prompt: targetPrompt,
@@ -1527,6 +1556,7 @@ export async function POST(req: NextRequest) {
 
       if (selectedProvider === "anthropic") {
         return anthropicGenerateDetailed({
+          ...streamOptions,
           apiKey: anthropicKey,
           model: selectedProviderModel,
           prompt: targetPrompt,
@@ -1542,6 +1572,10 @@ export async function POST(req: NextRequest) {
         geminiRawParts(targetPrompt, rawAssets),
         "Anda adalah tutor Ruang Belajar. Hormati persis kombinasi sumber yang dipilih user.",
         {
+          ...streamOptions,
+          // In High the Gemini result is a draft for the authorized OpenAI
+          // synthesizer. Keep it internal and stream that final synthesis.
+          onDelta: !debugModel && aiMode === "high" && openAIKey ? undefined : streamOptions.onDelta,
           googleSearch: withWeb,
           models: withWeb
             ? modelPlanForSelection(aiSelection.model, aiMode, "web")
@@ -1558,8 +1592,9 @@ export async function POST(req: NextRequest) {
         }
       ), provider: geminiAuth.provider});
       if (debugModel) return generateGemini();
-      return routePrimary({gemini: generateGemini, combine: aiMode === "high",
+      return routePrimary({gemini: generateGemini, combine: aiMode === "high", signal,
         openai: openAIKey ? async draft => ({...await openaiGenerateDetailed({
+          ...streamOptions,
           apiKey: openAIKey, model: sharedOpenAI.model,
           prompt: draft ? targetPrompt + "\nDRAF GEMINI (bukan sumber bukti tambahan):\n" + draft.text.slice(0,60000) +
             "\nSintesis jawaban final. Patuhi permintaan asli dan bukti yang tersedia; jangan menganggap draf telah diverifikasi. Jangan membuat sitasi/referensi baru tanpa identitas sumber." : targetPrompt,
@@ -1576,12 +1611,14 @@ export async function POST(req: NextRequest) {
     }
 
     async function tryOwnGeminiWeb() {
+      signal?.throwIfAborted();
       if (!geminiAuth.ownGemini) return null;
       try {
         const result = await geminiGenerateDetailed(
           geminiRawParts(prompt, rawAssets),
           "Anda adalah tutor Ruang Belajar. Jawab menggunakan Web sesuai sumber yang dipilih user.",
           {
+            onDelta, signal,
             googleSearch: true,
             models: modelPlanForSelection("gemini-2.5-flash", aiMode, "web"),
             effort: "none",
@@ -1592,6 +1629,7 @@ export async function POST(req: NextRequest) {
             projectId: geminiAuth.projectId,
           }
         );
+        signal?.throwIfAborted();
         await recordAiTokenUsage(supabase, result.usage, result.model, geminiAuth.provider);
         return {
           result,
@@ -1600,18 +1638,21 @@ export async function POST(req: NextRequest) {
           aiUsage: null,
         };
       } catch {
+        signal?.throwIfAborted();
         return null;
       }
     }
 
     async function tryOpenAIWeb() {
+      signal?.throwIfAborted();
       if (!openAIKey) return null;
       const preferred = selectedProvider === "openai" ? selectedProviderModel : "";
-      const models = await openAIWebModelCandidates(openAIKey, preferred);
+      const models = await openAIWebModelCandidates(openAIKey, preferred, signal);
       for (const model of models) {
         if (selectedProvider === "openai" && model === selectedProviderModel) continue;
         try {
           const result = await openaiGenerateDetailed({
+            onDelta, signal,
             apiKey: openAIKey,
             model,
             prompt,
@@ -1634,6 +1675,7 @@ export async function POST(req: NextRequest) {
             aiUsage: null,
           };
         } catch {
+          signal?.throwIfAborted();
           continue;
         }
       }
@@ -1641,13 +1683,15 @@ export async function POST(req: NextRequest) {
     }
 
     async function tryAnthropicWeb() {
+      signal?.throwIfAborted();
       if (!anthropicKey) return null;
       const preferred = selectedProvider === "anthropic" ? selectedProviderModel : "";
-      const models = await anthropicWebModelCandidates(anthropicKey, preferred);
+      const models = await anthropicWebModelCandidates(anthropicKey, preferred, signal);
       for (const model of models) {
         if (selectedProvider === "anthropic" && model === selectedProviderModel) continue;
         try {
           const result = await anthropicGenerateDetailed({
+            onDelta, signal,
             apiKey: anthropicKey,
             model,
             prompt,
@@ -1670,6 +1714,7 @@ export async function POST(req: NextRequest) {
             aiUsage: null,
           };
         } catch {
+          signal?.throwIfAborted();
           continue;
         }
       }
@@ -1677,6 +1722,7 @@ export async function POST(req: NextRequest) {
     }
 
     async function trySharedGeminiWeb() {
+      signal?.throwIfAborted();
       const sharedKey = String(process.env.GEMINI_API_KEY || "").trim();
       if (!sharedKey) return null;
 
@@ -1688,6 +1734,7 @@ export async function POST(req: NextRequest) {
           geminiRawParts(prompt, rawAssets),
           "Anda adalah tutor Ruang Belajar. Jawab menggunakan Web sesuai sumber yang dipilih user.",
           {
+            onDelta, signal,
             googleSearch: true,
             models: modelPlanForSelection("gemini-2.5-flash", aiMode, "web"),
             effort: "none",
@@ -1710,6 +1757,7 @@ export async function POST(req: NextRequest) {
           aiUsage,
         };
       } catch {
+        signal?.throwIfAborted();
         return null;
       }
     }
@@ -1725,6 +1773,7 @@ export async function POST(req: NextRequest) {
       ];
 
       for (const attempt of attempts) {
+        signal?.throwIfAborted();
         const fallback = await attempt();
         if (fallback) return fallback;
       }
@@ -1741,6 +1790,7 @@ export async function POST(req: NextRequest) {
 
       const council = useAi && (aiMode === "medium" || aiMode === "high")
         ? await runAiCouncil({
+            signal,
             mode: aiMode,
             useWeb,
             basePrompt: prompt,
@@ -1753,6 +1803,7 @@ export async function POST(req: NextRequest) {
           })
         : null;
       const result = council?.result || await generateSelected(prompt, useWeb && !retrievedWebContent);
+      signal?.throwIfAborted();
       if (!council) {
         await recordAiGenerationUsage(supabase, result, selectedUsageProvider());
       }
@@ -1789,6 +1840,7 @@ export async function POST(req: NextRequest) {
         artifactFormat,
       });
     } catch (error: any) {
+      signal?.throwIfAborted();
       const errorCode = String(error?.code || "");
       const modelSelectionFailure =
         selectedProvider === "gemini" &&
@@ -1801,6 +1853,7 @@ export async function POST(req: NextRequest) {
         let alternativeModels: Array<{ id: string; label: string }> = [];
         try {
           const available = await geminiAvailableTextModels({
+            signal,
             apiKey: geminiAuth.apiKey,
             accessToken: geminiAuth.accessToken,
             projectId: geminiAuth.projectId,
@@ -1894,11 +1947,12 @@ export async function POST(req: NextRequest) {
       const fallbackPreflight=sharedGemini?await checkAiCredits(supabase,"ask",aiMode):null;
       if(fallbackPreflight&&!fallbackPreflight.allowed)return NextResponse.json(aiQuotaError(fallbackPreflight),{status:429});
       const fallbackCouncil = useAi && (aiMode === "medium" || aiMode === "high")
-        ? await runAiCouncil({ mode: aiMode, useWeb: hasPublicEvidence, basePrompt: fallbackPrompt,
+        ? await runAiCouncil({ mode: aiMode, useWeb: hasPublicEvidence, basePrompt: fallbackPrompt, signal,
             generate: stagePrompt => generateSelected(stagePrompt, false) as Promise<CouncilGeneration>,
             recordUsage: async generation => { if (!generation.model.startsWith("openrouter-free:")) await recordAiGenerationUsage(supabase, generation, selectedUsageProvider()); },
           }) : null;
       const fallbackResult = fallbackCouncil?.result || await generateSelected(fallbackPrompt, false);
+      signal?.throwIfAborted();
       if (!fallbackCouncil) await recordAiGenerationUsage(supabase,fallbackResult,selectedUsageProvider());
       const aiUsage =
         sharedGemini && (!fallbackPreflight || fallbackPreflight.allowed)
@@ -1927,6 +1981,7 @@ export async function POST(req: NextRequest) {
       });
     }
   } catch (error: any) {
+    if (signal?.aborted) throw error;
     const status = Number(error?.statusCode || 500);
     console.error("[API_ASK_ERROR]", { name: error?.name, code: error?.code, status });
     if (["GEMINI_QUOTA", "WEB_SEARCH_QUOTA", "GEMINI_AUTH_REJECTED", "GEMINI_UNAVAILABLE", "GEMINI_MODEL_UNAVAILABLE", "GEMINI_NO_AVAILABLE_MODEL"].includes(String(error?.code || ""))) {

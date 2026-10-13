@@ -5,6 +5,7 @@ import OfflineAuto from "@/components/OfflineAuto";
 import "./learning-tools.css";
 import "./globals.css";
 import "./layout-alignment.css";
+import "./chat-workspace.css";
 import "katex/dist/katex.min.css";
 
 export const metadata: Metadata = {

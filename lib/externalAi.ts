@@ -1,5 +1,6 @@
 import { responseLengthInstruction, type AiEffort, type AiResponseLength } from "./aiModels";
 import type { GeminiUsage, GeminiWebSource } from "./gemini";
+import { combinedAbortSignal, consumeSse } from "./chatStream";
 
 export type ExternalAiAttachment = {
   name: string;
@@ -118,7 +119,10 @@ export async function openaiGenerateDetailed(options: {
   web?: boolean;
   attachments?: ExternalAiAttachment[];
   json?: boolean;
+  onDelta?: (text: string) => void;
+  signal?: AbortSignal;
 }) {
+  options.signal?.throwIfAborted();
   const key = String(options.apiKey || "").trim();
   if (!key) throw new ExternalAiError("OpenAI belum terhubung.", 400, "OPENAI_KEY_MISSING");
 
@@ -156,7 +160,7 @@ export async function openaiGenerateDetailed(options: {
       "Content-Type": "application/json",
       Authorization: "Bearer " + key,
     },
-    signal: AbortSignal.timeout(90000),
+    signal: combinedAbortSignal(options.signal, 90000),
     body: JSON.stringify({
       model: options.model,
       instructions: effectiveSystem || undefined,
@@ -182,13 +186,17 @@ export async function openaiGenerateDetailed(options: {
           }]
         : options.prompt,
       store: false,
+      stream: options.onDelta ? true : undefined,
       reasoning: effort === "none" || !/^(?:gpt-[56]|o[134])/.test(options.model) ? undefined : { effort },
       text: options.json ? { format: { type: "json_object" } } : undefined,
       tools: options.web ? [{ type: "web_search" }] : undefined,
     }),
   });
 
-  const data = await response.json().catch(() => ({}));
+  const data = response.ok && options.onDelta
+    ? await readOpenAiStream(response, options.onDelta, options.signal)
+    : await response.json().catch(() => ({}));
+  options.signal?.throwIfAborted();
   if (!response.ok) {
     const diagnosed = normalizeExternalError("OpenAI", response.status, data);
     const providerCode = String(data?.error?.code || "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80);
@@ -269,7 +277,10 @@ export async function anthropicGenerateDetailed(options: {
   maxOutputTokens?: number;
   web?: boolean;
   attachments?: ExternalAiAttachment[];
+  onDelta?: (text: string) => void;
+  signal?: AbortSignal;
 }) {
+  options.signal?.throwIfAborted();
   const key = String(options.apiKey || "").trim();
   if (!key) throw new ExternalAiError("Claude belum terhubung.", 400, "ANTHROPIC_KEY_MISSING");
 
@@ -295,8 +306,10 @@ export async function anthropicGenerateDetailed(options: {
       "x-api-key": key,
       "anthropic-version": "2023-06-01",
     },
+    signal: combinedAbortSignal(options.signal, 90000),
     body: JSON.stringify({
       model: options.model,
+      stream: options.onDelta ? true : undefined,
       max_tokens: maxTokens,
       system: effectiveSystem || undefined,
       messages: [{
@@ -339,7 +352,10 @@ export async function anthropicGenerateDetailed(options: {
     }),
   });
 
-  const data = await response.json().catch(() => ({}));
+  const data = response.ok && options.onDelta
+    ? await readAnthropicStream(response, options.onDelta, options.signal)
+    : await response.json().catch(() => ({}));
+  options.signal?.throwIfAborted();
   if (!response.ok) throw normalizeExternalError("Claude", response.status, data);
 
   const textParts: string[] = [];
@@ -391,4 +407,59 @@ export async function anthropicGenerateDetailed(options: {
     model: options.model,
     finishReason: String(data?.stop_reason || ""),
   };
+}
+
+async function readOpenAiStream(response: Response, onDelta: (text: string) => void, signal?: AbortSignal) {
+  let final: any;
+  let text = "";
+  await consumeSse(response, ({ data: raw }) => {
+    if (raw === "[DONE]") return;
+    const event = JSON.parse(raw);
+    if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
+      text += event.delta;
+      onDelta(event.delta);
+    } else if (event.type === "response.completed" || event.type === "response.incomplete") {
+      final = event.response;
+    } else if (event.type === "error" || event.type === "response.failed") {
+      const error = event.error || event.response?.error || event;
+      throw normalizeExternalError("OpenAI", 502, { error });
+    }
+  }, signal);
+  if (!final) throw new ExternalAiError("Koneksi OpenAI terputus sebelum jawaban selesai.", 502, "OPENAI_STREAM_INCOMPLETE");
+  // The terminal response retains annotations and token usage. Use deltas only
+  // when the upstream terminal event omits its already streamed output.
+  if (!final.output_text && !final.output?.some((item: any) => item.type === "message")) final.output_text = text;
+  return final;
+}
+
+async function readAnthropicStream(response: Response, onDelta: (text: string) => void, signal?: AbortSignal) {
+  let message: any = { content: [], usage: {} };
+  let complete = false;
+  await consumeSse(response, ({ data: raw }) => {
+    const event = JSON.parse(raw);
+    if (event.type === "message_start") {
+      message = { ...event.message, content: [...(event.message?.content || [])], usage: { ...event.message?.usage } };
+    } else if (event.type === "content_block_start") {
+      message.content[event.index] = { ...event.content_block };
+      if (event.content_block?.type === "text" && event.content_block.text) onDelta(event.content_block.text);
+    } else if (event.type === "content_block_delta") {
+      const block = message.content[event.index];
+      if (block?.type === "text" && event.delta?.type === "text_delta") {
+        block.text = String(block.text || "") + event.delta.text;
+        onDelta(event.delta.text);
+      } else if (block?.type === "text" && event.delta?.type === "citations_delta") {
+        block.citations = [...(block.citations || []), event.delta.citation];
+      }
+      // Thinking and tool argument deltas are intentionally kept internal.
+    } else if (event.type === "message_delta") {
+      message = { ...message, ...event.delta, usage: { ...message.usage, ...event.usage } };
+    } else if (event.type === "message_stop") {
+      complete = true;
+    } else if (event.type === "error") {
+      const status = event.error?.type === "overloaded_error" ? 503 : 502;
+      throw normalizeExternalError("Claude", status, { error: event.error });
+    }
+  }, signal);
+  if (!complete) throw new ExternalAiError("Koneksi Claude terputus sebelum jawaban selesai.", 502, "CLAUDE_STREAM_INCOMPLETE");
+  return message;
 }

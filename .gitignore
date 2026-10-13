@@ -12,3 +12,4 @@ public/sw.js*
 public/learning-sw.js*
 public/swe-worker-*.js*
 supabase/.temp/
+.env*

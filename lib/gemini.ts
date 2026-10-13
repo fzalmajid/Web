@@ -1,4 +1,5 @@
 import { GEMINI_MODEL } from "./config";
+import { combinedAbortSignal, consumeSse } from "./chatStream";
 import { visibleAnswerParts, planningOnlyAnswer, unsupportedAssurance } from "./answerQuality";
 import {
   responseLengthInstruction,
@@ -104,15 +105,17 @@ function geminiAuthHeaders(
 async function listGenerateModels(
   accessToken: string,
   projectId: string,
-  key: string
+  key: string,
+  signal?: AbortSignal,
 ): Promise<{ models: string[]; verified: boolean }> {
+  signal?.throwIfAborted();
   try {
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
       {
         headers: geminiAuthHeaders(accessToken, projectId, key),
         cache: "no-store",
-        signal: AbortSignal.timeout(7000),
+        signal: combinedAbortSignal(signal, 7000),
       }
     );
     if (!response.ok) {
@@ -138,6 +141,7 @@ async function listGenerateModels(
       .filter(Boolean);
     return { models, verified: !data.nextPageToken };
   } catch (error) {
+    signal?.throwIfAborted();
     if (error instanceof GeminiApiError) throw error;
     console.warn("[GEMINI_DISCOVERY_FAILED]", { code: "DISCOVERY_UNREACHABLE" });
     return { models: [], verified: false };
@@ -148,13 +152,14 @@ export async function geminiAvailableTextModels(options?: {
   apiKey?: string;
   accessToken?: string;
   projectId?: string;
+  signal?: AbortSignal;
 }) {
   const accessToken = String(options?.accessToken || "").trim();
   const projectId = String(options?.projectId || "").trim();
   const key = String(options?.apiKey || (!accessToken ? process.env.GEMINI_API_KEY : "") || "").trim();
   if (!accessToken && !key) return [] as string[];
 
-  const available = await listGenerateModels(accessToken, projectId, key);
+  const available = await listGenerateModels(accessToken, projectId, key, options?.signal);
   return available.models.filter(
     (model) =>
       /^gemini-/i.test(model) &&
@@ -298,8 +303,11 @@ export async function geminiGenerateDetailed(
     requestTimeoutMs?: number;
     maxThinkingTokens?: number;
     retryTruncatedDocument?: boolean;
+    onDelta?: (text: string) => void;
+    signal?: AbortSignal;
   }
 ): Promise<GeminiDetailedResult> {
+  options?.signal?.throwIfAborted();
   const lengthInstruction = options?.responseLength
     ? responseLengthInstruction(options.responseLength)
     : "";
@@ -328,7 +336,7 @@ export async function geminiGenerateDetailed(
   const requestedModels = Array.from(
     new Set((options?.models?.length ? options.models : [GEMINI_MODEL]).filter(Boolean))
   );
-  const discovery = await listGenerateModels(accessToken, projectId, key);
+  const discovery = await listGenerateModels(accessToken, projectId, key, options?.signal);
   const availableModels = discovery.models;
   if (discovery.verified && !availableModels.length) throw new GeminiApiError(
     "Katalog Gemini belum menyediakan model generateContent untuk akses ini. Pengelola perlu memeriksa project dan izin model.", 503, "GEMINI_NO_AVAILABLE_MODEL"
@@ -363,6 +371,7 @@ export async function geminiGenerateDetailed(
   let transientError: GeminiApiError | null = null;
 
   for (let index = 0; index < attemptModels.length; index++) {
+    options?.signal?.throwIfAborted();
     const model = attemptModels[index];
     const thinkingConfig = thinkingConfigForModel(model, options?.effort || "none");
     // Gemini 2.5 shares its output ceiling with thoughts. Reserve visible output
@@ -374,11 +383,11 @@ export async function geminiGenerateDetailed(
     let response: Response;
     try {
       response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:${options?.onDelta ? "streamGenerateContent?alt=sse" : "generateContent"}`,
         {
           method: "POST",
           headers: geminiAuthHeaders(accessToken, projectId, key),
-          signal: AbortSignal.timeout(options?.requestTimeoutMs
+          signal: combinedAbortSignal(options?.signal, options?.requestTimeoutMs
             ? Math.max(1000, Math.min(90000, options.requestTimeoutMs))
             : requestedOutputBudget > 8192 ? 90000 : options?.googleSearch ? 40000 : 30000),
           body: JSON.stringify({
@@ -404,13 +413,17 @@ export async function geminiGenerateDetailed(
         }
       );
     } catch {
+      options?.signal?.throwIfAborted();
       lastError = new GeminiUnavailableError();
       transientError = lastError;
       if (index < attemptModels.length - 1) continue;
       throw quotaError || lastError;
     }
 
-    const data = await response.json().catch(() => ({}));
+    const data = response.ok && options?.onDelta
+      ? await readGeminiStream(response, options.onDelta, options.signal, Boolean(options.googleSearch))
+      : await response.json().catch(() => ({}));
+    options?.signal?.throwIfAborted();
     if (!response.ok) {
       const error = normalizeProviderError(response, data, Boolean(options?.googleSearch));
       // Diagnostic metadata only: never log keys, authorization, prompts, or
@@ -477,7 +490,7 @@ export async function geminiGenerateDetailed(
       // original evidence and question remain authoritative, not the partial draft.
       try {
         const repaired = await geminiGenerateDetailed([...parts, { text: "PERBAIKAN KELENGKAPAN DAN BATAS KLAIM: percobaan sebelumnya terpotong, bukan jawaban final, atau memuat klaim kepastian yang perlu diperiksa. Tulis ulang jawaban final utuh dari awal, hanya bagian yang diminta user, dengan referensi untuk karya yang benar-benar disitasi. Bedakan angka yang disebut pada pendahuluan dari metode/hasil penelitian. Jangan menyatakan rentang itu target yang berhasil dicapai atau terbukti aman hanya karena angka terlihat di sumber. Jangan gunakan 'terbukti aman', 'dijamin aman' atau kepastian sejenis; jelaskan hasil terbatas pada kondisi studi dan keterbatasan bukti tanpa menjamin keselamatan. Catatan pengguna bukan standar: jangan menjadikannya kewajiban universal atau pembuktian mekanisme. Sajikan sebagai petunjuk dari bahan pengguna bila diperlukan. Jangan menambahkan alat-bahan, prosedur atau bagian laporan jika tidak diminta. Prioritaskan jawaban final, bukan catatan rencana. Tetap patuhi batas bukti, sumber yang dipilih dan batas panjang eksplisit. Jangan menciptakan data atau referensi." }], systemInstruction, {
-          ...options, models: [model], strictModel: true, maxAttempts: 1,
+          ...options, onDelta: undefined, models: [model], strictModel: true, maxAttempts: 1,
           retryTruncatedDocument: false, effort: "low", maxThinkingTokens: 1024,
           maxOutputTokens: Math.min(32768, Math.max(requestedOutputBudget, 16384)), outputBudgetMultiplier: 1,
         });
@@ -492,6 +505,7 @@ export async function geminiGenerateDetailed(
         if (repaired.finishReason !== "STOP" && repaired.finishReason !== "MAX_TOKENS") return { ...result, usage: combinedUsage };
         return { ...repaired, usage: combinedUsage, webSources: sources, repairedTruncation: repaired.finishReason === "STOP" };
       } catch {
+        options?.signal?.throwIfAborted();
         // Quota/unavailability never hides the initial draft or its warning.
         if (!text || planningOnlyAnswer(text) || unsupportedAssurance(text)) throw new GeminiApiError("Jawaban final belum berhasil disusun tanpa klaim yang perlu diverifikasi. Silakan coba kembali.", 502, "GEMINI_EMPTY_RESPONSE");
         return result;
@@ -501,6 +515,34 @@ export async function geminiGenerateDetailed(
   }
 
   throw lastError || new GeminiUnavailableError();
+}
+
+async function readGeminiStream(response: Response, onDelta: (text: string) => void, signal?: AbortSignal, googleSearch = false) {
+  const parts: Array<{ text: string }> = [];
+  let candidate: any = {};
+  let usageMetadata: any = {};
+  const groundingChunks: any[] = [];
+  await consumeSse(response, ({ data: raw }) => {
+    const event = JSON.parse(raw);
+    if (event.error) throw normalizeProviderError(
+      new Response(null, { status: Number(event.error.code) >= 400 && Number(event.error.code) <= 599 ? Number(event.error.code) : 502 }),
+      event, googleSearch,
+    );
+    const chunk = event.candidates?.[0];
+    if (chunk) {
+      candidate = { ...candidate, ...chunk };
+      for (const part of chunk.content?.parts || []) {
+        if (part.thought !== true && typeof part.text === "string") {
+          parts.push({ text: part.text });
+          onDelta(part.text);
+        }
+      }
+      groundingChunks.push(...(chunk.groundingMetadata?.groundingChunks || []));
+    }
+    if (event.usageMetadata) usageMetadata = { ...usageMetadata, ...event.usageMetadata };
+  }, signal);
+  if (!candidate.finishReason) throw new GeminiApiError("Koneksi Gemini terputus sebelum jawaban selesai.", 502, "GEMINI_STREAM_INCOMPLETE");
+  return { candidates: [{ ...candidate, content: { parts }, groundingMetadata: { ...candidate.groundingMetadata, groundingChunks } }], usageMetadata };
 }
 
 export async function geminiGenerate(parts: GeminiPart[], systemInstruction?: string) {

@@ -1,3 +1,5 @@
+import { combinedAbortSignal } from "./chatStream";
+
 export type FreeAgentUsage = {
   inputTokens?: number;
   outputTokens?: number;
@@ -46,7 +48,9 @@ export async function openRouterFreeGenerate(options: {
   stage?: string;
   avoidModels?: readonly string[];
   deadline?: number;
+  signal?: AbortSignal;
 }): Promise<FreeAgentResult> {
+  options.signal?.throwIfAborted();
   const apiKey = String(process.env.OPENROUTER_API_KEY || "").trim();
   const candidates=freeModelsForStage(options.stage,options.avoidModels).filter(m=>Date.now()>=(modelCooldown.get(m)||0)).slice(0,3);
   if (!apiKey || !candidates.length || Date.now()<unavailableUntil) {
@@ -58,6 +62,7 @@ export async function openRouterFreeGenerate(options: {
 
   const deadline=Math.min(options.deadline||Infinity,Date.now()+18000);
   for(const model of candidates){
+  options.signal?.throwIfAborted();
   if(Date.now()>=deadline)break;
   try{
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -81,7 +86,7 @@ export async function openRouterFreeGenerate(options: {
       temperature: 0.1,
       max_tokens: Math.min(1600, Math.max(256, Math.floor(options.maxTokens || 900))),
     }),
-    signal: AbortSignal.timeout(Math.max(1,Math.min(6000,deadline-Date.now()))),
+    signal: combinedAbortSignal(options.signal,Math.max(1,Math.min(6000,deadline-Date.now()))),
     cache: "no-store",
   });
 
@@ -109,6 +114,7 @@ export async function openRouterFreeGenerate(options: {
     : null;
   return { text, model: "openrouter-free:" + model, usage };
   }catch{
+    options.signal?.throwIfAborted();
     modelCooldown.set(model,Date.now()+60_000);
     // Account-wide quota/auth errors are not bypassed by trying another model.
     if(Date.now()<unavailableUntil)break;

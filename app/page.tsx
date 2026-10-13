@@ -10,11 +10,14 @@ import {needsAiGrading,usableQuizReference} from "@/lib/quizGrading";
 // only as an explicit debugging escape hatch while provider integrations settle.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { readChatStream, ChatStreamError } from "@/lib/chatStream";
+import { readLocalChatStream } from "@/lib/localChatStream";
+import { ChatRequestGate, type ChatRequestTicket } from "@/lib/chatRequest";
 import katex from "katex";
 import "katex/contrib/mhchem";
 import { scientificRichPattern, scientificScriptPattern } from "@/lib/scientificNotation";
 import { createPortal } from "react-dom";
-import type { ClipboardEvent as ReactClipboardEvent, FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { ClipboardEvent as ReactClipboardEvent, FormEvent, ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrieval } from "@/lib/hfIndexing";
@@ -870,7 +873,7 @@ function Auth() {
         <div className="brandMark">RB</div>
         <p className="eyebrow">PRIVATE STUDY SPACE</p>
         <h1>Ruang Belajar</h1>
-        <p className="muted">Susun ruang belajar bertingkat, rekam pertemuan, simpan database, lalu tanyakan ke AI.</p>
+        <p className="muted">Diskusikan ide dengan AI dan gunakan materi pribadimu sebagai sumber belajar.</p>
 
         <button
           className="authGoogleButton"
@@ -968,6 +971,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [tasks, setTasks] = useState<StudyTask[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
+  const [workspaceSurface, setWorkspaceSurface] = useState<"chat" | "library">("chat");
   const [viewedOwnerId, setViewedOwnerId] = useState(user.id);
   const [viewedOwnerReferenceAllowed, setViewedOwnerReferenceAllowed] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
@@ -985,6 +989,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const [chatRequestVersion, setChatRequestVersion] = useState(0);
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const [sidebarAccountOpen, setSidebarAccountOpen] = useState(false);
+  const [chatSearch, setChatSearch] = useState("");
+  const [chatHistoryError, setChatHistoryError] = useState("");
   const loadGenerationRef = useRef(0);
 
   useEffect(() => {
@@ -1023,7 +1029,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
   useEffect(() => {
     const saved = window.localStorage.getItem("rb-left-chat-sidebar");
-    setChatSidebarOpen(saved === null ? true : saved === "1");
+    setChatSidebarOpen(!window.matchMedia("(max-width: 899px)").matches && (saved === null || saved === "1"));
     void refreshSidebarChats();
   }, [user.id]);
 
@@ -1039,10 +1045,34 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
       .order("pinned_at", { ascending: false, nullsFirst: false })
       .order("last_message_at", { ascending: false })
       .limit(80);
-    if (!result.error) setSidebarChats((result.data || []) as StoredChat[]);
+    if (!result.error) {
+      setSidebarChats((result.data || []) as StoredChat[]);
+      setChatHistoryError("");
+    } else setChatHistoryError("Riwayat belum dapat dimuat. Coba lagi.");
   }
 
+  function closeMobileSidebar() {
+    if (window.matchMedia("(max-width: 899px)").matches) setChatSidebarOpen(false);
+  }
+
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setChatSidebarOpen(false);
+        setChatMenuId(null);
+        setSidebarAccountOpen(false);
+      }
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, []);
+
   function requestNewChat() {
+    setWorkspaceSurface("chat");
+    setViewedOwnerId(user.id);
+    setViewedOwnerReferenceAllowed(true);
+    setCurrentId(null);
+    closeMobileSidebar();
     setSettingsSection(null);
     setChatMenuId(null);
     setActiveSidebarChatId(null);
@@ -1050,6 +1080,13 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }
 
   function requestStoredChat(chatId: string) {
+    setWorkspaceSurface("chat");
+    const chat = sidebarChats.find((item) => item.id === chatId);
+    const ownerId = String(chat?.settings?.referenceOwnerId || user.id);
+    setViewedOwnerId(ownerId);
+    setViewedOwnerReferenceAllowed(true);
+    setCurrentId(chat?.scope_node_id ?? null);
+    closeMobileSidebar();
     setSettingsSection(null);
     setChatMenuId(null);
     setActiveSidebarChatId(chatId);
@@ -1233,6 +1270,8 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   const refresh = () => setRefreshKey((value) => value + 1);
   const viewingOwnProfile = viewedOwnerId === user.id;
   function viewProfile(ownerId: string) {
+    setWorkspaceSurface("library");
+    closeMobileSidebar();
     setSettingsSection(null);
     setViewedOwnerId(ownerId);
     setCurrentId(null);
@@ -1330,7 +1369,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
   }
 
   return (
-    <div className={"appShell " + (chatSidebarOpen ? "leftChatSidebarOpen" : "leftChatSidebarCollapsed")}>
+    <div className={"appShell chatWorkspace " + (workspaceSurface === "chat" && !settingsSection ? "chatSurface " : "") + (chatSidebarOpen ? "leftChatSidebarOpen" : "leftChatSidebarCollapsed")}>
       <header className="topbar">
         <div className="topbarStart">
           <button
@@ -1343,6 +1382,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             aria-label={chatSidebarOpen ? "Sembunyikan riwayat chat" : "Tampilkan riwayat chat"}
             title={chatSidebarOpen ? "Sembunyikan riwayat chat" : "Tampilkan riwayat chat"}
             aria-expanded={chatSidebarOpen}
+            aria-controls="chat-sidebar"
           >
             <span className="topbarHamburgerIcon" aria-hidden="true">
               <i />
@@ -1354,38 +1394,51 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
             type="button"
             className="topbarNewChat"
             onClick={requestNewChat}
-            title="New Chat"
-            aria-label="New Chat"
+            title="Percakapan baru"
+            aria-label="Percakapan baru"
           >
             <span className="topbarPlusIcon" aria-hidden="true" />
           </button>
         </div>
         <button
           type="button"
-          className="brandButton topbarBrandButton"
-          onClick={() => viewProfile(user.id)}
-          aria-label="Profil Ruang Belajar"
+          className="brandButton topbarBrandButton chatWorkspaceBrand"
+          onClick={() => { setSettingsSection(null); setWorkspaceSurface("chat"); }}
+          aria-label="Buka chat Ruang Belajar"
           title="Ruang Belajar"
         >
           <span className="brandMini">RB</span>
+          <span>Ruang Belajar</span>
         </button>
-        <a className="learningTopLink" href="/tools">Alat belajar</a>
+        <button type="button" className="ghost chatWorkspaceSwitch" onClick={() => {
+          setSettingsSection(null);
+          setWorkspaceSurface(workspaceSurface === "chat" ? "library" : "chat");
+        }}>{workspaceSurface === "chat" && !settingsSection ? "Materi" : "Kembali ke chat"}</button>
       </header>
 
+      {chatSidebarOpen && <button type="button" className="chatSidebarBackdrop" aria-label="Tutup navigasi" onClick={() => setChatSidebarOpen(false)} />}
+
       <aside
+        id="chat-sidebar"
         className={"leftChatSidebar " + (chatSidebarOpen ? "open" : "collapsed")}
         aria-label="Riwayat chat"
         aria-hidden={!chatSidebarOpen}
       >
         {chatSidebarOpen && (
           <div className="leftChatHistory">
+            <nav className="chatSidebarNav" aria-label="Navigasi Ruang Belajar">
+              <button type="button" onClick={requestNewChat}>＋ Percakapan baru</button>
+              <button type="button" aria-current={workspaceSurface === "library" && !settingsSection ? "page" : undefined} onClick={() => viewProfile(user.id)}>Materi & profil</button>
+              <a href="/tools">Alat belajar</a>
+            </nav>
             <div className="leftChatPanelTitle">
-              <strong>Chat</strong>
-              <small>RIWAYAT</small>
+              <strong>Percakapan</strong>
             </div>
+            <input aria-label="Cari percakapan" placeholder="Cari percakapan…" value={chatSearch} onChange={(event) => setChatSearch(event.target.value)} />
+            {chatHistoryError && <div className="chatRequestError" role="status">{chatHistoryError} <button type="button" onClick={() => void refreshSidebarChats()}>Coba lagi</button></div>}
             <div className="leftChatHistoryList">
               {sidebarChats.length ? (
-                sidebarChats.map((chat) => (
+                sidebarChats.filter((chat) => chat.title.toLocaleLowerCase().includes(chatSearch.toLocaleLowerCase())).map((chat) => (
                   <div
                     className={
                       "leftChatHistoryItem " +
@@ -1422,12 +1475,12 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
 
                     {chatMenuId === chat.id && (
                       <div className="leftChatItemMenu" role="menu">
-                        <button type="button" onClick={() => void renameSidebarChat(chat)}>Rename</button>
+                        <button type="button" onClick={() => void renameSidebarChat(chat)}>Ubah nama</button>
                         <button type="button" onClick={() => void togglePinSidebarChat(chat)}>
-                          {chat.pinned_at ? "Unpin" : "Pin"}
+                          {chat.pinned_at ? "Lepas sematan" : "Sematkan"}
                         </button>
                         <button type="button" className="danger" onClick={() => void deleteSidebarChat(chat)}>
-                          Delete
+                          Hapus
                         </button>
                       </div>
                     )}
@@ -1465,7 +1518,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
                     setSettingsSection("profile");
                   }}
                 >
-                  <span>Settings</span>
+                  <span>Pengaturan</span>
                   <b aria-hidden="true">›</b>
                 </button>
 
@@ -1500,7 +1553,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         )}
       </aside>
 
-      <main className={settingsSection ? "pageShell settingsPageShell" : "pageShell"}>
+      <main hidden={workspaceSurface === "chat" && !settingsSection} className={settingsSection ? "pageShell settingsPageShell" : "pageShell"}>
         {settingsSection ? (
           <SettingsPage
             session={session}
@@ -1720,8 +1773,9 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         )}
       </main>
 
-      {!settingsSection && (viewingOwnProfile || viewedOwnerReferenceAllowed) && (
+      <main className="chatWorkspaceStage" aria-label="Percakapan AI" hidden={workspaceSurface !== "chat" || !!settingsSection}>
         <BottomAskBar
+          key={chatRequestVersion}
           session={session}
           scopeNodeId={aiScopeId}
           scopeName={aiScopeName}
@@ -1735,8 +1789,9 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
           chatRequestVersion={chatRequestVersion}
           onActiveChatChange={setActiveSidebarChatId}
           onChatsChange={() => void refreshSidebarChats()}
+          onNewChat={requestNewChat}
         />
-      )}
+      </main>
 
       {customizeNode && viewingOwnProfile && (
         <CustomizeSheet
@@ -10284,7 +10339,7 @@ function AiSourceModelBar({
           <AiExperiencePicker value={experienceMode} onChange={onExperienceModeChange} />
           {showModelDebug ? (
             <details className="aiDebugModelDetails">
-              <summary>Debug: Choose Model</summary>
+              <summary>Pilih model</summary>
               <DebugAiModePicker
                 value={selection}
                 onChange={onSelectionChange}
@@ -10414,6 +10469,7 @@ function BottomAskBar({
   chatRequestVersion,
   onActiveChatChange,
   onChatsChange,
+  onNewChat,
 }: {
   session: Session;
   scopeNodeId: string | null;
@@ -10428,6 +10484,7 @@ function BottomAskBar({
   chatRequestVersion: number;
   onActiveChatChange: (chatId: string | null) => void;
   onChatsChange: () => void;
+  onNewChat: () => void;
 }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -10443,6 +10500,15 @@ function BottomAskBar({
   const [savedChats, setSavedChats] = useState<StoredChat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<StoredChatMessage[]>([]);
+  const activeChatIdRef = useRef<string | null>(null);
+  const chatRequestGateRef = useRef(new ChatRequestGate());
+  const chatLoadVersionRef = useRef(0);
+  const processedChatRequestRef = useRef(0);
+  const questionInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [streamingText, setStreamingText] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatRequestError, setChatRequestError] = useState("");
+  const [copiedMessageId, setCopiedMessageId] = useState("");
   const [modelRecovery, setModelRecovery] = useState<{
     message: string;
     alternatives: AiModelId[];
@@ -10455,9 +10521,6 @@ function BottomAskBar({
   const [debugModel, setDebugModel] = useState(false);
   useEffect(()=>{const refresh=()=>{const saved=readAiDebugSettings();setDebugModel(saved.enabled);if(saved.enabled)setAiSelection(saved.selection);};refresh();window.addEventListener("rb-ai-debug-change",refresh);return()=>window.removeEventListener("rb-ai-debug-change",refresh);},[]);
   const aiMode = aiExperienceMode;
-  const [composerBottom, setComposerBottom] = useState(16);
-  const [composerHeight, setComposerHeight] = useState(118);
-  const dragRef = useRef<{ y: number; bottom: number } | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
   const askVoiceRecorderRef = useRef<MediaRecorder | null>(null);
   const askVoiceChunksRef = useRef<Blob[]>([]);
@@ -10553,22 +10616,40 @@ function BottomAskBar({
   }, [session.user.id]);
 
   useEffect(() => {
-    if (chatRequestVersion === 0) return;
+    if (chatRequestVersion === 0 || processedChatRequestRef.current === chatRequestVersion) return;
+    processedChatRequestRef.current = chatRequestVersion;
+    cancelChatRequest();
+    chatLoadVersionRef.current++;
+    const loadVersion = chatLoadVersionRef.current;
     if (!requestedChatId) {
       startNewChat();
       return;
     }
-    void loadStoredChatById(requestedChatId);
+    activateChat(requestedChatId);
+    setChatMessages([]);
+    setChatRequestError("");
+    setChatLoading(true);
+    setModelRecovery(null);
+    void loadStoredChatById(requestedChatId).catch(() => {
+      if (loadVersion !== chatLoadVersionRef.current) return;
+      activateChat(null);
+      onActiveChatChange(null);
+      setChatRequestError("Percakapan belum dapat dimuat. Pilih lagi untuk mencoba ulang.");
+    }).finally(() => {
+      if (loadVersion === chatLoadVersionRef.current) setChatLoading(false);
+    });
   }, [requestedChatId, chatRequestVersion]);
 
   useEffect(() => {
-    if (!open) return;
     requestAnimationFrame(() => {
       if (chatScrollRef.current) {
-        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+        const element = chatScrollRef.current;
+        if (element.scrollHeight - element.scrollTop - element.clientHeight < 180 || !streamingText) {
+          element.scrollTop = element.scrollHeight;
+        }
       }
     });
-  }, [open, busy, chatMessages]);
+  }, [open, busy, chatMessages, streamingText]);
 
   useEffect(() => {
     if (askVoiceDbId) return;
@@ -10603,25 +10684,6 @@ function BottomAskBar({
     };
   }, []);
 
-  useEffect(() => {
-    const saved = Number(window.localStorage.getItem("rb-composer-bottom") || "16");
-    if (Number.isFinite(saved)) setComposerBottom(Math.max(12, Math.min(saved, 320)));
-  }, []);
-
-  useEffect(() => {
-    const element = composerRef.current;
-    if (!element) return;
-    const update = () => setComposerHeight(element.getBoundingClientRect().height);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    window.addEventListener("resize", update);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, []);
-
   function chatTitle(value: string) {
     const clean = value.replace(/\s+/g, " ").trim();
     return clean.length > 64 ? clean.slice(0, 61) + "..." : clean || "Chat baru";
@@ -10637,7 +10699,7 @@ function BottomAskBar({
     if (!result.error) setSavedChats((result.data || []) as StoredChat[]);
   }
 
-  async function createStoredChat(firstQuestion: string) {
+  async function createStoredChat(firstQuestion: string, ticket: ChatRequestTicket) {
     const now = new Date().toISOString();
     const result = await supabase
       .from("ai_conversations")
@@ -10662,7 +10724,8 @@ function BottomAskBar({
       .single();
     if (result.error || !result.data) throw new Error(result.error?.message || "Chat gagal dibuat.");
     const chat = result.data as StoredChat;
-    setActiveChatId(chat.id);
+    if (!chatRequestGateRef.current.isCurrent(ticket)) return chat.id;
+    activateChat(chat.id);
     setSavedChats((list) => [chat, ...list.filter((item) => item.id !== chat.id)]);
     onActiveChatChange(chat.id);
     onChatsChange();
@@ -10723,31 +10786,35 @@ function BottomAskBar({
   }
 
   async function loadStoredChatById(chatId: string) {
+    const loadVersion = chatLoadVersionRef.current;
     const chatResult = await supabase
       .from("ai_conversations")
       .select("id,title,scope_node_id,settings,last_message_at,pinned_at")
       .eq("id", chatId)
       .eq("user_id", session.user.id)
       .maybeSingle();
-    if (chatResult.error || !chatResult.data) return;
-    await loadStoredChat(chatResult.data as StoredChat);
+    if (loadVersion !== chatLoadVersionRef.current) return;
+    if (chatResult.error || !chatResult.data) throw new Error("Percakapan tidak ditemukan.");
+    await loadStoredChat(chatResult.data as StoredChat, loadVersion);
   }
 
-  async function loadStoredChat(chat: StoredChat) {
+  async function loadStoredChat(chat: StoredChat, loadVersion = chatLoadVersionRef.current) {
     const result = await supabase
       .from("ai_messages")
       .select("id,conversation_id,role,content,model,sources,web_sources,warning,created_at")
       .eq("conversation_id", chat.id)
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: true });
+    if (loadVersion !== chatLoadVersionRef.current) return;
     if (result.error) throw new Error(result.error.message);
 
-    setActiveChatId(chat.id);
+    activateChat(chat.id);
     setSavedChats((list) => [chat, ...list.filter((item) => item.id !== chat.id)]);
     setChatMessages((result.data || []) as StoredChatMessage[]);
     onActiveChatChange(chat.id);
     setModelRecovery(null);
     setQuestion("");
+    setChatRequestError("");
     setOpen(true);
 
     const settings = chat.settings || {};
@@ -10761,7 +10828,7 @@ function BottomAskBar({
   }
 
   function closeChatRoom() {
-    setActiveChatId(null);
+    activateChat(null);
     setChatMessages([]);
     onActiveChatChange(null);
     setQuestion("");
@@ -10772,13 +10839,37 @@ function BottomAskBar({
     setWarning("");
     setModelRecovery(null);
     setOpen(false);
+    setChatRequestError("");
   }
 
   function startNewChat() {
-    if (busy) return;
+    cancelChatRequest();
+    chatLoadVersionRef.current++;
+    setChatLoading(false);
     closeChatRoom();
+    setSelectedSourceNodeIds([]);
+    setSelectedSourceFileIds([]);
+    setPendingAttachment(null);
+    setPendingLink(null);
     setSelectedSources(aiExperienceMode === "simple" ? ["database"] : ["ai", "database", "web"]);
+    questionInputRef.current?.focus();
   }
+
+  function activateChat(chatId: string | null) {
+    activeChatIdRef.current = chatId;
+    setActiveChatId(chatId);
+  }
+
+  function cancelChatRequest() {
+    chatRequestGateRef.current.cancel();
+    setBusy(false);
+    setStreamingText("");
+  }
+
+  useEffect(() => () => {
+    chatRequestGateRef.current.cancel();
+    chatLoadVersionRef.current++;
+  }, []);
 
   function firstUrl(value: string) {
     return value.match(/https?:\/\/[^\s<>"')\]]+/i)?.[0] || "";
@@ -10898,30 +10989,6 @@ function BottomAskBar({
     setPendingTextSave(null);
     setAttachmentStatus("Teks sudah masuk Database: " + targetLabel + ".");
     onChange();
-  }
-
-  function startDrag(event: ReactPointerEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    dragRef.current = { y: event.clientY, bottom: composerBottom };
-    let latestBottom = composerBottom;
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-
-    const move = (e: PointerEvent) => {
-      if (!dragRef.current) return;
-      const max = Math.min(320, Math.max(80, window.innerHeight * 0.42));
-      const next = Math.max(12, Math.min(max, dragRef.current.bottom + dragRef.current.y - e.clientY));
-      latestBottom = next;
-      setComposerBottom(next);
-    };
-    const end = () => {
-      dragRef.current = null;
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
-      window.localStorage.setItem("rb-composer-bottom", String(Math.round(latestBottom)));
-    };
-
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", end, { once: true });
   }
 
   async function scopedLocalEntries(query: string, limit = 60) {
@@ -11156,7 +11223,7 @@ function BottomAskBar({
     return { context: chunks.join("\n\n---\n\n"), refs };
   }
 
-  async function askLocalOpenAI(query: string) {
+  async function askLocalOpenAI(query: string, signal?: AbortSignal, onDelta?: (text: string, reset?: boolean) => void) {
     const config = getSessionLocalAiConfig();
     if (!config.endpoint) {
       throw new Error("Local AI belum terhubung. Buka + Plugin lalu hubungkan LM Studio, Ollama, atau endpoint OpenAI-compatible.");
@@ -11251,9 +11318,12 @@ function BottomAskBar({
     });
 
     async function localCompletion(includeTools: boolean) {
+      signal?.throwIfAborted();
+      onDelta?.("", true);
       let response: Response;
       try {
         response = await fetch(base + "/chat/completions", {
+          signal,
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -11262,7 +11332,7 @@ function BottomAskBar({
           body: JSON.stringify({
             model: providerModelId(aiSelection.model),
             messages,
-            stream: false,
+            stream: true,
             ...(includeTools && toolDefinitions.length
               ? { tools: toolDefinitions, tool_choice: "auto" }
               : {}),
@@ -11274,7 +11344,9 @@ function BottomAskBar({
         );
       }
 
-      const data = await response.json().catch(() => ({}));
+      const data = response.ok
+        ? await readLocalChatStream(response, (text) => onDelta?.(text), signal)
+        : await response.json().catch(() => ({}));
       if (!response.ok) {
         if (includeTools && toolDefinitions.length) {
           return localCompletion(false);
@@ -11891,275 +11963,192 @@ function BottomAskBar({
     dbSources: Array<{ id: string; title: string; category: string }> = [],
     currentWebSources: Array<{ title: string; uri: string }> = [],
     warningText = "",
-    selectionForSettings: AiSelection = aiSelection
+    selectionForSettings: AiSelection = aiSelection,
+    ticket?: ChatRequestTicket
   ) {
-    const finalText = String(text || "").trim() || "...";
+    const current = () => activeChatIdRef.current === conversationId &&
+      (!ticket || chatRequestGateRef.current.isCurrent(ticket));
+    if (!current()) return;
+    const finalText = String(text || "").trim() || "AI belum menghasilkan jawaban.";
     setAnswer(finalText);
     setAnswerModel(model);
     setSources(dbSources);
     setWebSources(currentWebSources);
     setWarning(warningText);
     setModelRecovery(null);
-
+    const temporaryId = "temporary-" + crypto.randomUUID();
+    const optimistic: StoredChatMessage = {
+      id: temporaryId, conversation_id: conversationId, role: "assistant", content: finalText,
+      model: model || null, sources: dbSources, web_sources: currentWebSources,
+      warning: warningText || null, created_at: new Date().toISOString(),
+    };
+    setChatMessages((list) => [...list, optimistic]);
+    setStreamingText("");
+    let storedAssistant: StoredChatMessage;
     try {
-      const storedAssistant = await saveStoredMessage(
-        conversationId,
-        "assistant",
-        finalText,
-        {
-          model,
-          sources: dbSources,
-          webSources: currentWebSources,
-          warning: warningText,
-        }
-      );
-      setChatMessages((list) => [...list, storedAssistant]);
-      await touchStoredChat(conversationId, selectionForSettings);
+      storedAssistant = await saveStoredMessage(conversationId, "assistant", finalText, {
+        model, sources: dbSources, webSources: currentWebSources, warning: warningText,
+      });
     } catch {
-      const temporaryAssistant: StoredChatMessage = {
-        id: "temporary-" + Date.now(),
-        conversation_id: conversationId,
-        role: "assistant",
-        content: finalText,
-        model: model || null,
-        sources: dbSources,
-        web_sources: currentWebSources,
-        warning: warningText || null,
+      storedAssistant = {
+        id: temporaryId, conversation_id: conversationId,
+        role: "assistant", content: finalText, model: model || null,
+        sources: dbSources, web_sources: currentWebSources,
+        warning: "Jawaban belum tersimpan. Salin sebelum meninggalkan chat." + (warningText ? " · " + warningText : ""),
         created_at: new Date().toISOString(),
       };
-      setChatMessages((list) => [...list, temporaryAssistant]);
     }
-    setBusy(false);
+    if (current()) setChatMessages((list) => list.map((message) => message.id === temporaryId ? storedAssistant : message));
+    // Failure to update session metadata must never duplicate a saved answer.
+    if (!storedAssistant.id.startsWith("temporary-")) await touchStoredChat(conversationId, selectionForSettings);
+  }
+
+  async function submitCloudAsk(
+    requestBody: Record<string, any>, conversationId: string,
+    selection: AiSelection, ticket: ChatRequestTicket
+  ) {
+    try {
+      const response = await fetch("/api/ask", {
+        method: "POST", signal: ticket.signal,
+        headers: aiRequestHeaders(session, selection, aiExperienceMode, debugModel),
+        body: JSON.stringify({ ...requestBody, stream: true }),
+      });
+      const data = await readChatStream(response, (text) => {
+        if (chatRequestGateRef.current.isCurrent(ticket)) setStreamingText((value) => value + text);
+      }, ticket.signal);
+      if (!chatRequestGateRef.current.isCurrent(ticket)) return;
+      const warningText = [data.warning, ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : [])].filter(Boolean).join(" · ");
+      if (!data.webFallback && Array.isArray(data.selectedSources) && data.selectedSources.length) setSelectedSources(data.selectedSources);
+      await finishChatAnswerForConversation(conversationId, data.answer || "", String(data.model || ""),
+        Array.isArray(data.sources) ? data.sources : [], Array.isArray(data.webSources) ? data.webSources : [],
+        warningText, selection, ticket);
+    } catch (error) {
+      if (!chatRequestGateRef.current.isCurrent(ticket)) return;
+      if (error instanceof ChatStreamError && showModelRecovery(error.data, requestBody, conversationId)) return;
+      throw error;
+    }
   }
 
   async function retryFailedAskWithModel(model: AiModelId) {
     const recovery = modelRecovery;
-    if (!recovery || busy) return;
-
-    const baseSelection = defaultSelection(model, "chat");
-    const nextSelection: AiSelection = {
-      ...baseSelection,
-      length: aiSelection.length,
-    };
-    const requestBody = {
-      ...recovery.requestBody,
-      aiMode: legacyModeForSelection(nextSelection),
-    };
-
+    if (!recovery || chatLoading || processedChatRequestRef.current !== chatRequestVersion || recovery.conversationId !== activeChatIdRef.current) return;
+    const ticket = chatRequestGateRef.current.begin();
+    if (!ticket) return;
+    const nextSelection: AiSelection = { ...defaultSelection(model, "chat"), length: aiSelection.length };
     setAiSelection(nextSelection);
     setBusy(true);
-    setOpen(true);
+    setStreamingText("");
+    setChatRequestError("");
     setModelRecovery(null);
-    setAnswer("");
-    setAnswerModel("");
-    setSources([]);
-    setWebSources([]);
-    setWarning("");
-
-    const response = await fetch("/api/ask", {
-      method: "POST",
-      headers: aiRequestHeaders(session, nextSelection, aiExperienceMode, debugModel),
-      body: JSON.stringify(requestBody),
-    });
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      if (showModelRecovery(data, requestBody, recovery.conversationId)) return;
-      await finishChatAnswerForConversation(
-        recovery.conversationId,
-        data.error || "Model belum dapat memproses permintaan ini. Coba model lain.",
-        "",
-        [],
-        [],
-        "",
-        nextSelection
-      );
-      return;
+    try {
+      await submitCloudAsk({ ...recovery.requestBody, aiMode: legacyModeForSelection(nextSelection) }, recovery.conversationId, nextSelection, ticket);
+    } catch (error: any) {
+      if (chatRequestGateRef.current.isCurrent(ticket)) setChatRequestError(error?.message || "Koneksi gagal. Pertanyaan tetap tersimpan.");
+    } finally {
+      if (chatRequestGateRef.current.finish(ticket)) { setBusy(false); setStreamingText(""); }
     }
-
-    const warningText = [
-      data.warning,
-      ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : []),
-    ].filter(Boolean).join(" · ");
-
-    if (!data.webFallback && Array.isArray(data.selectedSources) && data.selectedSources.length) {
-      setSelectedSources(data.selectedSources);
-    }
-
-    await finishChatAnswerForConversation(
-      recovery.conversationId,
-      data.answer || "",
-      String(data.model || ""),
-      Array.isArray(data.sources) ? data.sources : [],
-      Array.isArray(data.webSources) ? data.webSources : [],
-      warningText,
-      nextSelection
-    );
   }
 
   async function ask(e: FormEvent) {
     e.preventDefault();
     const asked = question.trim();
-    if (!asked || !selectedSources.length) return;
-
-    const conversationScopeId = activeChatId
-      ? savedChats.find((item) => item.id === activeChatId)?.scope_node_id || scopeNodeId
-      : scopeNodeId;
-
-    const history = activeChatId
-      ? chatMessages
-          .slice(-24)
-          .map((message) => ({ role: message.role, content: message.content.slice(0, 12000) }))
-      : [];
-
+    if (!asked || !selectedSources.length || chatLoading || processedChatRequestRef.current !== chatRequestVersion) return;
+    const ticket = chatRequestGateRef.current.begin();
+    if (!ticket) return;
+    setBusy(true);
+    setOpen(true);
+    setStreamingText("");
+    setChatRequestError("");
+    setModelRecovery(null);
+    chatLoadVersionRef.current++;
+    const active = savedChats.find((item) => item.id === activeChatId);
+    const conversationScopeId = active ? active.scope_node_id : scopeNodeId;
+    const conversationOwnerId = String(active?.settings?.referenceOwnerId || referenceOwnerId);
+    const history = activeChatId ? chatMessages.slice(-24).map((message) => ({ role: message.role, content: message.content.slice(0, 12000) })) : [];
     const startingNewConversation = !activeChatId;
     let conversationId = activeChatId;
     try {
-      if (!conversationId) conversationId = await createStoredChat(asked);
+      if (!conversationId) conversationId = await createStoredChat(asked, ticket);
+      if (!chatRequestGateRef.current.isCurrent(ticket)) return;
       const storedUser = await saveStoredMessage(conversationId, "user", asked);
+      if (!chatRequestGateRef.current.isCurrent(ticket)) return;
       setChatMessages((list) => startingNewConversation ? [storedUser] : [...list, storedUser]);
       setQuestion("");
-    } catch (error: any) {
-      alert(error?.message || "Chat belum dapat disimpan.");
-      return;
-    }
-
-    const typedUrl = firstUrl(asked);
-    const effectiveUrl = pendingLink?.url || typedUrl;
-    const wantsSave = wantsDatabaseSave(asked);
-
-    if (wantsSave) {
-      const suggested = suggestedDatabaseId(asked);
-      if (suggested) setAttachmentDbId(suggested);
-      if (!effectiveUrl && !pendingAttachment && !pendingVoice) {
-        setPendingTextSave(asked);
+      if (questionInputRef.current) questionInputRef.current.style.height = "auto";
+      const typedUrl = firstUrl(asked);
+      const effectiveUrl = pendingLink?.url || typedUrl;
+      if (wantsDatabaseSave(asked)) {
+        const suggested = suggestedDatabaseId(asked);
+        if (suggested) setAttachmentDbId(suggested);
+        if (!effectiveUrl && !pendingAttachment && !pendingVoice) setPendingTextSave(asked);
       }
-    }
-
-    if (typedUrl && !pendingLink) {
-      void prepareAskLink(typedUrl);
-    }
-
-    setBusy(true);
-    setOpen(true);
-    setAnswer("");
-    setAnswerModel("");
-    setSources([]);
-    setWebSources([]);
-    setWarning("");
-    setModelRecovery(null);
-
-    const needsGroundedDatabase = selectedSources.includes("database") &&
-      !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(asked);
-    if (needsGroundedDatabase) prewarmHfRetrieval(supabase);
-
-    if (aiSelection.model === "local" && !readOnlyReference) {
-      if (pendingAttachment?.rawText || pendingLink?.rawText) {
-        const raw = [
-          pendingAttachment?.rawText || "",
-          pendingLink?.rawText || "",
-        ].filter(Boolean).join("\n\n---\n\n");
-        await finishChatAnswerForConversation(conversationId!, raw, "Sumber RAW / Local");
+      if (typedUrl && !pendingLink) void prepareAskLink(typedUrl);
+      setAnswer(""); setAnswerModel(""); setSources([]); setWebSources([]); setWarning("");
+      const needsGroundedDatabase = selectedSources.includes("database") &&
+        !/^(?:hai|halo|hi|hello|assalamualaikum|assalamu'alaikum|pagi|siang|malam|apa kabar|terima kasih|makasih|test|tes|ping|halo gpt|hello gpt)[.!? ]*$/i.test(asked);
+      if (needsGroundedDatabase) prewarmHfRetrieval(supabase);
+      if (aiSelection.model === "local" && !readOnlyReference) {
+        const raw = [pendingAttachment?.rawText || "", pendingLink?.rawText || ""].filter(Boolean).join("\n\n---\n\n");
+        const local = raw ? { text: raw, refs: [] } : await answerLocally(asked);
+        await finishChatAnswerForConversation(conversationId, local.text, raw ? "Sumber RAW / Local" : "Browser / Local", local.refs, [], "", aiSelection, ticket);
         return;
       }
-      const local = await answerLocally(asked);
-      await finishChatAnswerForConversation(conversationId!, local.text, "Browser / Local", local.refs);
-      return;
-    }
-
-    if (modelProvider(aiSelection.model) === "local-openai") {
-      try {
-        const local = await askLocalOpenAI(asked);
-        await finishChatAnswerForConversation(conversationId!, local.text, local.model + " · Local", local.refs);
-      } catch (error: any) {
-        await finishChatAnswerForConversation(conversationId!, error?.message || "Local AI gagal menjawab.", "Local");
+      if (modelProvider(aiSelection.model) === "local-openai") {
+        const local = await askLocalOpenAI(asked, ticket.signal, (text, reset) => {
+          if (chatRequestGateRef.current.isCurrent(ticket)) setStreamingText((value) => reset ? text : value + text);
+        });
+        await finishChatAnswerForConversation(conversationId, local.text, local.model + " · Local", local.refs, [], "", aiSelection, ticket);
+        return;
       }
-      return;
-    }
-
-    const attachmentRaw = [
-      pendingAttachment?.rawText || "",
-      pendingLink?.rawText || "",
-    ].filter(Boolean).join("\n\n---\n\n");
-
-    let semanticEmbedding: { model: string; vector: number[] } | null = null;
-    if (needsGroundedDatabase && !readOnlyReference) {
-      try {
-        semanticEmbedding = await maybeMultilingualQuery(
-          supabase,
-          asked,
-          (message) => setAnswerModel(message)
-        );
-      } catch {
-        semanticEmbedding = null;
+      const attachmentRaw = [pendingAttachment?.rawText || "", pendingLink?.rawText || ""].filter(Boolean).join("\n\n---\n\n");
+      let semanticEmbedding: { model: string; vector: number[] } | null = null;
+      if (needsGroundedDatabase && !readOnlyReference) {
+        try { semanticEmbedding = await maybeMultilingualQuery(supabase, asked, (message) => {
+          if (chatRequestGateRef.current.isCurrent(ticket)) setAnswerModel(message);
+        }); } catch { semanticEmbedding = null; }
       }
+      if (!chatRequestGateRef.current.isCurrent(ticket)) return;
+      const localHelper = aiMode === "medium" || aiMode === "high" ? await buildLocalHelperHints(asked, getSessionLocalAiConfig()) : null;
+      if (!chatRequestGateRef.current.isCurrent(ticket)) return;
+      const requestBody = {
+        question: asked, history, scopeNodeId: conversationScopeId,
+        sourceNodeIds: selectedSourceNodeIds, sourceFileIds: selectedSourceFileIds,
+        referenceOwnerId: conversationOwnerId, aiMode, sources: selectedSources,
+        attachmentTitle: pendingAttachment?.fileName || pendingLink?.title || "",
+        attachmentRaw, attachmentPath: pendingAttachment?.filePath || "",
+        attachmentMimeType: pendingAttachment?.mimeType || "", attachmentUrl: effectiveUrl,
+        semanticEmbedding, helperContext: localHelper ? localHelperContext(localHelper) : "",
+        ...citationRequestFields(),
+      };
+      await submitCloudAsk(requestBody, conversationId, aiSelection, ticket);
+    } catch (error: any) {
+      if (chatRequestGateRef.current.isCurrent(ticket)) {
+        setChatRequestError(error?.message || "Koneksi gagal. Pertanyaan tetap tersimpan; kirim kembali untuk mencoba ulang.");
+        setQuestion(asked);
+      }
+    } finally {
+      if (chatRequestGateRef.current.finish(ticket)) { setBusy(false); setStreamingText(""); }
     }
-
-    const localHelper = aiMode === "medium" || aiMode === "high"
-      ? await buildLocalHelperHints(asked, getSessionLocalAiConfig())
-      : null;
-
-    const requestBody = {
-      question: asked,
-      history,
-      scopeNodeId: conversationScopeId,
-      sourceNodeIds: selectedSourceNodeIds,
-      sourceFileIds: selectedSourceFileIds,
-      referenceOwnerId,
-      aiMode,
-      sources: selectedSources,
-      attachmentTitle:
-        pendingAttachment?.fileName ||
-        pendingLink?.title ||
-        "",
-      attachmentRaw,
-      attachmentPath: pendingAttachment?.filePath || "",
-      attachmentMimeType: pendingAttachment?.mimeType || "",
-      attachmentUrl: effectiveUrl,
-      semanticEmbedding,
-      helperContext: localHelper ? localHelperContext(localHelper) : "",
-      ...citationRequestFields(),
-    };
-
-    const response = await fetch("/api/ask", {
-      method: "POST",
-      headers: aiRequestHeaders(session, aiSelection, aiExperienceMode, debugModel),
-      body: JSON.stringify(requestBody),
-    });
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      if (showModelRecovery(data, requestBody, conversationId!)) return;
-      await finishChatAnswerForConversation(
-        conversationId!,
-        data.error || "AI Ruang Belajar belum dapat menjawab. Pertanyaan tetap tersimpan; coba lagi nanti."
-      );
-      return;
-    }
-
-    const warningText = [
-      data.warning,
-      ...(Array.isArray(data.citationWarnings) ? data.citationWarnings : []),
-    ].filter(Boolean).join(" · ");
-
-    if (!data.webFallback && Array.isArray(data.selectedSources) && data.selectedSources.length) {
-      setSelectedSources(data.selectedSources);
-    }
-
-    await finishChatAnswerForConversation(conversationId!, 
-      data.answer || "",
-      String(data.model || ""),
-      Array.isArray(data.sources) ? data.sources : [],
-      Array.isArray(data.webSources) ? data.webSources : [],
-      warningText
-    );
   }
 
+  function stopAnswer() {
+    const partial = streamingText;
+    const conversationId = activeChatIdRef.current;
+    cancelChatRequest();
+    setChatRequestError("Jawaban dihentikan.");
+    if (partial && conversationId) void finishChatAnswerForConversation(conversationId, partial, "", [], [], "Jawaban dihentikan dan belum lengkap.");
+  }
+
+  async function copyMessage(message: StoredChatMessage) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessageId(message.id);
+    } catch { setChatRequestError("Salin teks secara manual; browser tidak mengizinkan akses clipboard."); }
+  }
 
   const activeSourcesLabel = sourcesLabel();
   const activeChat = savedChats.find((item) => item.id === activeChatId) || null;
-  const activeChatTitle = activeChat?.title || "New Chat";
+  const activeChatTitle = activeChat?.title || "Percakapan baru";
   const activeChatScopeRaw = String(activeChat?.settings?.scopeName || scopeName || "Home");
   const activeChatScopeName =
     activeChatScopeRaw === "Seluruh folder"
@@ -12167,17 +12156,12 @@ function BottomAskBar({
       : /^Home(?:\s*·|$)/i.test(activeChatScopeRaw)
         ? activeChatScopeRaw
         : "Home · " + activeChatScopeRaw;
-  const activeChatScopeNodeId = activeChat?.scope_node_id || scopeNodeId;
+  const activeChatScopeNodeId = activeChat ? activeChat.scope_node_id : scopeNodeId;
 
   return (
-    <>
-      {open && (
+    <div className="chatWorkspaceMain">
         <div
           className="aiAnswer aiChatRoom"
-          style={{
-            bottom: composerBottom + composerHeight + 12,
-            ["--rb-ai-answer-bottom" as any]: (composerBottom + composerHeight + 12) + "px",
-          }}
         >
           <div className="aiAnswerHead aiChatHead">
             <div>
@@ -12193,14 +12177,21 @@ function BottomAskBar({
               </small>
               <strong>{activeChatTitle}</strong>
             </div>
-            <button type="button" onClick={closeChatRoom} aria-label="Tutup chat">×</button>
+            <button type="button" onClick={onNewChat} aria-label="Mulai percakapan baru">＋</button>
           </div>
 
-          <div className="aiChatMessages" ref={chatScrollRef}>
-            {!chatMessages.length && !busy && (
+          <div className="aiChatMessages" ref={chatScrollRef} role="log" aria-label="Pesan percakapan" aria-live="polite" aria-relevant="additions">
+            {chatLoading && <p role="status" className="muted">Memuat percakapan…</p>}
+            {!chatMessages.length && !busy && !chatLoading && (
               <div className="aiChatEmpty">
-                <strong>New Chat</strong>
-                <span>Tulis pertanyaan di bar bawah untuk memulai percakapan baru.</span>
+                <span className="brandMini" aria-hidden="true">RB</span>
+                <h1>Ada yang ingin kamu pelajari?</h1>
+                <p>Diskusikan ide, pahami materi, atau belajar dari sumber pribadimu.</p>
+                <div className="chatSuggestions">
+                  {["Bantu saya memahami sebuah topik", "Ringkas materi dari database saya", "Buat kuis untuk latihan belajar"].map((prompt) => (
+                    <button type="button" key={prompt} onClick={() => { setQuestion(prompt); questionInputRef.current?.focus(); }}>{prompt}</button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -12236,6 +12227,9 @@ function BottomAskBar({
                       ))}
                     </details>
                   )}
+                <div className="chatMessageActions">
+                  <button type="button" onClick={() => void copyMessage(message)} aria-label={"Salin pesan " + (message.role === "user" ? "kamu" : "AI")}>{copiedMessageId === message.id ? "Tersalin" : "Salin"}</button>
+                </div>
               </article>
             ))}
 
@@ -12275,27 +12269,21 @@ function BottomAskBar({
                   <strong>AI</strong>
                 </div>
                 <div className="aiChatMessageBody">
-                  Memproses dari {activeSourcesLabel}...
+                  {streamingText ? <RichText text={streamingText} /> : <span role="status">{answerModel || "Menyiapkan jawaban…"}</span>}
                 </div>
               </article>
             )}
           </div>
         </div>
-      )}
+
+      {chatRequestError && <div className="chatRequestError" role="status">{chatRequestError}</div>}
 
       <form
         ref={composerRef}
         className="bottomAsk gptComposer"
-        style={{
-          bottom: composerBottom,
-          ["--rb-composer-bottom" as any]: composerBottom + "px",
-        }}
         onSubmit={ask}
       >
-        <button type="button" className="composerDragHandle" onPointerDown={startDrag} aria-label="Geser bar">
-          <span />
-        </button>
-        <div className="askTopRow">
+        <div className="askTopRow" inert={busy || undefined}>
           <div className="askTopControls">
             <div className="askScope" title={activeChatScopeName}>
               <span>{activeChatScopeName}</span>
@@ -12337,6 +12325,7 @@ function BottomAskBar({
               compact
               allowLocal
               showSources
+              showModelDebug
             />
           </div>
         </div>
@@ -12354,7 +12343,7 @@ function BottomAskBar({
           <button
             type="button"
             className={attachMenuOpen ? "askAttach active" : "askAttach"}
-            disabled={attachmentBusy}
+            disabled={attachmentBusy || busy}
             onClick={() => setAttachMenuOpen((value) => !value)}
             aria-label="Tambahkan file, foto, atau link"
             title="Tambahkan sumber"
@@ -12364,7 +12353,7 @@ function BottomAskBar({
           <button
             type="button"
             className={askVoiceRecording ? "askMic recording" : "askMic"}
-            disabled={askVoiceBusy}
+            disabled={askVoiceBusy || busy}
             onClick={askVoiceRecording ? stopAskVoice : startAskVoice}
             aria-label={askVoiceRecording ? "Stop rekam pertanyaan" : "Rekam pertanyaan"}
             title={askVoiceRecording ? "Stop rekam" : "Rekam pertanyaan"}
@@ -12372,6 +12361,15 @@ function BottomAskBar({
             {askVoiceRecording ? "⏹️" : "🎙️"}
           </button>
           <textarea
+            ref={questionInputRef}
+            aria-label="Pesan untuk AI"
+            disabled={chatLoading}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                if (!busy) composerRef.current?.requestSubmit();
+              }
+            }}
             rows={1}
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -12380,11 +12378,10 @@ function BottomAskBar({
               el.style.height = "auto";
               el.style.height = Math.min(el.scrollHeight, 140) + "px";
             }}
-            placeholder={askVoiceRecording ? "Sedang mendengarkan..." : "Tanya dari " + activeSourcesLabel + "..."}
+            placeholder={askVoiceRecording ? "Sedang mendengarkan…" : "Tanya apa saja…"}
           />
-          <button className="sendAsk" disabled={busy || !question.trim() || !selectedSources.length}>
-            {busy ? "..." : "↑"}
-          </button>
+          {busy ? <button type="button" className="sendAsk stopAsk" onClick={stopAnswer} aria-label="Hentikan jawaban" title="Hentikan jawaban">■</button> :
+            <button type="submit" className="sendAsk" disabled={chatLoading || !question.trim() || !selectedSources.length} aria-label="Kirim pesan" title="Kirim pesan">↑</button>}
         </div>
 
         {attachMenuOpen && (
@@ -12591,7 +12588,8 @@ function BottomAskBar({
           </div>
         )}
       </form>
-    </>
+      <p className="chatComposerHint">Enter untuk kirim · Shift+Enter untuk baris baru. Periksa kembali jawaban dan sumber AI.</p>
+    </div>
   );
 }
 
