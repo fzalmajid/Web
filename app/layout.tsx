@@ -10,7 +10,7 @@ import "katex/dist/katex.min.css";
 
 export const metadata: Metadata = {
   title: "Ruang Belajar",
-  description: "Belajar dari database materi pribadi.",
+  description: "Chat AI dengan materi dan referensi pribadi di Ruang Belajar.",
   manifest: "/manifest.webmanifest",
 };
 
@@ -18,6 +18,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  interactiveWidget: "resizes-content",
   themeColor: "#f3f8f5",
 };
 

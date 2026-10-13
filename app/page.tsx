@@ -6,13 +6,13 @@ import ControlPopover from "@/components/ControlPopover";
 import {referenceSubtreeIds,toggleReferenceFolder} from "@/lib/referenceSelection";
 import {needsAiGrading,usableQuizReference} from "@/lib/quizGrading";
 
-// Normal UI exposes AI Ruang Belajar modes; the model picker remains available
-// only as an explicit debugging escape hatch while provider integrations settle.
+// The chat composer exposes Ruang Belajar modes and the integrated model picker.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { readChatStream, ChatStreamError } from "@/lib/chatStream";
 import { readLocalChatStream } from "@/lib/localChatStream";
 import { ChatRequestGate, type ChatRequestTicket } from "@/lib/chatRequest";
+import { authErrorMessage } from "@/lib/authErrorMessage";
 import katex from "katex";
 import "katex/contrib/mhchem";
 import { scientificRichPattern, scientificScriptPattern } from "@/lib/scientificNotation";
@@ -737,15 +737,15 @@ function Auth() {
   const [oauthBusy, setOauthBusy] = useState(false);
 
   async function edgeInvokeMessage(error: any, data: any, fallback: string) {
-    if (data?.error) return String(data.error);
+    if (data?.error) return authErrorMessage(String(data.error));
     const context = error?.context;
     if (context && typeof context.json === "function") {
       try {
         const payload = await context.json();
-        if (payload?.error) return String(payload.error);
+        if (payload?.error) return authErrorMessage(String(payload.error));
       } catch {}
     }
-    return String(error?.message || fallback);
+    return authErrorMessage(String(error?.message || fallback));
   }
 
   function signupPasswordError(value: string) {
@@ -785,7 +785,7 @@ function Auth() {
 
     if (mode === "login") {
       const result = await supabase.auth.signInWithPassword({ email, password });
-      if (result.error) setMessage(result.error.message);
+      if (result.error) setMessage(authErrorMessage(result.error.message));
       setBusy(false);
       return;
     }
@@ -811,7 +811,7 @@ function Auth() {
     if (login.error) {
       setMessage(
         "Akun berhasil dibuat tanpa verifikasi email, tetapi login otomatis gagal: " +
-        login.error.message
+        authErrorMessage(login.error.message)
       );
     }
     setBusy(false);
@@ -862,7 +862,7 @@ function Auth() {
       });
       if (verified.error) throw verified.error;
     } catch (error: any) {
-      setMessage(error?.message || "Gagal masuk dengan Google.");
+      setMessage(authErrorMessage(error?.message || "Gagal masuk dengan Google."));
       setOauthBusy(false);
     }
   }
@@ -1412,7 +1412,7 @@ function Workspace({ session, user, theme, onThemeChange }: { session: Session; 
         </button>
         <button type="button" className="ghost chatWorkspaceSwitch" onClick={() => {
           setSettingsSection(null);
-          setWorkspaceSurface(workspaceSurface === "chat" ? "library" : "chat");
+          setWorkspaceSurface(workspaceSurface === "chat" && !settingsSection ? "library" : "chat");
         }}>{workspaceSurface === "chat" && !settingsSection ? "Materi" : "Kembali ke chat"}</button>
       </header>
 
