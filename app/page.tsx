@@ -21,6 +21,7 @@ import type { ClipboardEvent as ReactClipboardEvent, FormEvent, ReactNode } from
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase, USING_NEON } from "@/lib/supabase";
 import { delegatedGoogleSignIn } from "@/lib/authDelegation";
+import { readInitialAuthSession } from "@/lib/authSessionBootstrap";
 import { getHfIndexStatus, indexHfBatch, maybeMultilingualQuery, prewarmHfRetrieval } from "@/lib/hfIndexing";
 import { STORAGE_OBJECT_LIMIT, MAX_LARGE_PDF_BYTES, isLargePdf, type PdfOcrPart } from "@/lib/largePdf";
 import { CITATION_STYLE_GUIDES } from "@/lib/citations";
@@ -646,24 +647,38 @@ const labels: Record<NodeType, string> = {
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionError, setSessionError] = useState("");
   const [profileGate, setProfileGate] = useState<"checking" | "setup" | "ready">("checking");
   const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
 
   useEffect(() => {
+    let active = true;
+    let authChanged = false;
     const savedTheme = (window.localStorage.getItem("rb-theme") || "system") as "light" | "dark" | "system";
     setTheme(savedTheme);
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
+    void readInitialAuthSession<Session>(() => supabase.auth.getSession())
+      .then((result) => {
+        if (!active || authChanged) return;
+        setSession(result.session);
+        setSessionError(result.error);
+      })
+      .finally(() => { if (active) setLoading(false); });
 
-    const result = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    const result = supabase.auth.onAuthStateChange((event, next) => {
+      if (!active) return;
+      if (event !== "INITIAL_SESSION") authChanged = true;
+      setSession(next);
+      if (next) setSessionError("");
+    });
     const subscription = result.data.subscription;
 
     // Public offline shell registration is shared by the root layout. Never
     // delete every browser cache on opening Home (including Whisper weights).
 
-    return () => subscription.unsubscribe();
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -722,14 +737,14 @@ export default function Home() {
   if (loading || (session && profileGate === "checking")) {
     return <main className="center"><div className="loader">Menyiapkan profil Ruang Belajar...</div></main>;
   }
-  if (!session) return <Auth />;
+  if (!session) return <Auth initialError={sessionError} />;
   if (profileGate === "setup") {
     return <ProfileSetup session={session} onComplete={() => setProfileGate("ready")} />;
   }
   return <Workspace session={session} user={session.user} theme={theme} onThemeChange={setTheme} />;
 }
 
-function Auth() {
+function Auth({ initialError = "" }: { initialError?: string }) {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -921,13 +936,13 @@ function Auth() {
             <input
               type="password"
               required
-              minLength={6}
+              minLength={USING_NEON && mode === "signup" ? 8 : 6}
               autoComplete={mode === "signup" ? "new-password" : "current-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
             {mode === "signup" && (
-              <small className="muted">Minimal 6 karakter. Setelah dibuat, akun seharusnya langsung masuk tanpa verifikasi email.</small>
+              <small className="muted">{USING_NEON ? "Gunakan minimal 8 karakter. Jika diminta, verifikasi email untuk melanjutkan login." : "Minimal 6 karakter. Setelah dibuat, akun seharusnya langsung masuk tanpa verifikasi email."}</small>
             )}
           </label>
           <button className="primary" disabled={busy || oauthBusy}>
@@ -935,7 +950,7 @@ function Auth() {
           </button>
         </form>
 
-        {message && <div className="notice">{message}</div>}
+        {(message || initialError) && <div className="notice" role="alert">{message || initialError}</div>}
 
         <button
           className="textBtn"
